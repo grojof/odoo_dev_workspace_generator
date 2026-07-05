@@ -1,50 +1,72 @@
 ---
 type: explanation
-title: "Roadmap (F0–F4)"
-description: "Phased delivery plan for the Odoo dev/migration workspace generator."
+title: "Roadmap (F0–F4) and backlog"
+description: "Phased delivery plan and the parked backlog for the Odoo dev/migration workspace generator."
 audience: [contributor]
 updated: 2026-07-05
 ---
 
 # Roadmap
 
-Delivery is phased so each phase is independently useful and verifiable. Non-trivial work in each phase is
-proposed and tracked through OpenSpec (`/opsx:*`).
+Delivery is phased so each phase is independently useful and verifiable. Non-trivial work is proposed and
+tracked through OpenSpec (`/opsx:*`); every phase below was accepted end-to-end on WSL Ubuntu 24.04.
 
-## F0 — Foundation *(in progress)*
+## F0 — Foundation ✅
 
-Project scaffolding mirroring the sibling app `odoo_instance_manager`, plus conventions.
+Package skeleton mirroring `odoo_instance_manager`, OpenSpec + `CLAUDE.md`, i18n (English/Spanish), CLI/menu.
 
-- Git repo, `.gitignore`, `pyproject.toml` (ruff + pytest, zero runtime deps).
-- Package skeleton `odoo_dwg/`: `i18n`, `ui`, `prompts`, `system`, `models`, `cli`, `workflows/` (stubs).
-- OpenSpec initialized (`openspec/`, `.claude/` commands + skills); `CLAUDE.md`; robust root `README.md`.
-- Unit tests for `models` and `i18n`. **Done when** `python -m odoo_dwg --help`, `ruff`, and `pytest` are green.
+## F1 — Workspace ✅ (accepted E2E)
 
-## F1 — Workspace MVP *(the core value)*
+JSON profile → shared repo cache, per-instance venv, `addons-custom`/per-version `addons-oca`, per-version
+`odoo.conf`, VSCode files, per-workspace README; create-only vs manage-only over plan → preview → apply.
+Accepted on WSL: a generated Odoo 18 workspace served HTTP 200 at `/web/login`.
 
-JSON profile → full workspace layout: shared repo cache (`git clone --branch X --single-branch`), per-instance
-venv, `addons-custom`/`addons-oca`, per-version `odoo.conf` (port offset per major), VSCode files, and a robust
-per-workspace `README.md`. Development on 17/18/19. All generation is text; `apply` clones/builds via the plan.
+## F2 — Provision ✅ (accepted E2E)
 
-## F2 — Provision *(optional, host-agnostic)*
+`check` (host-readiness table) + `apply` (build deps, PostgreSQL + dev role + loopback trust, checksum-verified
+patched wkhtmltopdf, optional Node + rtlcss); apt-family only, root-gated. Accepted on WSL.
 
-`check` (report what a Linux host is missing) and `apply` (install it) as independent capabilities:
-PostgreSQL + role, wkhtmltopdf (0.12.5 ≤14 / 0.12.6 ≥15), Node + rtlcss, per-version Python interpreters.
-Never assumes WSL.
+## F3 — Migration ✅ (accepted)
 
-## F3 — Migration *(OpenUpgrade 12→19)*
+OpenUpgrade 12→19: per-version clones + `uv` venvs (matched interpreter) + per-step `odoo.conf` + checkpointing
+`run_migration.sh`; Docker fallback for the Odoo-13 (Python 3.6) step. Interpreter decision closed with WSL
+data (uv floor 3.8). Accepted on WSL: Odoo 15 runs on uv Python 3.8; driver passes `bash -n`.
 
-Emit per-version clones + `uv` venvs with repaired requirements, per-step `odoo.conf`, and a checkpointing
-`run_migration.sh` driver over a shared PostgreSQL 16 cluster. Optional Docker fallback for the versions whose
-Python is impractical natively (12/13). Close the interpreter-strategy decision after validating on WSL.
+---
 
-## F4 — Optional AI emitters *(future)*
+# Backlog (next sessions)
 
-Opt-in, text-only emitters (CLAUDE.md/skills/agents for a user's assistant). Never installs runtimes; never a
-default.
+Parked work, ordered roughly by value. Spec-driven items have (or should get) an OpenSpec change; validation
+items are host-dependent.
 
-## Must-validate on WSL Ubuntu 24.04 (F3 risks)
+## Features (OpenSpec)
 
-Whether `docker pull odoo:12.0`/`13.0` still resolves; deadsnakes `python3.7` runtime on noble; the real `uv`
-floor (3.7 vs 3.8); the exact `odoo-bin` shape for the 12.0/13.0 OpenUpgrade branches; the concrete
-requirements overrides per interpreter; and `pg_dump`/`pg_restore` client alignment across native/container steps.
+- **F4 — Optional AI emitters** — opt-in, text-only emitters (CLAUDE.md / skills / agents for a user's
+  assistant), never installing runtimes, never a default. A parked proposal exists:
+  `openspec/changes/add-ai-emitters/` — fill it forward with `/opsx:` and apply.
+- **Workspace shallow-clone option** — an opt-in `--depth 1` for dev workspace clones. F1 acceptance showed a
+  full single-branch Odoo clone is ~394 MB; some users want history, some want speed. Add a profile flag.
+  (Migration clones already use `--depth 1`.) Candidate for a small OpenSpec change.
+- **CI workflow** — a GitHub Actions workflow running `ruff`, `pytest`, and `openspec validate --specs` on
+  push/PR (mirror the sibling app's `.github/workflows/ci.yml`). Optionally a release workflow.
+- **Provision password-auth mode** — instead of loopback `trust`, create the PostgreSQL role with a password
+  and write `db_password` into the workspace `odoo.conf` (needs an `odoo.conf` password field). Safer for
+  shared/remote PostgreSQL; the current trust is dev-only. (Deferred open question from F2 design.)
+
+## Validation / refinement (host-dependent)
+
+- **Migration overrides tuning** — confirm the exact `requirements/overrides-<ver>.txt` pins by a real
+  `uv pip install -r requirements.txt` for Odoo 14 and 15 on the WSL box (psycopg2-binary already validated on
+  15/3.8; check lxml/Pillow/gevent/greenlet floors).
+- **12/13 OpenUpgrade command shape** — verify the exact `odoo-bin`/Docker invocation for the 12.0/13.0
+  branches against their READMEs (they predate the `openupgrade_framework` module layout). The Docker recipe
+  currently carries a `TODO` marker.
+- **Full 12 → 19 data migration** — run the checkpointing driver against a real legacy dump on WSL (needs a
+  user-provided source database). Docker Desktop WSL integration must be enabled for the 12→13 step.
+- **VSCode `launch.json` debug shape** — confirm the debugpy + `odoo-bin` launch config attaches against a
+  real run on WSL (F1 open question).
+
+## Ops
+
+- **Push done**: repo is `grojof/odoo_dev_workspace_generator` (private). Make it public if desired.
+- **LICENSE**: AGPL-3.0 in place; `pyproject` metadata consistent.
