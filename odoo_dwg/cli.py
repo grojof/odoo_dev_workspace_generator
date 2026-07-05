@@ -127,12 +127,19 @@ def main(argv: list[str] | None = None) -> int:
         return interactive_menu()
 
     _select_language(lang)
-    if args.section == "workspace":
-        workspace_menu()
-    elif args.section == "provision":
-        provision_menu()
-    elif args.section == "migrate":
-        migration_menu()
+    try:
+        if args.section == "workspace":
+            workspace_menu()
+        elif args.section == "provision":
+            provision_menu()
+        elif args.section == "migrate":
+            migration_menu()
+    except (KeyboardInterrupt, EOFError):
+        print(t("\nExiting."))
+        return 0
+    except RuntimeError as error:
+        print(tf("\n[ERROR] The operation did not complete: {}", error))
+        return 1
     return 0
 
 

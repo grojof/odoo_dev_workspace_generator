@@ -129,6 +129,88 @@ def choose(label: str, options: list[str], default_index: int | None = None) -> 
         print(level_text("ERROR", "Option out of range."))
 
 
+def _path_has_allowed_extension(path: str, allowed_extensions: tuple[str, ...]) -> bool:
+    normalized = path.strip().lower()
+    return any(normalized.endswith(ext.lower()) for ext in allowed_extensions)
+
+
+def _validate_selected_path_extension(
+    selected_path: str,
+    requested_label: str | None,
+    allowed_extensions: tuple[str, ...] | None,
+) -> bool:
+    if not allowed_extensions:
+        return True
+    if _path_has_allowed_extension(selected_path, allowed_extensions):
+        return True
+    expected = ", ".join(allowed_extensions)
+    target = requested_label or "file"
+    print(
+        level_text(
+            "WARN",
+            tf("The selected path for {} does not match the expected extensions: {}", target, expected),
+        )
+    )
+    return ask_bool("Use this file anyway?", False)
+
+
+def select_file_path(
+    start_dir: str = ".",
+    requested_label: str | None = None,
+    allowed_extensions: tuple[str, ...] | None = None,
+) -> str:
+    """A simple, stdlib-only file browser. Returns the chosen path or "" if cancelled."""
+    if _last_selected_dir and _last_selected_dir.is_dir():
+        current = _last_selected_dir
+    else:
+        current = Path(start_dir).expanduser().resolve()
+
+    while True:
+        if requested_label:
+            print(f"\n{title('Select required file')}: {requested_label}")
+        print(f"{title('Current directory')}: {current}")
+        entries = sorted(current.iterdir(), key=lambda item: (item.is_file(), item.name.lower()))
+        print(t("  0) Choose a manual path"))
+        print(t("  ..) Up one level"))
+        print(t("  q) Cancel"))
+        for index, entry in enumerate(entries, start=1):
+            marker = "/" if entry.is_dir() else ""
+            print(f"  {index}) {entry.name}{marker}")
+
+        raw = input(f"{prompt_label('Choose a number, ..,  q, or a manual path')}: ").strip()
+        if raw.lower() in {"q", "cancel"}:
+            return ""
+        if raw == "0":
+            manual = input(f"{prompt_label('Full file path')}: ").strip()
+            if manual:
+                resolved = str(Path(manual).expanduser())
+                if _validate_selected_path_extension(resolved, requested_label, allowed_extensions):
+                    _remember_directory_from_path(resolved)
+                    return resolved
+            continue
+        if raw == "..":
+            current = current.parent
+            continue
+        if raw.isdigit():
+            idx = int(raw)
+            if 1 <= idx <= len(entries):
+                selected = entries[idx - 1]
+                if selected.is_dir():
+                    current = selected
+                    continue
+                selected_text = str(selected)
+                if _validate_selected_path_extension(selected_text, requested_label, allowed_extensions):
+                    _remember_directory_from_path(selected_text)
+                    return selected_text
+            continue
+        if raw:
+            resolved = str(Path(raw).expanduser())
+            if _validate_selected_path_extension(resolved, requested_label, allowed_extensions):
+                _remember_directory_from_path(resolved)
+                return resolved
+        print(level_text("ERROR", "Invalid input."))
+
+
 def clear_screen() -> None:
     command = "cls" if os.name == "nt" else "clear"
     os.system(command)

@@ -12,12 +12,12 @@
 
 ## 3. Workflow wiring (workspace-generation + workspace-management)
 
-- [ ] 3.1 Implement `workflows/workspace.py` create flow: prompt/load a profile → validate → assemble `plan_repo_cache` + `plan_workspace_tree` + `plan_build_venv` → `preview_commands` → confirm → `apply_commands`. Refuse to clobber an existing workspace (create-only) and point to management.
-- [ ] 3.2 Implement the manage flow: discover workspaces under `<base>` (exclude `.repos`/dotted), then regenerate/repair a venv (destructive → `confirm_with_phrase`), refresh shared repos, and add a version (reuse cache). Refuse a missing workspace.
-- [ ] 3.3 Add an example profile under `examples/`; wire the menu entries and route errors back to the menu (RuntimeError handling already in `cli`). The plan → preview → confirm step is the non-destructive dry run — no separate flag.
+- [x] 3.1 Implement `workflows/workspace.py` create flow: prompt/load a profile → validate → assemble `plan_generate_workspace` (`plan_repo_cache` + `plan_workspace_tree` + missing `plan_build_venv`) → `preview_commands` → confirm → `apply_commands`. Refuse to clobber an existing workspace (create-only) and point to management.
+- [x] 3.2 Implement the manage flow: discover workspaces under `<base>` (exclude `.repos`/dotted), load the saved `workspace.json`, then regenerate a venv (destructive → `confirm_with_phrase "REBUILD"`), refresh shared repos (`plan_refresh_repos`), and add a version (reuse cache). Refuse a missing workspace.
+- [x] 3.3 Add an example profile under `examples/`; wire the menu entries; harden non-interactive/EOF handling in `cli` for the subcommand path. The plan → preview → confirm step is the non-destructive dry run — no separate flag.
 
 ## 4. Docs, checks & handoff
 
-- [ ] 4.1 Add `docs/workspace-layout.md` and `docs/configuration-reference.md` (frontmatter), each citing the official Odoo "Source install" and CLI/`odoo.conf` reference URLs; update the root README map and `CHANGELOG.md`.
-- [ ] 4.2 Run `ruff check .`, `python -m pytest -q`, `openspec validate --specs`, and `python -m odoo_dwg workspace` smoke; all green.
-- [ ] 4.3 Record the WSL-only end-to-end validation steps (clone → venv → `odoo-bin` launch on Ubuntu 24.04) in `docs/` as the manual acceptance check, flagged as host-dependent.
+- [x] 4.1 Add `docs/workspace-layout.md` and `docs/configuration-reference.md` (frontmatter), each citing the official Odoo "Source install" and CLI/`odoo.conf` reference URLs; update the root README map and `CHANGELOG.md`.
+- [x] 4.2 Run `ruff check .`, `python -m pytest -q`, `openspec validate`, and `python -m odoo_dwg workspace` smoke; all green.
+- [x] 4.3 Record the WSL-only end-to-end validation steps (clone → venv → `odoo-bin` launch on Ubuntu 24.04) in `docs/workspace-layout.md` as the manual acceptance check, flagged as host-dependent.

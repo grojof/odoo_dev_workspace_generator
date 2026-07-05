@@ -155,6 +155,12 @@ class WorkspaceConfig:
     def readme_file(self) -> Path:
         return self.root / "README.md"
 
+    @property
+    def profile_file(self) -> Path:
+        """The saved profile marker inside the workspace, so it can be re-loaded
+        for management."""
+        return self.root / "workspace.json"
+
     def venv_dir(self, version: str) -> Path:
         return self.root / ".venv" / f"odoo{odoo_major(version)}"
 

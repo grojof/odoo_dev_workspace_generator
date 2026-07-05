@@ -68,3 +68,34 @@ def test_build_venv_recreate_removes_first():
     cfg = _cfg(versions=["18.0"])
     cmds = planners.plan_build_venv(cfg, "18.0", recreate=True)
     assert cmds[0].command.startswith("rm -rf ")
+
+
+def _venv_builds(cmds) -> list:
+    # A venv *build* command starts with the verb; the setup_venv.sh file we
+    # write also contains that text as content, so match the executed verb only.
+    return [c for c in cmds if c.command.startswith("python3 -m venv")]
+
+
+def test_generate_workspace_composes_clone_tree_and_venvs():
+    cfg = _cfg(versions=["17.0", "18.0"])
+    cmds = planners.plan_generate_workspace(cfg)  # nothing present
+    joined = "\n".join(c.command for c in cmds)
+    assert "git clone --branch 17.0" in joined and "git clone --branch 18.0" in joined
+    assert "workspace.json" in joined  # profile marker written by the tree
+    assert len(_venv_builds(cmds)) == 2  # a venv build for each version
+
+
+def test_generate_workspace_skips_present_venv():
+    cfg = _cfg(versions=["17.0", "18.0"])
+    present_venv = cfg.venv_dir("18.0")
+    cmds = planners.plan_generate_workspace(cfg, exists=lambda p: p == present_venv)
+    # 18.0 venv already present → only the 17.0 venv is built.
+    assert len(_venv_builds(cmds)) == 1
+
+
+def test_refresh_repos_pulls_present_clones_only():
+    cfg = _cfg(versions=["17.0", "18.0"])
+    present = cfg.odoo_clone_dir("18.0")
+    cmds = planners.plan_refresh_repos(cfg, exists=lambda p: p == present)
+    assert len(cmds) == 1
+    assert cmds[0].command.startswith("git -C ") and "pull --ff-only" in cmds[0].command

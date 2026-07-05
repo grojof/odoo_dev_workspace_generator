@@ -138,6 +138,47 @@ def plan_workspace_tree(cfg: WorkspaceConfig) -> list[Command]:
         cfg.code_workspace_file, templates.render_code_workspace(cfg)
     )
     commands += write_text_file_command(cfg.readme_file, templates.render_workspace_readme(cfg))
+    # Save the profile marker so the workspace can be re-loaded for management.
+    commands += write_text_file_command(cfg.profile_file, cfg.to_json())
+    return commands
+
+
+def plan_refresh_repos(cfg: WorkspaceConfig, exists: Exists = _never) -> list[Command]:
+    """Fast-forward-pull every present clone in the shared cache for this
+    workspace's versions/OCA repos. Absent clones are skipped (nothing to refresh)."""
+    commands: list[Command] = []
+    for version in cfg.versions:
+        dest = cfg.odoo_clone_dir(version)
+        if exists(dest):
+            commands.append(
+                Command(
+                    tf("Refresh Odoo {}", version),
+                    f"git -C {shlex.quote(str(dest))} pull --ff-only",
+                )
+            )
+    for repo in cfg.oca_repos:
+        for version in cfg.versions:
+            dest = cfg.oca_clone_dir(repo, version)
+            if exists(dest):
+                commands.append(
+                    Command(
+                        tf("Refresh OCA {} ({})", repo, version),
+                        f"git -C {shlex.quote(str(dest))} pull --ff-only",
+                    )
+                )
+    return commands
+
+
+def plan_generate_workspace(cfg: WorkspaceConfig, exists: Exists = _never) -> list[Command]:
+    """Full create plan: shared repo cache (skipping present clones), the workspace
+    tree, then a venv build for each version whose venv is not already present. Pure
+    — existence is injected; the workflow passes ``Path.exists`` and enforces the
+    create-only guard (refusing to clobber an existing workspace)."""
+    commands = plan_repo_cache(cfg, exists)
+    commands += plan_workspace_tree(cfg)
+    for version in cfg.versions:
+        if not exists(cfg.venv_dir(version)):
+            commands += plan_build_venv(cfg, version)
     return commands
 
 
