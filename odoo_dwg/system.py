@@ -154,3 +154,47 @@ def detect_tool_version(name: str, args: str = "--version") -> str | None:
     result = run(f"{name} {args} 2>&1", check=False)
     text = (result.stdout or result.stderr).strip().splitlines()
     return text[0].strip() if text else None
+
+
+# --- provisioning probes ---------------------------------------------------
+
+
+def apt_family() -> str:
+    """Return ``"debian"`` when the host is in the Debian/Ubuntu (apt) family, else
+    ``""`` (unsupported by this version). Uses ``ID``/``ID_LIKE`` from os-release."""
+    release = detect_os_release()
+    ident = release.get("ID", "").lower()
+    id_like = release.get("ID_LIKE", "").lower()
+    if ident in {"debian", "ubuntu"} or "debian" in id_like or "ubuntu" in id_like:
+        return "debian"
+    return ""
+
+
+def package_installed(name: str) -> bool:
+    """True when a dpkg package is installed (``dpkg -s`` reports installed)."""
+    return command_ok(f"dpkg -s {name} 2>/dev/null | grep -q '^Status: install ok installed'")
+
+
+def wkhtmltopdf_version() -> str | None:
+    """Installed wkhtmltopdf version banner (e.g. ``0.12.6 (with patched qt)``), or
+    None when absent. Callers inspect the string for ``with patched qt``."""
+    if not has_tool("wkhtmltopdf"):
+        return None
+    result = run("wkhtmltopdf --version 2>/dev/null", check=False)
+    text = (result.stdout or result.stderr).strip()
+    return text or None
+
+
+def postgres_installed() -> bool:
+    return has_tool("psql") or package_installed("postgresql")
+
+
+def postgres_running() -> bool:
+    """True when the local PostgreSQL server accepts a superuser connection."""
+    return command_ok("sudo -u postgres psql -tAc 'SELECT 1' >/dev/null 2>&1")
+
+
+def db_role_exists(role: str) -> bool:
+    query = f"sudo -u postgres psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='{role}'\""
+    result = run(query, check=False)
+    return result.returncode == 0 and "1" in result.stdout

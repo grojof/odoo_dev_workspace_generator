@@ -99,3 +99,57 @@ def test_refresh_repos_pulls_present_clones_only():
     cmds = planners.plan_refresh_repos(cfg, exists=lambda p: p == present)
     assert len(cmds) == 1
     assert cmds[0].command.startswith("git -C ") and "pull --ff-only" in cmds[0].command
+
+
+# --- provisioning (F2) -----------------------------------------------------
+
+
+def test_build_deps_plan_installs_key_packages():
+    cmds = planners.plan_build_deps()
+    joined = "\n".join(c.command for c in cmds)
+    assert "apt-get update" in joined
+    for pkg in ("build-essential", "libpq-dev", "libxml2-dev", "python3-venv"):
+        assert pkg in joined
+
+
+def test_postgresql_plan_installs_role_and_trust():
+    cmds = planners.plan_postgresql("odoo")
+    joined = "\n".join(c.command for c in cmds)
+    assert "apt-get -y install postgresql" in joined
+    assert "systemctl enable --now postgresql" in joined
+    assert "CREATE ROLE odoo WITH LOGIN CREATEDB" in joined
+    assert "IF NOT EXISTS" in joined  # idempotent
+    assert "hba_file" in joined and "trust" in joined  # loopback trust
+
+
+def test_wkhtmltopdf_version_rule():
+    assert planners.wkhtmltopdf_target_version(14) == "0.12.5"
+    assert planners.wkhtmltopdf_target_version(15) == "0.12.6"
+    assert planners.wkhtmltopdf_target_version(18) == "0.12.6"
+
+
+def test_wkhtmltopdf_asset_resolves_for_noble():
+    asset = planners.resolve_wkhtmltopdf_asset("noble")
+    assert asset is not None
+    url, filename, sha = asset
+    assert filename.endswith("_amd64.deb")
+    assert len(sha) == 64
+    assert planners.resolve_wkhtmltopdf_asset("unknown-codename") is None
+
+
+def test_wkhtmltopdf_plan_verifies_checksum_for_odoo18():
+    cmds = planners.plan_wkhtmltopdf(18, "noble")
+    joined = "\n".join(c.command for c in cmds)
+    assert "curl -fSL" in joined
+    assert "sha256sum -c -" in joined  # abort on mismatch
+    assert "apt-get -y install" in joined
+
+
+def test_wkhtmltopdf_plan_empty_for_legacy_and_unmapped():
+    assert planners.plan_wkhtmltopdf(14, "noble") == []  # 0.12.5 not pinned → distro/skip
+    assert planners.plan_wkhtmltopdf(18, "unknown") == []  # unmapped codename → no guessed URL
+
+
+def test_node_rtlcss_plan():
+    joined = "\n".join(c.command for c in planners.plan_node_rtlcss())
+    assert "nodejs" in joined and "npm install -g rtlcss" in joined

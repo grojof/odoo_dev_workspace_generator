@@ -6,9 +6,8 @@ host** — WSL Ubuntu 24.04, a bare server, or a container. The host is *yours*;
 what runs on it. It is a sibling of [`odoo_instance_manager`](https://github.com/grojof/odoo_instance_manager_app)
 and shares its UI, menus, and the safe **plan → preview → apply** contract.
 
-> **Status: F1 in progress.** The **workspace** section is implemented (profile → generated workspace via
-> plan → preview → apply); **provision** and **migration** are navigable stubs. See
-> [`docs/roadmap.md`](docs/roadmap.md).
+> **Status: F1 + F2 done.** The **workspace** and **provision** sections are implemented and validated
+> end-to-end on WSL Ubuntu 24.04; **migration** is next. See [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Why not Docker?
 
@@ -62,6 +61,7 @@ every Odoo/OpenUpgrade fact anchored to **official documentation** (see [`docs/`
 - [`docs/roadmap.md`](docs/roadmap.md) — phased plan (F0–F4).
 - [`docs/workspace-layout.md`](docs/workspace-layout.md) — generated tree, conventions, WSL validation.
 - [`docs/configuration-reference.md`](docs/configuration-reference.md) — the JSON profile fields.
+- [`docs/provisioning.md`](docs/provisioning.md) — prepare a Debian/Ubuntu host (check / apply).
 - [`CLAUDE.md`](CLAUDE.md) — guide for AI agents working on this project.
 - Non-trivial changes are **spec-first** via OpenSpec (`/opsx:*`); specs live in `openspec/specs/`.
 

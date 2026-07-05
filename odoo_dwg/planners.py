@@ -143,6 +143,117 @@ def plan_workspace_tree(cfg: WorkspaceConfig) -> list[Command]:
     return commands
 
 
+# --- provisioning (F2) -----------------------------------------------------
+
+# Odoo build/system dependencies (Debian/Ubuntu apt). This is the set validated
+# end-to-end during F1 acceptance on Ubuntu 24.04.
+BUILD_DEPS: tuple[str, ...] = (
+    "build-essential", "pkg-config", "python3-dev", "python3-venv", "python3-pip", "git",
+    "libpq-dev", "libldap2-dev", "libsasl2-dev", "libssl-dev", "libffi-dev",
+    "libxml2-dev", "libxslt1-dev", "libjpeg-dev", "zlib1g-dev", "libtiff-dev",
+    "libopenjp2-7-dev", "liblcms2-dev", "libwebp-dev", "libharfbuzz-dev",
+    "libfribidi-dev", "fontconfig", "postgresql-client",
+)
+
+# Pinned patched wkhtmltopdf 0.12.6.1-3 assets (amd64) with SHA-256, ported from
+# the sibling app (verified against Odoo's own Dockerfile checksum). Codenames
+# without a compatible asset resolve to None so the caller recommends the distro
+# package or skip — never a guessed URL.
+_WKHTMLTOPDF_BASE_URL = "https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-3"
+_WKHTMLTOPDF_ASSETS: dict[str, tuple[str, str]] = {
+    "jammy": ("wkhtmltox_0.12.6.1-3.jammy_amd64.deb",
+              "4f723b2691ad8638a9df960e0421d346d7315083e3583a334f33362280ddba15"),
+    "noble": ("wkhtmltox_0.12.6.1-3.jammy_amd64.deb",
+              "4f723b2691ad8638a9df960e0421d346d7315083e3583a334f33362280ddba15"),
+    "bookworm": ("wkhtmltox_0.12.6.1-3.bookworm_amd64.deb",
+                 "98ba0d157b50d36f23bd0dedf4c0aa28c7b0c50fcdcdc54aa5b6bbba81a3941d"),
+    "bullseye": ("wkhtmltox_0.12.6.1-3.bullseye_amd64.deb",
+                 "9c687f0c58cf50e01f2a6375d2e34372f8feeec56a84690ea113d298fccadd98"),
+}
+
+
+def wkhtmltopdf_target_version(major: int) -> str:
+    """Odoo-recommended wkhtmltopdf: 0.12.5 for Odoo <= 14, 0.12.6 for >= 15."""
+    return "0.12.5" if major <= 14 else "0.12.6"
+
+
+def resolve_wkhtmltopdf_asset(codename: str) -> tuple[str, str, str] | None:
+    """``(url, filename, sha256)`` for the patched 0.12.6 build matching ``codename``,
+    or None when no verified asset is pinned (caller recommends distro/skip)."""
+    entry = _WKHTMLTOPDF_ASSETS.get((codename or "").strip().lower())
+    if not entry:
+        return None
+    filename, sha256 = entry
+    return f"{_WKHTMLTOPDF_BASE_URL}/{filename}", filename, sha256
+
+
+def plan_build_deps() -> list[Command]:
+    """Idempotent apt install of the Odoo build/system dependencies."""
+    packages = " ".join(BUILD_DEPS)
+    return [
+        Command(tf("Update apt package lists"), "apt-get update"),
+        Command(tf("Install Odoo build dependencies"), f"apt-get -y install {packages}"),
+    ]
+
+
+def plan_postgresql(role: str) -> list[Command]:
+    """Install PostgreSQL, enable/start it, create an idempotent LOGIN CREATEDB dev
+    role, and set loopback (127.0.0.1/::1) to trust for local development."""
+    role_sql = (
+        "DO $$ BEGIN "
+        f"IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='{role}') THEN "
+        f"CREATE ROLE {role} WITH LOGIN CREATEDB; "
+        "END IF; END $$;"
+    )
+    return [
+        Command(tf("Install PostgreSQL"), "apt-get update && apt-get -y install postgresql"),
+        Command(tf("Enable and start PostgreSQL"), "systemctl enable --now postgresql"),
+        Command(
+            tf("Create development role {} (if missing)", role),
+            f"sudo -u postgres psql -v ON_ERROR_STOP=1 -c {shlex.quote(role_sql)}",
+        ),
+        Command(
+            tf("Trust loopback connections for local development (pg_hba)"),
+            'PGHBA=$(sudo -u postgres psql -tAc "SHOW hba_file;") && '
+            'sed -ri "s#^(host\\s+all\\s+all\\s+127\\.0\\.0\\.1/32\\s+)\\S+#\\1trust#" "$PGHBA" && '
+            'sed -ri "s#^(host\\s+all\\s+all\\s+::1/128\\s+)\\S+#\\1trust#" "$PGHBA"',
+        ),
+        Command(tf("Reload PostgreSQL"), "systemctl reload postgresql"),
+    ]
+
+
+def plan_wkhtmltopdf(major: int, codename: str) -> list[Command]:
+    """Install the Odoo-recommended patched wkhtmltopdf for the host codename,
+    verifying its SHA-256 (abort on mismatch). Returns no commands when no verified
+    asset is pinned (0.12.5/<=14 or an unmapped codename) — caller recommends distro."""
+    if wkhtmltopdf_target_version(major) != "0.12.6":
+        return []
+    asset = resolve_wkhtmltopdf_asset(codename)
+    if asset is None:
+        return []
+    url, filename, sha256 = asset
+    tmp = f"/tmp/{filename}"
+    return [
+        Command(tf("Ensure curl is available"),
+                "command -v curl >/dev/null 2>&1 || (apt-get update && apt-get -y install curl)"),
+        Command(tf("Download patched wkhtmltopdf ({})", filename),
+                f"curl -fSL -o {shlex.quote(tmp)} {shlex.quote(url)}"),
+        Command(tf("Verify wkhtmltopdf SHA-256 (abort on mismatch)"),
+                f"echo {shlex.quote(sha256 + '  ' + tmp)} | sha256sum -c -"),
+        Command(tf("Install verified wkhtmltopdf .deb"),
+                f"apt-get -y install {shlex.quote(tmp)}"),
+        Command(tf("Remove downloaded wkhtmltopdf .deb"), f"rm -f {shlex.quote(tmp)}"),
+    ]
+
+
+def plan_node_rtlcss() -> list[Command]:
+    """Optional web toolchain for RTL/less asset compilation."""
+    return [
+        Command(tf("Install Node.js and npm"), "apt-get update && apt-get -y install nodejs npm"),
+        Command(tf("Install rtlcss globally"), "npm install -g rtlcss"),
+    ]
+
+
 def plan_refresh_repos(cfg: WorkspaceConfig, exists: Exists = _never) -> list[Command]:
     """Fast-forward-pull every present clone in the shared cache for this
     workspace's versions/OCA repos. Absent clones are skipped (nothing to refresh)."""

@@ -22,3 +22,9 @@ All notable changes to this project are documented here. The format is based on
   `plan_generate_workspace`/`plan_refresh_repos`); create-only vs manage-only flows in `workflows/workspace.py`
   over plan → preview → apply. Example profile in `examples/`. Docs: `docs/workspace-layout.md`,
   `docs/configuration-reference.md`.
+- **F2 provision section**: host-agnostic (Debian/Ubuntu apt) system provisioning. `provision check` renders a
+  read-only host-readiness table; `provision apply` (root-gated, previewed, idempotent) installs the Odoo
+  build dependencies, PostgreSQL + a dev role (with loopback trust for development), the checksum-verified
+  patched wkhtmltopdf (0.12.6 for Odoo ≥ 15), and optional Node + rtlcss. New `provisioning.py` (facts + pure
+  `provision_rows`), provision planners in `planners.py`, host probes in `system.py`, wired in
+  `workflows/provision.py`. Docs: `docs/provisioning.md`. Validated end-to-end on WSL Ubuntu 24.04.
