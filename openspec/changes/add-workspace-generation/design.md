@@ -45,6 +45,12 @@ read-only repo cache plus a per-client tree with per-instance venvs. Odoo facts 
   gates destructive steps behind `confirm_with_phrase`. Mirrors the sibling's inviolable rule.
 - **`odoo.conf` rendered version-adaptively** from `InstanceConfig` (e.g. `http_port` derived, `addons_path`
   composed custom→oca→`odoo/addons`), keeping keys traceable to the official CLI/`odoo.conf` reference.
+- **OCA repositories default to empty and are fully profile-configurable.** F1 ships no opinionated OCA repo
+  list; `addons-oca/` is created empty until the profile names repos. *Alternative:* bundle a curated OCA
+  default set — rejected for F1 (opinionated, version-coupled; revisit as an optional preset later).
+- **No separate `--dry-run` flag.** The plan → preview → confirm step already provides a non-destructive
+  preview of every mutation, so a dedicated dry-run flag would duplicate it. A non-interactive plan-only mode
+  for CI, if ever needed, would be its own spec'd capability.
 
 ## Risks / Trade-offs
 
@@ -66,7 +72,6 @@ manually on WSL Ubuntu 24.04 and recorded in `docs/`. Rollback is reverting the 
 
 ## Open Questions
 
-- Exact set of default OCA repositories to offer (leave configurable; ship an empty default).
 - VSCode `launch.json` debug shape for Odoo (python debugger + `odoo-bin` args) — confirm against a real run
   on WSL before finalizing the template.
 - Whether `setup_venv.sh` should prefer `uv` when present for speed (kept as a later enhancement; F1 uses

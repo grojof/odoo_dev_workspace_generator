@@ -87,8 +87,11 @@ class WorkspaceConfig:
 
     # Base directory that holds every workspace and the shared repo cache.
     base_dir: ClassVar[str] = "~/odoo-workspaces"
-    # Port assigned per instance is ``http_port_base + PORT_OFFSET_PER_MAJOR``.
+    # Port assigned per instance is ``http_port_base + port_step`` per major.
     port_step: ClassVar[int] = 10
+    # Upstream sources (official Odoo repo; OCA org for community addons).
+    odoo_repo_url: ClassVar[str] = "https://github.com/odoo/odoo"
+    oca_url_base: ClassVar[str] = "https://github.com/OCA"
 
     name: str
     versions: list[str] = field(default_factory=lambda: ["18.0"])
@@ -97,6 +100,10 @@ class WorkspaceConfig:
     db_host: str = "127.0.0.1"
     db_port: int = 5432
     db_user: str = ""
+    # OCA repository names (e.g. "web", "server-tools"), cloned per version and
+    # symlinked into the workspace's ``addons-oca``. Empty by default — no
+    # opinionated preset; fully profile-configurable.
+    oca_repos: list[str] = field(default_factory=list)
 
     # --- derived ----------------------------------------------------------
 
@@ -117,6 +124,66 @@ class WorkspaceConfig:
         majors = sorted(odoo_major(v) for v in self.versions)
         offset = majors.index(odoo_major(version)) * self.port_step
         return self.http_port_base + offset
+
+    # --- workspace tree paths --------------------------------------------
+
+    @property
+    def addons_custom_dir(self) -> Path:
+        return self.root / "addons-custom"
+
+    @property
+    def addons_oca_dir(self) -> Path:
+        return self.root / "addons-oca"
+
+    @property
+    def config_dir(self) -> Path:
+        return self.root / "config"
+
+    @property
+    def scripts_dir(self) -> Path:
+        return self.root / "scripts"
+
+    @property
+    def vscode_dir(self) -> Path:
+        return self.root / ".vscode"
+
+    @property
+    def code_workspace_file(self) -> Path:
+        return self.root / f"{self.name}.code-workspace"
+
+    @property
+    def readme_file(self) -> Path:
+        return self.root / "README.md"
+
+    def venv_dir(self, version: str) -> Path:
+        return self.root / ".venv" / f"odoo{odoo_major(version)}"
+
+    def config_file(self, version: str) -> Path:
+        return self.config_dir / f"odoo{odoo_major(version)}.conf"
+
+    # --- shared repo cache paths -----------------------------------------
+
+    def odoo_clone_dir(self, version: str) -> Path:
+        return self.repos_dir / f"odoo-{version}"
+
+    def oca_clone_dir(self, repo: str, version: str) -> Path:
+        return self.repos_dir / "oca" / f"{repo}-{version}"
+
+    def oca_symlink_dir(self, repo: str, version: str) -> Path:
+        """Per-version symlink under ``addons-oca`` pointing at the shared OCA
+        checkout for that version — a stable, in-workspace path used in
+        ``addons_path``. Per version because OCA addons must match the Odoo major."""
+        return self.addons_oca_dir / f"odoo{odoo_major(version)}" / repo
+
+    def addons_path(self, version: str) -> str:
+        """Composed ``addons_path`` for a version, in precedence order: the
+        workspace's custom addons, each configured OCA repo (via its in-workspace
+        per-version symlink), then the shared Odoo ``addons``. All paths stay
+        inside the workspace or the shared cache."""
+        parts: list[Path] = [self.addons_custom_dir]
+        parts += [self.oca_symlink_dir(repo, version) for repo in self.oca_repos]
+        parts.append(self.odoo_clone_dir(version) / "addons")
+        return ",".join(str(part) for part in parts)
 
     # --- normalization / validation --------------------------------------
 
@@ -149,6 +216,9 @@ class WorkspaceConfig:
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), indent=2, ensure_ascii=False) + "\n"
+
+    def save(self, path: str | Path) -> None:
+        Path(path).expanduser().write_text(self.to_json(), encoding="utf-8")
 
     @classmethod
     def from_dict(cls, data: dict) -> WorkspaceConfig:
