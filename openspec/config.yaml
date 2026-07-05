@@ -1,0 +1,42 @@
+schema: spec-driven
+
+# Project context — shown to AI when creating OpenSpec artifacts.
+context: |
+  odoo_dwg — a zero-runtime-dependency (Python standard library only) generator
+  that creates and maintains Odoo Community *development* workspaces and
+  *migration* environments on a Linux host (WSL Ubuntu 24.04, a server, or a
+  container — the host is the user's choice). It is user-run (no root by itself);
+  only `provision apply` may escalate. It never mutates the host directly: every
+  action assembles a command PLAN, previews it, and applies it after confirmation.
+
+  Two user-facing sections + one mode:
+    - provision  — optional, host-agnostic Linux prep (PostgreSQL+role,
+                   wkhtmltopdf, node+rtlcss, per-version Python interpreters).
+    - workspace  — the core: per-client workspaces (shared repo cache,
+                   per-instance venv, addons-custom/addons-oca, per-version
+                   odoo.conf, VSCode files, a robust per-workspace README).
+    - migration  — OpenUpgrade chained upgrade 12→19 (sequential, no skips),
+                   uv-provided per-version interpreters, checkpointing driver,
+                   optional Docker fallback for 12/13.
+
+  Conventions:
+    - Python 3.10+, `from __future__ import annotations`, standard library only.
+      Adding a runtime dependency is an ADR-worthy decision.
+    - Layered like the sibling app `odoo_instance_manager`: pure `planners`
+      build `Command` lists; `system` executes them; `ui`/`prompts` own the
+      terminal; `workflows/` wire the sections.
+    - Preview → confirm → apply is inviolable for any host-mutating action.
+    - English is canonical for code, docs, specs, and generated artifacts.
+      Spanish is an optional UI language via `odoo_dwg/i18n.py` (`t`/`tf`,
+      English text as the source key). Set with `ODWG_LANG=en|es`.
+    - Every factual claim about Odoo/OpenUpgrade is anchored to OFFICIAL docs
+      (see docs/ and the plan references). Nothing is assumed.
+    - Quote/validate every value reaching a shell or SQL string.
+
+# Per-artifact rules (optional).
+rules:
+  proposal:
+    - State scope in/out; call out anything not yet verifiable on a real Ubuntu 24.04 host.
+  tasks:
+    - Keep planners pure (building a command is not running it).
+    - Add/adjust tests that run without shelling out or touching the real filesystem.

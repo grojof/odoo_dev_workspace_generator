@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "odoo-dev-workspace-generator"
+version = "0.1.0"
+description = "Zero-dependency generator for Odoo Community development workspaces and OpenUpgrade migration environments on a Linux host."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [{ name = "Guillermo Rojo" }]
+keywords = ["odoo", "workspace", "development", "migration", "openupgrade", "wsl", "postgresql"]
+classifiers = [
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Build Tools",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+odoo-dwg = "odoo_dwg.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/grojof/odoo_dev_workspace_generator"
+Repository = "https://github.com/grojof/odoo_dev_workspace_generator"
+Issues = "https://github.com/grojof/odoo_dev_workspace_generator/issues"
+
+[tool.setuptools]
+py-modules = ["odoo_dev_workspace_generator"]
+packages = ["odoo_dwg", "odoo_dwg.workflows"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+# Value rules: real bugs (F, B), imports (I), modernization (UP), style (E, W).
+# E501 (line length) is deferred: many long lines are embedded shell/SQL command
+# strings that should not be wrapped. New code should still aim for <=100 cols.
+select = ["E", "F", "I", "UP", "B", "W"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
