@@ -52,6 +52,40 @@ def python_minimum_for(version: str) -> str:
     return ODOO_PYTHON_MINIMUM.get(odoo_major(version), "3.10")
 
 
+# Migration interpreter matrix — the Python and acquisition method per Odoo major.
+# Measured on WSL Ubuntu 24.04: uv's installable floor is 3.8 (3.6/3.7 unavailable),
+# so Odoo >= 14 runs natively via uv; Odoo 13 (Py 3.6) and 12 (Py 3.5) fall back to
+# the official Docker images. Each step runs the *target* version, so only a chain
+# that runs Odoo 13 (a 12->13 step) needs Docker.
+MIGRATION_INTERPRETER: dict[int, tuple[str | None, str]] = {
+    12: (None, "docker"),
+    13: (None, "docker"),
+    14: ("3.8", "uv"),
+    15: ("3.8", "uv"),
+    16: ("3.10", "uv"),
+    17: ("3.10", "uv"),
+    18: ("3.12", "uv"),
+    19: ("3.12", "uv"),
+}
+
+
+def migration_interpreter(version: str) -> tuple[str | None, str]:
+    """``(python, method)`` for running an Odoo version during migration —
+    ``("3.8", "uv")`` for natives, ``(None, "docker")`` for 12/13."""
+    return MIGRATION_INTERPRETER.get(odoo_major(version), ("3.12", "uv"))
+
+
+def migration_chain(source: str, target: str) -> list[str]:
+    """Ascending list of target versions from just-after ``source`` up to
+    ``target`` (sequential, no skips), e.g. ``13.0``→``18.0`` ⇒ 14,15,16,17,18."""
+    lo, hi = odoo_major(source), odoo_major(target)
+    if lo >= hi:
+        raise ValueError(f"source ({source}) must be older than target ({target}).")
+    if lo < 12 or hi > 19:
+        raise ValueError("migration is supported within the 12.0–19.0 range.")
+    return [f"{major}.0" for major in range(lo + 1, hi + 1)]
+
+
 @dataclass
 class InstanceConfig:
     """A single Odoo version inside a workspace (its own venv, conf, and port)."""
@@ -237,3 +271,81 @@ class WorkspaceConfig:
     def load(cls, path: str | Path) -> WorkspaceConfig:
         data = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
         return cls.from_dict(data)
+
+
+@dataclass
+class MigrationEnv:
+    """An OpenUpgrade migration environment for a ``source`` → ``target`` chain."""
+
+    base_dir: ClassVar[str] = "~/odoo-migrations"
+    odoo_repo_url: ClassVar[str] = "https://github.com/odoo/odoo"
+    openupgrade_url: ClassVar[str] = "https://github.com/OCA/OpenUpgrade"
+
+    source: str
+    target: str
+    db_host: str = "127.0.0.1"
+    db_port: int = 5432
+    db_user: str = "odoo"
+    working_db: str = "migration"
+
+    # --- derived ----------------------------------------------------------
+
+    @property
+    def root(self) -> Path:
+        return Path(self.base_dir).expanduser() / f"{odoo_major(self.source)}-to-{odoo_major(self.target)}"
+
+    @property
+    def repos_dir(self) -> Path:
+        return Path(self.base_dir).expanduser() / ".repos"
+
+    @property
+    def conf_dir(self) -> Path:
+        return self.root / "conf"
+
+    @property
+    def checkpoints_dir(self) -> Path:
+        return self.root / "checkpoints"
+
+    @property
+    def logs_dir(self) -> Path:
+        return self.root / "logs"
+
+    def chain(self) -> list[str]:
+        return migration_chain(self.source, self.target)
+
+    def interpreter(self, version: str) -> tuple[str | None, str]:
+        return migration_interpreter(version)
+
+    def is_native(self, version: str) -> bool:
+        return self.interpreter(version)[1] == "uv"
+
+    def odoo_clone_dir(self, version: str) -> Path:
+        return self.repos_dir / f"odoo-{version}"
+
+    def openupgrade_clone_dir(self, version: str) -> Path:
+        return self.repos_dir / f"openupgrade-{version}"
+
+    def venv_dir(self, version: str) -> Path:
+        return self.root / ".venv" / f"odoo{odoo_major(version)}"
+
+    def overrides_file(self, version: str) -> Path:
+        return self.root / "requirements" / f"overrides-{version}.txt"
+
+    def config_file(self, version: str) -> Path:
+        return self.conf_dir / f"odoo{odoo_major(version)}.conf"
+
+    def upgrade_scripts_dir(self, version: str) -> Path:
+        """OpenUpgrade scripts path (>= 14.0 module layout)."""
+        return self.openupgrade_clone_dir(version) / "openupgrade_scripts" / "scripts"
+
+    def addons_path(self, version: str) -> str:
+        odoo = self.odoo_clone_dir(version)
+        ou = self.openupgrade_clone_dir(version)
+        return ",".join(str(p) for p in (odoo / "addons", odoo / "odoo" / "addons", ou / "openupgrade_scripts"))
+
+    def needs_docker(self) -> bool:
+        return any(not self.is_native(v) for v in self.chain())
+
+    def validate(self) -> None:
+        # migration_chain enforces source < target and the 12–19 range.
+        self.chain()

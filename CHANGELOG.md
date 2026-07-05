@@ -28,3 +28,10 @@ All notable changes to this project are documented here. The format is based on
   patched wkhtmltopdf (0.12.6 for Odoo ≥ 15), and optional Node + rtlcss. New `provisioning.py` (facts + pure
   `provision_rows`), provision planners in `planners.py`, host probes in `system.py`, wired in
   `workflows/provision.py`. Docs: `docs/provisioning.md`. Validated end-to-end on WSL Ubuntu 24.04.
+- **F3 migration mode**: generates an OpenUpgrade migration environment for a source → target chain
+  (sequential, no skips). Data-backed interpreter strategy (measured on WSL): `uv` native interpreters for
+  Odoo ≥ 14 (14/15→3.8, 16/17→3.10, 18/19→3.12) and a Docker fallback (`odoo:13.0`/`odoo:12.0`) for the
+  Python-3.6/3.5 steps. `MigrationEnv` + `migration_chain`/`migration_interpreter` in `models.py`; migration
+  planners (`plan_migration_clones`/`plan_migration_venvs`/`plan_migration_configs`/`plan_generate_migration`)
+  and templates (per-step `odoo.conf`, checkpointing `run_migration.sh`, Docker recipe); wired in
+  `workflows/migration.py`. Docs: `docs/migration.md`.

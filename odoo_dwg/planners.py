@@ -15,7 +15,7 @@ from pathlib import Path
 
 from . import templates
 from .i18n import tf
-from .models import WorkspaceConfig, odoo_major
+from .models import MigrationEnv, WorkspaceConfig, odoo_major
 from .system import Command
 
 Exists = Callable[[Path], bool]
@@ -252,6 +252,102 @@ def plan_node_rtlcss() -> list[Command]:
         Command(tf("Install Node.js and npm"), "apt-get update && apt-get -y install nodejs npm"),
         Command(tf("Install rtlcss globally"), "npm install -g rtlcss"),
     ]
+
+
+# --- migration (F3) --------------------------------------------------------
+
+
+def plan_migration_clones(env: MigrationEnv, exists: Exists = _never) -> list[Command]:
+    """Clone OpenUpgrade (every step) and Odoo (native steps) per target version on
+    the matching branch, shallow, skipping present clones."""
+    commands: list[Command] = []
+    for version in env.chain():
+        ou_dest = env.openupgrade_clone_dir(version)
+        if not exists(ou_dest):
+            commands.append(
+                Command(
+                    tf("Clone OpenUpgrade {}", version),
+                    f"git clone --depth 1 --branch {shlex.quote(version)} --single-branch "
+                    f"{shlex.quote(env.openupgrade_url)} {shlex.quote(str(ou_dest))}",
+                )
+            )
+        if env.is_native(version):
+            odoo_dest = env.odoo_clone_dir(version)
+            if not exists(odoo_dest):
+                commands.append(
+                    Command(
+                        tf("Clone Odoo {}", version),
+                        f"git clone --depth 1 --branch {shlex.quote(version)} --single-branch "
+                        f"{shlex.quote(env.odoo_repo_url)} {shlex.quote(str(odoo_dest))}",
+                    )
+                )
+    return commands
+
+
+def plan_migration_venvs(env: MigrationEnv, exists: Exists = _never) -> list[Command]:
+    """For each natively-run version: write the overrides file, build a uv venv with
+    the matched interpreter, and install requirements + psycopg2-binary +
+    openupgradelib. Docker steps (Odoo 12/13) have no venv."""
+    commands: list[Command] = []
+    for version in env.chain():
+        python, method = env.interpreter(version)
+        if method != "uv" or python is None:
+            continue
+        venv = env.venv_dir(version)
+        if exists(venv):
+            continue
+        odoo = env.odoo_clone_dir(version)
+        commands += write_text_file_command(
+            env.overrides_file(version), templates.render_migration_overrides(version)
+        )
+        commands += [
+            Command(
+                tf("Create uv venv (Python {}) for Odoo {}", python, version),
+                f"uv venv --python {shlex.quote(python)} {shlex.quote(str(venv))}",
+            ),
+            Command(
+                tf("Install Odoo {} requirements", version),
+                f"uv pip install --python {shlex.quote(str(venv))} "
+                f"-r {shlex.quote(str(odoo / 'requirements.txt'))}",
+            ),
+            Command(
+                tf("Install psycopg2-binary and openupgradelib for Odoo {}", version),
+                f"uv pip install --python {shlex.quote(str(venv))} psycopg2-binary openupgradelib",
+            ),
+        ]
+    return commands
+
+
+def plan_migration_configs(env: MigrationEnv) -> list[Command]:
+    """Write the per-step odoo.conf and the run_migration.sh driver."""
+    commands: list[Command] = [
+        Command(
+            tf("Create migration directories"),
+            "mkdir -p "
+            + " ".join(
+                shlex.quote(str(p))
+                for p in (env.conf_dir, env.checkpoints_dir, env.logs_dir, env.overrides_file("x").parent)
+            ),
+        )
+    ]
+    for version in env.chain():
+        if env.is_native(version):
+            commands += write_text_file_command(
+                env.config_file(version), templates.render_migration_conf(env, version)
+            )
+    commands += write_text_file_command(
+        env.root / "run_migration.sh", templates.render_run_migration_sh(env), "755"
+    )
+    return commands
+
+
+def plan_generate_migration(env: MigrationEnv, exists: Exists = _never) -> list[Command]:
+    """Full migration-environment plan: clones + uv venvs + configs + driver."""
+    return (
+        plan_migration_clones(env, exists)
+        + plan_migration_venvs(env, exists)
+        + plan_migration_configs(env)
+    )
 
 
 def plan_refresh_repos(cfg: WorkspaceConfig, exists: Exists = _never) -> list[Command]:
