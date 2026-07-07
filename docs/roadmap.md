@@ -49,6 +49,13 @@ items are host-dependent.
   (Migration clones already use `--depth 1`.) Candidate for a small OpenSpec change.
 - **CI workflow** — a GitHub Actions workflow running `ruff`, `pytest`, and `openspec validate --specs` on
   push/PR (mirror the sibling app's `.github/workflows/ci.yml`). Optionally a release workflow.
+- **VSCode official-extension emitter** — optional static emitter for the official `Odoo.odoo` extension:
+  `odools.toml` profiles (verified schema: `[[config]]` + `name`/`extends`/`odoo_path`/`addons_paths`/
+  `python_path`, vars `${workspaceFolder}`/`${detectVersion}`/`$autoDetectAddons`), an OWL `jsconfig.json`,
+  stylelint wiring, and recommending `Odoo.odoo` in `extensions.json` (replacing the community pick).
+  **Deferred until the sibling VSCode extension `odoo-ls-companion` stabilizes the format** — the dynamic
+  logic (profiles, version switching, doctor) lives there, this emitter stays static. Sibling project:
+  `C:\Users\GuillermousK\Desktop\CIFO\projects\Python\odoo-ls-companion`.
 - **Provision password-auth mode** — instead of loopback `trust`, create the PostgreSQL role with a password
   and write `db_password` into the workspace `odoo.conf` (needs an `odoo.conf` password field). Safer for
   shared/remote PostgreSQL; the current trust is dev-only. (Deferred open question from F2 design.)
