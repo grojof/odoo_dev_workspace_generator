@@ -6,9 +6,9 @@ TBD - created by archiving change add-system-provisioning. Update Purpose after 
 ### Requirement: Read-only host readiness report
 
 The system SHALL provide a `provision check` that inspects the host and renders a capability table of
-(capability, state, detail) where state is one of OK / MISSING / WARN, covering the package family, the Odoo
-build dependencies, PostgreSQL, wkhtmltopdf, Node + rtlcss, and the system Python. `check` MUST NOT modify the
-host in any way.
+(capability, state, detail) where state is one of OK / MISSING / WARN / INFO, covering the package family,
+the Odoo build dependencies, PostgreSQL, wkhtmltopdf, Node + rtlcss, the system Python, `uv` (migration
+interpreters), and Docker (migration 12/13 fallback). `check` MUST NOT modify the host in any way.
 
 #### Scenario: Report on a host missing prerequisites
 
@@ -50,4 +50,16 @@ build, reporting a plain (un-patched) distribution build as WARN because Odoo re
 
 - **WHEN** wkhtmltopdf is present but is the plain distribution build (not "with patched qt")
 - **THEN** the report marks it WARN with a note that reports may be degraded
+
+### Requirement: Docker detection distinguishes binary, daemon, and images
+
+The system SHALL report Docker as three distinct signals: the `docker` binary present, the daemon
+responding (`docker info`), and the presence of the OpenUpgrade fallback images (`odoo:13.0` / `odoo:12.0`)
+as an informational row. A permission failure talking to the daemon SHALL be reported distinctly from
+Docker not being installed.
+
+#### Scenario: Binary present, daemon unreachable
+
+- **WHEN** `docker` is installed but `docker info` fails
+- **THEN** the report marks the binary OK and the daemon not ready, including the error detail (e.g. permission or service down)
 
