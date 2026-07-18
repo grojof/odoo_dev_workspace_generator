@@ -45,3 +45,11 @@ All notable changes to this project are documented here. The format is based on
 - Migration venvs are now created with `uv venv --no-project`: without it, uv discovers any
   `pyproject.toml` at the caller's working directory (e.g. this repo's own, `requires-python >=3.10`)
   and emits a spurious incompatibility warning when building the 3.8 venvs for Odoo 14/15.
+- The migration `requirements/overrides-<ver>.txt` was written but never applied; the requirements
+  install now passes it via `uv pip install --overrides`. Its content is no longer a placeholder:
+  for the Python-3.10 steps (Odoo 16/17, whose branches pin `gevent==21.8.0` — no cp310 wheel and an
+  sdist that no longer compiles under modern Cython) it lifts to the branches' own 3.11 pins,
+  `gevent==22.10.2` + `greenlet==2.0.2`. Validated with a real install on WSL.
+- Interrupted venv builds now resume correctly: each finished venv is stamped with a `.odwg-ready`
+  marker and the venvs planner skips on the marker (not the venv directory), rebuilding half-built
+  venvs with `uv venv --clear` instead of silently skipping them.

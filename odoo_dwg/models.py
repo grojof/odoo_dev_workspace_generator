@@ -332,6 +332,11 @@ class MigrationEnv:
     def venv_dir(self, version: str) -> Path:
         return self.root / ".venv" / f"odoo{odoo_major(version)}"
 
+    def venv_ready_marker(self, version: str) -> Path:
+        """Written after a venv's installs finish; its absence means the venv is
+        missing *or* half-built and must be (re)built on the next generation."""
+        return self.venv_dir(version) / ".odwg-ready"
+
     def overrides_file(self, version: str) -> Path:
         return self.requirements_dir / f"overrides-{version}.txt"
 

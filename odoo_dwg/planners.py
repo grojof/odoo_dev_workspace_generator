@@ -286,15 +286,17 @@ def plan_migration_clones(env: MigrationEnv, exists: Exists = _never) -> list[Co
 
 def plan_migration_venvs(env: MigrationEnv, exists: Exists = _never) -> list[Command]:
     """For each natively-run version: write the overrides file, build a uv venv with
-    the matched interpreter, and install requirements + psycopg2-binary +
-    openupgradelib. Docker steps (Odoo 12/13) have no venv."""
+    the matched interpreter, and install requirements (with ``--overrides`` repairs)
+    + psycopg2-binary + openupgradelib. Docker steps (Odoo 12/13) have no venv.
+
+    Skips on the ready *marker*, not the venv directory: a venv whose installs
+    failed midway has no marker and is rebuilt (``uv venv`` recreates in place)."""
     commands: list[Command] = []
     for version in env.chain():
         python, method = env.interpreter(version)
         if method != "uv" or python is None:
             continue
-        venv = env.venv_dir(version)
-        if exists(venv):
+        if exists(env.venv_ready_marker(version)):
             continue
         if not commands:
             commands.append(
@@ -303,23 +305,31 @@ def plan_migration_venvs(env: MigrationEnv, exists: Exists = _never) -> list[Com
                     f"mkdir -p {shlex.quote(str(env.requirements_dir))}",
                 )
             )
+        venv = env.venv_dir(version)
         odoo = env.odoo_clone_dir(version)
+        overrides = env.overrides_file(version)
         commands += write_text_file_command(
-            env.overrides_file(version), templates.render_migration_overrides(version)
+            overrides, templates.render_migration_overrides(version)
         )
         commands += [
             Command(
                 tf("Create uv venv (Python {}) for Odoo {}", python, version),
-                f"uv venv --no-project --python {shlex.quote(python)} {shlex.quote(str(venv))}",
+                f"uv venv --clear --no-project --python {shlex.quote(python)} "
+                f"{shlex.quote(str(venv))}",
             ),
             Command(
                 tf("Install Odoo {} requirements", version),
                 f"uv pip install --python {shlex.quote(str(venv))} "
-                f"-r {shlex.quote(str(odoo / 'requirements.txt'))}",
+                f"-r {shlex.quote(str(odoo / 'requirements.txt'))} "
+                f"--overrides {shlex.quote(str(overrides))}",
             ),
             Command(
                 tf("Install psycopg2-binary and openupgradelib for Odoo {}", version),
                 f"uv pip install --python {shlex.quote(str(venv))} psycopg2-binary openupgradelib",
+            ),
+            Command(
+                tf("Mark Odoo {} venv as ready", version),
+                f"touch {shlex.quote(str(env.venv_ready_marker(version)))}",
             ),
         ]
     return commands

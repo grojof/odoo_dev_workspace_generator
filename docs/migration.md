@@ -41,7 +41,13 @@ Under `~/odoo-migrations/<src>-to-<tgt>/`:
 - Per-version clones of `odoo/odoo` and `OCA/OpenUpgrade` (matching branch, shallow) in the shared
   `.repos/` cache.
 - A `uv` virtualenv per native version (matched interpreter + `requirements.txt` + `psycopg2-binary` +
-  `openupgradelib`), plus a per-version `requirements/overrides-<ver>.txt`.
+  `openupgradelib`). A per-version `requirements/overrides-<ver>.txt` is applied via
+  `uv pip install --overrides` to repair pins that no longer install: the 16.0/17.0 branches pin
+  `gevent==21.8.0` for Python 3.10 exactly, which has no cp310 wheel and whose sdist no longer compiles
+  under modern Cython — the overrides lift those steps to the branches' own 3.11 pins
+  (`gevent==22.10.2` + `greenlet==2.0.2`, validated on WSL). Each finished venv is stamped with a
+  `.odwg-ready` marker; a generation interrupted mid-install rebuilds that venv on the next run
+  (`uv venv --clear`) instead of skipping it half-built.
 - A per-step `conf/odoo<major>.conf` whose `addons_path` threads the OpenUpgrade `openupgrade_scripts`.
 - `run_migration.sh` — the checkpointing driver.
 
@@ -62,7 +68,8 @@ checkpoint after each successful step** — so a failure resumes from the last g
 
 - A **full 12 → 19 run needs a real legacy dump** and is not part of automated tests; WSL acceptance covers
   environment generation, `uv` venv builds, `odoo-bin --version`, and `bash -n` on the driver.
-- The exact `overrides-<ver>.txt` pins and the 12/13 OpenUpgrade command layout are refined against real runs.
+- The `overrides-<ver>.txt` pins for the Python-3.10 steps (16.0/17.0) are validated against a real
+  `uv pip install` on WSL; the 12/13 OpenUpgrade command layout is still refined against real runs.
 - Migrating **custom module code** across versions is a separate job — see
   [`oca-port`](https://github.com/OCA/oca-port) and
   [`odoo-module-migrator`](https://github.com/OCA/odoo-module-migrator).

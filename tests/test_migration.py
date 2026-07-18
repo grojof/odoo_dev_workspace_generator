@@ -91,10 +91,39 @@ def test_venvs_only_for_native_versions_with_uv():
     env = MigrationEnv(source="12.0", target="14.0")
     cmds = planners.plan_migration_venvs(env)
     joined = "\n".join(c.command for c in cmds)
-    assert "uv venv --no-project --python 3.8" in joined  # Odoo 14 → 3.8; --no-project so
-    # uv ignores any pyproject.toml at the caller's CWD (its requires-python is not Odoo's)
+    assert "uv venv --clear --no-project --python 3.8" in joined  # Odoo 14 → 3.8.
+    # --clear: replace a half-built venv on resume; --no-project: ignore any
+    # pyproject.toml at the caller's CWD (its requires-python is not Odoo's).
     assert "openupgradelib" in joined
     assert joined.count("uv venv") == 1          # only 14 (13 is docker, no venv)
+
+
+def test_venvs_install_applies_the_overrides_file_and_marks_ready():
+    env = MigrationEnv(source="15.0", target="16.0")
+    cmds = planners.plan_migration_venvs(env)
+    install = next(c.command for c in cmds if "requirements.txt" in c.command)
+    assert "--overrides" in install and "overrides-16.0.txt" in install
+    assert cmds[-1].command.startswith("touch")
+    assert str(env.venv_ready_marker("16.0")) in cmds[-1].command
+
+
+def test_venvs_skip_on_ready_marker_not_on_venv_dir():
+    env = MigrationEnv(source="15.0", target="16.0")
+    half_built = {env.venv_dir("16.0")}          # venv exists but installs never finished
+    cmds = planners.plan_migration_venvs(env, exists=lambda p: p in half_built)
+    assert any("uv venv" in c.command for c in cmds)   # rebuilt, not skipped
+    done = {env.venv_ready_marker("16.0")}
+    assert planners.plan_migration_venvs(env, exists=lambda p: p in done) == []
+
+
+def test_overrides_lift_gevent_only_on_python_310():
+    from odoo_dwg import templates
+    for version in ("16.0", "17.0"):             # both run on 3.10 (gevent==21.8.0 pin, no cp310 wheel)
+        text = templates.render_migration_overrides(version)
+        assert "gevent==22.10.2" in text and "greenlet==2.0.2" in text
+    for version in ("14.0", "15.0", "18.0"):     # 3.8 / 3.12 resolve their pins fine
+        text = templates.render_migration_overrides(version)
+        assert "gevent" not in text
 
 
 def test_generate_migration_composes_everything():
