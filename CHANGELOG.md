@@ -62,6 +62,11 @@ All notable changes to this project are documented here. The format is based on
   `pre-migration.generated.py` beside existing files), and produces `staging/report-<module>.md` with the
   tool log verbatim. Staging is a prepared starting point; developer review completes the migration.
 
+- Docs refreshed to the eunomai living-docs v2 standard with the **CLI-tool profile**: new
+  `docs/commands.md` (full command/menu/phrase reference), README reshaped as a product map (Mermaid
+  plan→preview→apply flowchart, real invocations, surface-organized index), new `SECURITY.md` (private
+  reporting via GitHub Security Advisories) and `CONTRIBUTING.md`; `docs-check` green.
+
 ### Fixed
 - Migration step configs now put the OpenUpgrade checkout **root** on `addons_path` (previously the
   `openupgrade_scripts` module directory itself), so `openupgrade_framework` resolves as the official

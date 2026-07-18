@@ -3,7 +3,7 @@ type: how-to
 title: "Provisioning a Linux host"
 description: "Use the provision section to make a Debian/Ubuntu host Odoo-ready."
 audience: [developer]
-updated: 2026-07-05
+updated: 2026-07-18
 ---
 
 # Provisioning a Linux host

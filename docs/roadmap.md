@@ -3,7 +3,7 @@ type: explanation
 title: "Roadmap (F0–F4) and backlog"
 description: "Phased delivery plan and the parked backlog for the Odoo dev/migration workspace generator."
 audience: [contributor]
-updated: 2026-07-05
+updated: 2026-07-18
 ---
 
 # Roadmap
@@ -31,6 +31,12 @@ patched wkhtmltopdf, optional Node + rtlcss); apt-family only, root-gated. Accep
 OpenUpgrade 12→19: per-version clones + `uv` venvs (matched interpreter) + per-step `odoo.conf` + checkpointing
 `run_migration.sh`; Docker fallback for the Odoo-13 (Python 3.6) step. Interpreter decision closed with WSL
 data (uv floor 3.8). Accepted on WSL: Odoo 15 runs on uv Python 3.8; driver passes `bash -n`.
+
+Extended after acceptance (both archived changes, accepted on WSL): **migration preflight & Docker
+readiness** (`2026-07-18-add-migration-preflight` — provision rows for uv/Docker, preflight menu action +
+driver-embedded checks, per-version `addons/odoo<major>/{custom,oca}` layout) and **custom-module staging**
+(`2026-07-18-add-custom-module-staging` — `odoo-module-migrator` orchestration, analysis-file findings,
+inert scaffolds, per-module report). Environment cleanup landed alongside (`Clean a migration environment`).
 
 ---
 
