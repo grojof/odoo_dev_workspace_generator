@@ -55,6 +55,19 @@ directory where the operator should place them.
 - **WHEN** module `client_sales` is installed in the database but absent from every source of step 16.0
 - **THEN** the report names `client_sales`, the step, and the `addons/odoo16/custom` directory to fill
 
+### Requirement: Custom modules are flagged for per-version adaptation
+
+Modules classified as custom (found in the per-version custom dir, or found nowhere) SHALL additionally be
+flagged with a warning that presence is necessary but not sufficient: each target version requires the
+module's code *adapted to that version's breaking changes* and, when data/schema is involved, its own
+`migrations/` scripts. The report SHALL reference the staging workflow (see the `migration-staging`
+capability) as the prepared path for this work.
+
+#### Scenario: A present custom module still carries the adaptation warning
+
+- **WHEN** module `client_sales` exists in `addons/odoo17/custom` and coverage passes for step 17.0
+- **THEN** the report still lists `client_sales` as custom with a note that its 17.0 code must be adapted (e.g. view `attrs` removal) and reviewed
+
 ### Requirement: Preflight is reusable from menu and flows
 
 The preflight SHALL be exposed as an independent migration-menu action (host scope always; database scope
