@@ -32,7 +32,8 @@ single authored source of truth for AI agents working *on* this project.
   - `templates/` — text templates for generated artifacts (odoo.conf, VSCode, READMEs, bash scripts).
 - `openspec/specs/` — the **behavior source of truth** (one spec per capability). Changes live in
   `openspec/changes/`; the `/opsx:*` flow drives them.
-- `docs/` — user/operator docs, each with frontmatter. `docs/decisions/` holds ADRs. The README is the map.
+- `docs/` — user/operator docs, each with frontmatter; the README is the map. Decision records (the *why*)
+  live in the archived OpenSpec changes' `design.md` files, not in a separate ADR series.
 
 ## Non-negotiable principles
 

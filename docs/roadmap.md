@@ -59,9 +59,9 @@ items are host-dependent.
   `odools.toml` profiles (verified schema: `[[config]]` + `name`/`extends`/`odoo_path`/`addons_paths`/
   `python_path`, vars `${workspaceFolder}`/`${detectVersion}`/`$autoDetectAddons`), an OWL `jsconfig.json`,
   stylelint wiring, and recommending `Odoo.odoo` in `extensions.json` (replacing the community pick).
-  **Deferred until the sibling VSCode extension `odoo-ls-companion` stabilizes the format** — the dynamic
-  logic (profiles, version switching, doctor) lives there, this emitter stays static. Sibling project:
-  `C:\Users\GuillermousK\Desktop\CIFO\projects\Python\odoo-ls-companion`.
+  **Deferred until the sibling VSCode extension stabilizes the format** — the dynamic logic (profiles,
+  version switching, doctor) lives there, this emitter stays static. Sibling project (WIP):
+  [grojof/odoo-ls-companion](https://github.com/grojof/odoo-ls-companion).
 - **Provision password-auth mode** — instead of loopback `trust`, create the PostgreSQL role with a password
   and write `db_password` into the workspace `odoo.conf` (needs an `odoo.conf` password field). Safer for
   shared/remote PostgreSQL; the current trust is dev-only. (Deferred open question from F2 design.)
@@ -80,8 +80,3 @@ items are host-dependent.
   still pullable (2026-07-18).
 - **VSCode `launch.json` debug shape** — confirm the debugpy + `odoo-bin` launch config attaches against a
   real run on WSL (F1 open question).
-
-## Ops
-
-- **Push done**: repo is `grojof/odoo_dev_workspace_generator` (private). Make it public if desired.
-- **LICENSE**: AGPL-3.0 in place; `pyproject` metadata consistent.
