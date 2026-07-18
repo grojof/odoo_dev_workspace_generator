@@ -33,13 +33,21 @@ matching version branch into the shared repo cache, reusing an existing clone ra
 ### Requirement: Per-version uv virtualenv with repaired requirements
 
 For each natively-run version the system SHALL create a virtualenv with `uv` using the matched interpreter and
-install that version's `requirements.txt`, a per-version `overrides-<ver>.txt` (mapping `psycopg2` →
-`psycopg2-binary` and flooring old C-extension pins to wheel-having releases), and `openupgradelib`.
+install that version's `requirements.txt` with a per-version `overrides-<ver>.txt` applied via
+`uv pip install --overrides` (lifting pins that no longer install for the matched interpreter — e.g. the
+16.0/17.0 branches' `gevent==21.8.0` for Python 3.10 exactly, lifted to the branches' own 3.11 pins), plus
+`psycopg2-binary` and `openupgradelib`. A completed venv SHALL be stamped with a ready marker; generation
+SHALL skip on the marker (not on the venv directory) so an interrupted build is redone, not silently skipped.
 
 #### Scenario: A modern step's venv is built with the matched interpreter
 
 - **WHEN** the environment is generated for a step running Odoo 14
 - **THEN** the plan builds the venv with `uv venv --python 3.8` and installs requirements plus the overrides and `openupgradelib`
+
+#### Scenario: A half-built venv is rebuilt on the next generation
+
+- **WHEN** a previous generation was interrupted after creating a venv but before its installs finished
+- **THEN** the next generation rebuilds that venv (its ready marker is absent) instead of skipping it
 
 ### Requirement: Per-step migration config
 
@@ -50,4 +58,21 @@ and the OpenUpgrade `openupgrade_scripts`, and whose database connection targets
 
 - **WHEN** the per-step config for version 18 is rendered
 - **THEN** its `addons_path` references the `openupgrade_scripts` directory of the OpenUpgrade 18.0 checkout
+
+### Requirement: Migration environment cleanup
+
+The system SHALL offer a cleanup action that removes an existing migration environment directory (venvs,
+configs, checkpoints, logs, requirements, driver) through the standard plan → preview → apply flow, gated by
+an exact-phrase confirmation. Removing the shared clones cache SHALL be a separate opt-in within the same
+plan, and the PostgreSQL migration database SHALL NOT be touched by the plan.
+
+#### Scenario: A leftover environment is removed after preview and confirmation
+
+- **WHEN** the operator picks an existing environment to clean and confirms with the exact phrase
+- **THEN** the previewed plan removes that environment's directory and nothing else
+
+#### Scenario: The shared clones cache is only removed on explicit opt-in
+
+- **WHEN** the operator declines the shared-cache option
+- **THEN** the plan contains no command touching the shared `.repos` cache
 

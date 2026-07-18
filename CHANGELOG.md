@@ -36,6 +36,11 @@ All notable changes to this project are documented here. The format is based on
   and templates (per-step `odoo.conf`, checkpointing `run_migration.sh`, Docker recipe); wired in
   `workflows/migration.py`. Docs: `docs/migration.md`.
 
+- Migration menu: **Clean a migration environment** — removes a `<src>-to-<tgt>` environment directory
+  (venvs, configs, checkpoints, logs, requirements, driver) over plan → preview → apply with an
+  exact-phrase confirmation (`DELETE`); optionally also the shared `.repos` clone cache (opt-in, it
+  serves every environment). The PostgreSQL migration database is deliberately untouched.
+
 ### Fixed
 - Migration environment generation failed at the first requirements-overrides write
   (`cat > .../requirements/overrides-<ver>.txt`: "No such file or directory"): the `mkdir -p` for

@@ -367,6 +367,30 @@ def plan_generate_migration(env: MigrationEnv, exists: Exists = _never) -> list[
     )
 
 
+def plan_clean_migration(root: Path, repos_dir: Path | None = None) -> list[Command]:
+    """Remove one migration environment directory (venvs, confs, checkpoints, logs,
+    requirements, driver). With ``repos_dir``, also remove the shared clones cache —
+    note that cache serves every migration environment under the base directory.
+
+    Destructive: the workflow gates this behind preview + an exact-phrase
+    confirmation. The PostgreSQL migration database is host state, not files, and
+    is deliberately not part of this plan."""
+    commands = [
+        Command(
+            tf("Remove migration environment {}", str(root)),
+            f"rm -rf {shlex.quote(str(root))}",
+        )
+    ]
+    if repos_dir is not None:
+        commands.append(
+            Command(
+                tf("Remove shared migration clones {}", str(repos_dir)),
+                f"rm -rf {shlex.quote(str(repos_dir))}",
+            )
+        )
+    return commands
+
+
 def plan_refresh_repos(cfg: WorkspaceConfig, exists: Exists = _never) -> list[Command]:
     """Fast-forward-pull every present clone in the shared cache for this
     workspace's versions/OCA repos. Absent clones are skipped (nothing to refresh)."""

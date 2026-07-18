@@ -79,6 +79,18 @@ _ES_TO_EN: dict[str, str] = {
     # apply / safety
     "Para aplicar cambios en el sistema ejecuta con privilegios (sudo).": "To apply system changes, run with privileges (sudo).",
     "Fallo ejecutando: ": "Failed running: ",
+    # migration
+    "Generar un entorno de migración": "Generate a migration environment",
+    "Limpiar un entorno de migración": "Clean a migration environment",
+    "Qué entorno": "Which environment",
+    "No hay entornos de migración en {}.": "No migration environments found under {}.",
+    "¿Eliminar también la caché compartida de clones (.repos)? La usan todos los entornos de migración.": "Also remove the shared clones cache (.repos)? It serves every migration environment.",
+    "Esto elimina permanentemente {}.": "This permanently deletes {}.",
+    "Cancelado.": "Cancelled.",
+    "Entorno de migración eliminado.": "Migration environment removed.",
+    "La base de datos PostgreSQL de migración (si existe) no se toca — bórrala con dropdb cuando quieras una ejecución totalmente limpia.": "The PostgreSQL migration database (if any) is untouched — drop it with dropdb when you want a fully clean run.",
+    "Elimina el entorno de migración {}": "Remove migration environment {}",
+    "Elimina la caché compartida de clones {}": "Remove shared migration clones {}",
 }
 
 # Runtime lookup: English (the in-code source) → Spanish.

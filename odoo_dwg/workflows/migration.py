@@ -9,11 +9,13 @@ the driver against a real source dump is a manual, host-side step.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from .. import planners
 from ..i18n import t, tf
 from ..models import MigrationEnv
-from ..prompts import ask_bool, ask_text, choose
-from ..system import apply_commands, has_tool, preview_commands
+from ..prompts import ask_bool, ask_text, choose, confirm_with_phrase
+from ..system import apply_commands, has_tool, list_dirs, preview_commands
 from ..ui import level_text
 
 
@@ -45,14 +47,40 @@ def _generate_environment() -> None:
         print(level_text("OK", tf("Environment ready. Run: bash {}/run_migration.sh <source-dump>", env.root)))
 
 
+def _clean_environment() -> None:
+    base = Path(MigrationEnv.base_dir).expanduser()
+    environments = [name for name in list_dirs(str(base)) if "-to-" in name]
+    if not environments:
+        print(level_text("INFO", tf("No migration environments found under {}.", str(base))))
+        return
+    name = choose("Which environment", environments + ["Cancel"], default_index=None)
+    if name in ("", "Cancel"):
+        return
+    root = base / name
+    include_repos = ask_bool(
+        "Also remove the shared clones cache (.repos)? It serves every migration environment.",
+        False,
+    )
+    commands = planners.plan_clean_migration(root, base / ".repos" if include_repos else None)
+    preview_commands(commands)
+    if not confirm_with_phrase(tf("This permanently deletes {}.", str(root)), "DELETE"):
+        print(level_text("INFO", t("Cancelled.")))
+        return
+    apply_commands(commands)
+    print(level_text("OK", t("Migration environment removed.")))
+    print(level_text("INFO", t("The PostgreSQL migration database (if any) is untouched — drop it with dropdb when you want a fully clean run.")))
+
+
 def migration_menu() -> None:
     while True:
         action = choose(
             "\nMigration (OpenUpgrade 12→19)",
-            ["Generate a migration environment", "Back"],
+            ["Generate a migration environment", "Clean a migration environment", "Back"],
             default_index=None,
         )
         if action in ("", "Back"):
             return
         if action == "Generate a migration environment":
             _generate_environment()
+        elif action == "Clean a migration environment":
+            _clean_environment()

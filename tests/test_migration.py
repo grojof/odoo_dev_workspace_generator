@@ -154,3 +154,20 @@ def test_venvs_plan_is_self_sufficient_about_directories():
     cmds = planners.plan_migration_venvs(env)
     assert cmds[0].command.startswith("mkdir -p")
     assert str(env.requirements_dir) in cmds[0].command
+
+
+def test_clean_migration_removes_only_the_environment_by_default():
+    env = MigrationEnv(source="12.0", target="18.0")
+    cmds = planners.plan_clean_migration(env.root)
+    assert len(cmds) == 1
+    assert cmds[0].command.startswith("rm -rf")
+    assert str(env.root) in cmds[0].command
+    assert ".repos" not in cmds[0].command
+
+
+def test_clean_migration_includes_shared_repos_only_on_opt_in():
+    env = MigrationEnv(source="12.0", target="18.0")
+    cmds = planners.plan_clean_migration(env.root, env.repos_dir)
+    assert len(cmds) == 2
+    assert str(env.repos_dir) in cmds[1].command
+    assert cmds[1].command.startswith("rm -rf")

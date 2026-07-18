@@ -64,6 +64,14 @@ It restores the dump into a working database on the shared PostgreSQL, then runs
 `--update all --stop-after-init` (Odoo ≥ 14: `--load=base,web,openupgrade_framework`), and **`pg_dump`s a
 checkpoint after each successful step** — so a failure resumes from the last good step, not from the source.
 
+## Cleaning up
+
+The migration menu's **Clean a migration environment** action removes an environment directory
+(venvs, configs, checkpoints, logs, requirements, driver) after preview and an exact-phrase
+confirmation (`DELETE`) — use it to retest from scratch or clear leftovers. Removing the shared
+`.repos` clone cache is a separate opt-in (it serves *every* migration environment). The PostgreSQL
+migration database is never touched; drop it manually (`dropdb`) for a fully clean run.
+
 ## Scope & caveats
 
 - A **full 12 → 19 run needs a real legacy dump** and is not part of automated tests; WSL acceptance covers
