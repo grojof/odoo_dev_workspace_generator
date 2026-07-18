@@ -310,7 +310,7 @@ def plan_migration_venvs(env: MigrationEnv, exists: Exists = _never) -> list[Com
         commands += [
             Command(
                 tf("Create uv venv (Python {}) for Odoo {}", python, version),
-                f"uv venv --python {shlex.quote(python)} {shlex.quote(str(venv))}",
+                f"uv venv --no-project --python {shlex.quote(python)} {shlex.quote(str(venv))}",
             ),
             Command(
                 tf("Install Odoo {} requirements", version),

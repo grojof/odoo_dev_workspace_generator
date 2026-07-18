@@ -91,7 +91,8 @@ def test_venvs_only_for_native_versions_with_uv():
     env = MigrationEnv(source="12.0", target="14.0")
     cmds = planners.plan_migration_venvs(env)
     joined = "\n".join(c.command for c in cmds)
-    assert "uv venv --python 3.8" in joined      # Odoo 14 → 3.8
+    assert "uv venv --no-project --python 3.8" in joined  # Odoo 14 → 3.8; --no-project so
+    # uv ignores any pyproject.toml at the caller's CWD (its requires-python is not Odoo's)
     assert "openupgradelib" in joined
     assert joined.count("uv venv") == 1          # only 14 (13 is docker, no venv)
 

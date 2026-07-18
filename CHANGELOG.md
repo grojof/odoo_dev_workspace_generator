@@ -42,3 +42,6 @@ All notable changes to this project are documented here. The format is based on
   `requirements/` ran only in the configs planner, *after* the venvs planner that writes the overrides.
   `plan_migration_venvs` now creates the directory itself before its first write (found running a real
   12 → 18 generation on WSL).
+- Migration venvs are now created with `uv venv --no-project`: without it, uv discovers any
+  `pyproject.toml` at the caller's working directory (e.g. this repo's own, `requires-python >=3.10`)
+  and emits a spurious incompatibility warning when building the 3.8 venvs for Odoo 14/15.
