@@ -395,6 +395,82 @@ def plan_generate_migration(env: MigrationEnv, exists: Exists = _never) -> list[
     )
 
 
+# Validated on WSL (2026-07-18): staged a sample module 16→18 (tree→list applied,
+# version bumps, per-step logs). Pinned for reproducibility; bump deliberately.
+STAGING_TOOL_SPEC = "odoo-module-migrator==0.5.0"
+
+
+def plan_staging_tool(env: MigrationEnv) -> list[Command]:
+    """Install `odoo-module-migrator` (OCA) into a shared uv tool venv — a host
+    prerequisite prepared through the plan, never a runtime dependency of
+    odoo_dwg."""
+    venv = env.staging_tool_venv
+    return [
+        Command(
+            tf("Create the staging tool venv"),
+            f"uv venv --clear --no-project {shlex.quote(str(venv))}",
+        ),
+        Command(
+            tf("Install odoo-module-migrator"),
+            f"uv pip install --python {shlex.quote(str(venv))} {STAGING_TOOL_SPEC}",
+        ),
+    ]
+
+
+def plan_stage_module(env: MigrationEnv, module: str, source_dir: Path) -> list[Command]:
+    """Stage one custom module stepwise: the operator's source copy feeds the
+    first step, each later step consumes the previous step's staged output, and
+    `odoo-module-migrate` applies exactly that bump in place. The operator's
+    source directory is never modified. Existing staged targets are replaced —
+    the workflow gates that behind an exact-phrase confirmation."""
+    migrate_bin = env.staging_tool_venv / "bin" / "odoo-module-migrate"
+    commands: list[Command] = [
+        Command(
+            tf("Create staging directories for {}", module),
+            "mkdir -p " + " ".join(
+                shlex.quote(str(p))
+                for p in [env.staging_dir] + [env.addons_custom_dir(v) for v in env.chain()]
+            ),
+        )
+    ]
+    previous = Path(source_dir) / module
+    previous_version = env.source
+    for version in env.chain():
+        target_parent = env.addons_custom_dir(version)
+        target = target_parent / module
+        log = env.staging_log_file(module, version)
+        commands += [
+            Command(
+                tf("Copy {} stage {} from the {} stage", module, version, previous_version),
+                f"rm -rf {shlex.quote(str(target))} && "
+                f"cp -a {shlex.quote(str(previous))} {shlex.quote(str(target_parent))}/",
+            ),
+            # odoo-module-migrate runs git commands over the directory (verified:
+            # it fails with "not a git repository" otherwise), so each stage dir
+            # is a throwaway git worktree with the pre-migration state committed.
+            Command(
+                tf("Prepare the git worktree for {} stage {}", module, version),
+                f"git -C {shlex.quote(str(target_parent))} init -q && "
+                f"git -C {shlex.quote(str(target_parent))} add -A && "
+                f"git -C {shlex.quote(str(target_parent))} "
+                f"-c user.name=odoo-dwg -c user.email=odoo-dwg@localhost "
+                f"commit -qm {shlex.quote(f'stage {module} {version} input')} || true",
+            ),
+            Command(
+                tf("Migrate {} code {} -> {}", module, previous_version, version),
+                f"set -o pipefail && {shlex.quote(str(migrate_bin))} "
+                f"--directory {shlex.quote(str(target_parent))} "
+                f"--modules {shlex.quote(module)} "
+                f"--init-version-name {shlex.quote(previous_version)} "
+                f"--target-version-name {shlex.quote(version)} "
+                f"2>&1 | tee {shlex.quote(str(log))}",
+            ),
+        ]
+        previous = target
+        previous_version = version
+    return commands
+
+
 def plan_clean_migration(root: Path, repos_dir: Path | None = None) -> list[Command]:
     """Remove one migration environment directory (venvs, confs, checkpoints, logs,
     requirements, driver). With ``repos_dir``, also remove the shared clones cache —

@@ -69,5 +69,8 @@ clean action.
 
 ## Open Questions
 
-- Pin `odoo-module-migrator` version or track latest? Leaning pin-with-override (reproducibility);
-  decide at apply after testing on WSL against a real 12→19 stage of a sample module.
+- ~~Pin `odoo-module-migrator` version or track latest?~~ **Resolved at apply (2026-07-18): pinned
+  `odoo-module-migrator==0.5.0`** — the version validated on WSL staging a sample module 16→18
+  (`STAGING_TOOL_SPEC` in planners.py; bump deliberately). Two behaviors learned there: the tool
+  requires a git worktree (each stage dir gets a throwaway one, pre-state committed), and 0.5.0 does
+  not auto-convert 17.0 view `attrs` (stays review work — docs state what was observed, not assumed).

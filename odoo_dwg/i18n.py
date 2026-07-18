@@ -103,6 +103,18 @@ _ES_TO_EN: dict[str, str] = {
     "Instala Docker Engine (docker.io)": "Install Docker Engine (docker.io)",
     "Habilita y arranca el servicio Docker": "Enable and start the Docker service",
     "Descarga la imagen Docker {}": "Pull Docker image {}",
+    # staging
+    "Preparar módulos custom (staging)": "Stage custom modules",
+    "La herramienta de staging (odoo-module-migrator) no está instalada. Este plan la instala:": "The staging tool (odoo-module-migrator) is not installed. This plan installs it:",
+    "Directorio con tus módulos custom (en la versión origen)": "Directory containing your custom modules (at the source version)",
+    "Módulos a preparar (separados por comas, vacío = todos)": "Modules to stage (comma-separated, empty = all)",
+    "No es un directorio: {}": "Not a directory: {}",
+    "No encontrados en el directorio origen: {}": "Not found in the source directory: {}",
+    "No hay módulos que preparar.": "No modules to stage.",
+    "Sin clon de OpenUpgrade para {} — la detección de candidatos quedará vacía en esos pasos (genera antes el entorno).": "No OpenUpgrade clone for {} — candidate detection will be empty for those steps (generate the environment first).",
+    "Esto reemplaza el código ya preparado de: {}.": "This replaces the already-staged code of: {}.",
+    "Informe de staging: {}": "Staging report: {}",
+    "El staging es un punto de partida preparado — tu revisión completa la migración.": "Staging is a prepared starting point — your review completes the migration.",
 }
 
 # Runtime lookup: English (the in-code source) → Spanish.

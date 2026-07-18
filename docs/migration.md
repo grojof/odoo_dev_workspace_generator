@@ -69,6 +69,33 @@ able to *find* every installed module, or it is left broken mid-chain:
   module with this warning; the staging workflow (see the `add-custom-module-staging` change) prepares
   most of this mechanically.
 
+## Staging custom modules (menu → Stage custom modules)
+
+The heavy mechanical part of adapting **custom** module code is automated by orchestrating
+[`odoo-module-migrator`](https://github.com/OCA/odoo-module-migrator) (OCA — the *code*-side complement
+of OpenUpgrade, with migration scripts for every bump through 18.0→19.0):
+
+1. You point at the directory holding your custom modules **at the source version** (never modified) and
+   pick the modules.
+2. Per chain step, the previous stage's code is copied into `addons/odoo<major>/custom/<module>` (a
+   throwaway git worktree — the tool requires one) and the tool applies exactly that bump. Observed on
+   WSL with `odoo-module-migrator==0.5.0`: 18.0 converts `<tree>` → `<list>` and bumps the manifest
+   version per step; some changes (e.g. the 17.0 view-`attrs` removal) are *not* auto-applied by this
+   tool version and remain review work — which the candidate findings and the tool's own WARN/ERROR
+   lines point at. Its full output is captured per step.
+3. The staged code is then cross-referenced against the step's OpenUpgrade **analysis files**
+   (`upgrade_analysis.txt`, already in the cloned checkouts): references to core fields/models **removed**
+   in that step are reported as *candidate* findings with file and line. Candidates need your
+   confirmation — a name match is a lead, not proof (generic names like `name`/`state` are not text-matched).
+4. For steps with findings, an **inert scaffold** `migrations/<ver>.1.0.0/pre-migration.py` is written
+   (openupgradelib import + one TODO per finding). If your module already has that file, the scaffold
+   lands beside it as `pre-migration.generated.py` — your code is never overwritten.
+5. Everything ends in `staging/report-<module>.md`: tool log verbatim, findings, scaffolds. **Staging is a
+   prepared starting point; your review completes the migration** — the tool never marks a module migrated.
+
+The tool itself installs into a shared uv venv (`~/odoo-migrations/.tools/module-migrator`) through a
+previewed plan the first time you stage.
+
 ## Preflight: verify before you burn hours
 
 **Menu → Migration → Preflight check** runs a read-only verification, and the same checks run

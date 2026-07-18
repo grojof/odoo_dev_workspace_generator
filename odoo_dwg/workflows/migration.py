@@ -9,13 +9,16 @@ the driver against a real source dump is a manual, host-side step.
 
 from __future__ import annotations
 
+import re
+import shlex
 from pathlib import Path
 
-from .. import planners, preflight
+from .. import analysis, planners, preflight, templates
 from ..i18n import t, tf
 from ..models import MigrationEnv
+from ..planners import write_text_file_command
 from ..prompts import ask_bool, ask_text, choose, confirm_with_phrase
-from ..system import apply_commands, list_dirs, preview_commands
+from ..system import Command, apply_commands, list_dirs, preview_commands
 from ..ui import level_text, render_table
 
 
@@ -111,6 +114,132 @@ def _clean_environment() -> None:
     print(level_text("INFO", t("The PostgreSQL migration database (if any) is untouched — drop it with dropdb when you want a fully clean run.")))
 
 
+def _step_analysis_records(env: MigrationEnv, version: str) -> list[analysis.AnalysisRecord]:
+    """Aggregate every ``upgrade_analysis.txt`` of the step's OpenUpgrade clone.
+    Layout differs by era: ``openupgrade_scripts/scripts/<module>/<ver>/`` on
+    ≥ 14, module-embedded ``migrations`` dirs on the ≤ 13 fork."""
+    clone = env.openupgrade_clone_dir(version)
+    records: list[analysis.AnalysisRecord] = []
+    patterns = (
+        "openupgrade_scripts/scripts/*/*/upgrade_analysis.txt",
+        "addons/*/migrations/*/upgrade_analysis.txt",
+        "odoo/addons/*/migrations/*/upgrade_analysis.txt",
+    )
+    for pattern in patterns:
+        for path in clone.glob(pattern):
+            try:
+                records += analysis.parse_analysis(path.read_text(encoding="utf-8", errors="replace"))
+            except OSError:
+                continue
+    return records
+
+
+def _staged_module_files(module_dir: Path) -> list[tuple[str, str]]:
+    files: list[tuple[str, str]] = []
+    for suffix in ("*.py", "*.xml"):
+        for path in sorted(module_dir.rglob(suffix)):
+            try:
+                files.append((str(path.relative_to(module_dir)), path.read_text(encoding="utf-8", errors="replace")))
+            except OSError:
+                continue
+    return files
+
+
+def _ensure_staging_tool(env: MigrationEnv) -> bool:
+    if (env.staging_tool_venv / "bin" / "odoo-module-migrate").exists():
+        return True
+    print(level_text("WARN", t("The staging tool (odoo-module-migrator) is not installed. This plan installs it:")))
+    commands = planners.plan_staging_tool(env)
+    preview_commands(commands)
+    if not ask_bool("Apply this plan now?", False):
+        return False
+    apply_commands(commands)
+    return True
+
+
+def _stage_modules() -> None:
+    env = _ask_env()
+    if env is None:
+        return
+    if not _ensure_staging_tool(env):
+        return
+
+    source_dir = Path(ask_text("Directory containing your custom modules (at the source version)", required=True)).expanduser()
+    if not source_dir.is_dir():
+        print(level_text("ERROR", tf("Not a directory: {}", str(source_dir))))
+        return
+    available = list_dirs(str(source_dir))
+    raw = ask_text("Modules to stage (comma-separated, empty = all)", "", required=False)
+    modules = [m.strip() for m in raw.split(",") if m.strip()] or available
+    unknown = [m for m in modules if m not in available]
+    if unknown:
+        print(level_text("ERROR", tf("Not found in the source directory: {}", ", ".join(unknown))))
+        return
+    if not modules:
+        print(level_text("ERROR", t("No modules to stage.")))
+        return
+
+    missing_clones = [v for v in env.chain() if not env.openupgrade_clone_dir(v).is_dir()]
+    if missing_clones:
+        print(level_text("WARN", tf("No OpenUpgrade clone for {} — candidate detection will be empty for those steps (generate the environment first).", ", ".join(missing_clones))))
+
+    already = sorted({m for m in modules for v in env.chain() if (env.addons_custom_dir(v) / m).exists()})
+    if already and not confirm_with_phrase(
+        tf("This replaces the already-staged code of: {}.", ", ".join(already)), "RESTAGE"
+    ):
+        print(level_text("INFO", t("Cancelled.")))
+        return
+
+    commands = []
+    for module in modules:
+        commands += planners.plan_stage_module(env, module, source_dir)
+    preview_commands(commands)
+    if not ask_bool("Apply this plan now?", False):
+        return
+    apply_commands(commands)
+
+    # Second phase: scan the staged output, then plan the additive scaffold and
+    # report writes (previewed like everything else).
+    write_commands = []
+    for module in modules:
+        steps: list[tuple[str, str, list, str | None]] = []
+        for version in env.chain():
+            log_path = env.staging_log_file(module, version)
+            log_text = log_path.read_text(encoding="utf-8", errors="replace") if log_path.is_file() else ""
+            log_text = re.sub(r"\x1b\[[0-9;]*m", "", log_text)  # ANSI colors out of the report
+            module_dir = env.addons_custom_dir(version) / module
+            findings = analysis.scan_source(
+                _staged_module_files(module_dir), _step_analysis_records(env, version)
+            )
+            scaffold_path: str | None = None
+            if findings:
+                migrations_dir = module_dir / "migrations" / f"{version}.1.0.0"
+                target = migrations_dir / "pre-migration.py"
+                if target.exists():
+                    # Never overwrite operator code — write an inert sibling.
+                    target = migrations_dir / "pre-migration.generated.py"
+                scaffold_path = str(target)
+                write_commands.append(
+                    Command(
+                        tf("Create migrations directory for {} ({})", module, version),
+                        f"mkdir -p {shlex.quote(str(migrations_dir))}",
+                    )
+                )
+                write_commands += write_text_file_command(
+                    target, templates.render_migration_scaffold(module, version, findings)
+                )
+            steps.append((version, log_text, findings, scaffold_path))
+        write_commands += write_text_file_command(
+            env.staging_report_file(module), templates.render_staging_report(module, steps)
+        )
+    preview_commands(write_commands)
+    if ask_bool("Apply this plan now?", False):
+        apply_commands(write_commands)
+        for module in modules:
+            print(level_text("OK", tf("Staging report: {}", env.staging_report_file(module))))
+        print(level_text("INFO", t("Staging is a prepared starting point — your review completes the migration.")))
+
+
 def migration_menu() -> None:
     while True:
         action = choose(
@@ -118,6 +247,7 @@ def migration_menu() -> None:
             [
                 "Generate a migration environment",
                 "Preflight check",
+                "Stage custom modules",
                 "Clean a migration environment",
                 "Back",
             ],
@@ -129,5 +259,7 @@ def migration_menu() -> None:
             _generate_environment()
         elif action == "Preflight check":
             _preflight_check()
+        elif action == "Stage custom modules":
+            _stage_modules()
         elif action == "Clean a migration environment":
             _clean_environment()

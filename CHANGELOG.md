@@ -53,6 +53,15 @@ All notable changes to this project are documented here. The format is based on
   the failed check named. Migration environments now define `addons/odoo<major>/{custom,oca}` per version,
   threaded into each step's `addons_path` ahead of OpenUpgrade and core.
 
+- **Custom-module staging** (change `add-custom-module-staging`): migration menu action **Stage custom
+  modules** — per chain step it copies the previous stage's code into `addons/odoo<major>/custom` and runs
+  OCA `odoo-module-migrator` for exactly that bump (tool installed into a shared uv venv via a previewed
+  plan; the operator's source is never modified), cross-references the staged code against the step's
+  OpenUpgrade `upgrade_analysis.txt` files (removed core fields/models → candidate findings with
+  file:line; generic names excluded), writes inert `pre-migration.py` scaffolds (never overwriting —
+  `pre-migration.generated.py` beside existing files), and produces `staging/report-<module>.md` with the
+  tool log verbatim. Staging is a prepared starting point; developer review completes the migration.
+
 ### Fixed
 - Migration step configs now put the OpenUpgrade checkout **root** on `addons_path` (previously the
   `openupgrade_scripts` module directory itself), so `openupgrade_framework` resolves as the official

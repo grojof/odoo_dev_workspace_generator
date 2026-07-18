@@ -340,6 +340,25 @@ class MigrationEnv:
     def overrides_file(self, version: str) -> Path:
         return self.requirements_dir / f"overrides-{version}.txt"
 
+    @property
+    def tools_dir(self) -> Path:
+        """Shared tool venvs (one per host tool), serving every environment."""
+        return Path(self.base_dir).expanduser() / ".tools"
+
+    @property
+    def staging_tool_venv(self) -> Path:
+        return self.tools_dir / "module-migrator"
+
+    @property
+    def staging_dir(self) -> Path:
+        return self.root / "staging"
+
+    def staging_log_file(self, module: str, version: str) -> Path:
+        return self.staging_dir / f"log-{module}-{version}.txt"
+
+    def staging_report_file(self, module: str) -> Path:
+        return self.staging_dir / f"report-{module}.md"
+
     def config_file(self, version: str) -> Path:
         return self.conf_dir / f"odoo{odoo_major(version)}.conf"
 
