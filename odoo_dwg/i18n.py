@@ -91,6 +91,18 @@ _ES_TO_EN: dict[str, str] = {
     "La base de datos PostgreSQL de migración (si existe) no se toca — bórrala con dropdb cuando quieras una ejecución totalmente limpia.": "The PostgreSQL migration database (if any) is untouched — drop it with dropdb when you want a fully clean run.",
     "Elimina el entorno de migración {}": "Remove migration environment {}",
     "Elimina la caché compartida de clones {}": "Remove shared migration clones {}",
+    # preflight
+    "Comprobación previa (preflight)": "Preflight check",
+    "Fichero de dump origen a verificar (vacío para omitir)": "Source dump file to verify (empty to skip)",
+    "Base de datos existente a verificar (vacío para omitir)": "Existing database to verify (empty to skip)",
+    "Faltan comprobaciones requeridas (MISSING) — ¿continuar de todos modos?": "Some required checks are MISSING — continue anyway?",
+    "Resuelve las comprobaciones MISSING antes de ejecutar la migración.": "Resolve the MISSING checks before running the migration.",
+    "Preflight superado.": "Preflight passed.",
+    "¿Instalar Docker Engine? (solo necesario para los pasos de migración de Odoo 12/13)": "Install Docker Engine? (only needed for Odoo 12/13 migration steps)",
+    "¿Descargar las imágenes de reserva de OpenUpgrade (odoo:13.0, odoo:12.0)?": "Pull the OpenUpgrade fallback images (odoo:13.0, odoo:12.0)?",
+    "Instala Docker Engine (docker.io)": "Install Docker Engine (docker.io)",
+    "Habilita y arranca el servicio Docker": "Enable and start the Docker service",
+    "Descarga la imagen Docker {}": "Pull Docker image {}",
 }
 
 # Runtime lookup: English (the in-code source) → Spanish.

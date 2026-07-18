@@ -62,14 +62,16 @@ items are host-dependent.
 
 ## Validation / refinement (host-dependent)
 
-- **Migration overrides tuning** — confirm the exact `requirements/overrides-<ver>.txt` pins by a real
-  `uv pip install -r requirements.txt` for Odoo 14 and 15 on the WSL box (psycopg2-binary already validated on
-  15/3.8; check lxml/Pillow/gevent/greenlet floors).
-- **12/13 OpenUpgrade command shape** — verify the exact `odoo-bin`/Docker invocation for the 12.0/13.0
-  branches against their READMEs (they predate the `openupgrade_framework` module layout). The Docker recipe
-  currently carries a `TODO` marker.
+- ~~Migration overrides tuning~~ — **done** (2026-07-18): 14/15 install clean on 3.8; 16/17 needed the
+  `--overrides` lift to `gevent==22.10.2`/`greenlet==2.0.2` (validated by real `uv pip install` on WSL).
+- **12/13 OpenUpgrade command shape** — the recipe now runs the ≤ 13 *fork's* own `odoo-bin` from the
+  mounted clone with `openupgradelib` installed on the fly (verified on WSL against `odoo:13.0`: container
+  reaches OpenUpgrade code against the shared PostgreSQL). Remaining: semantic validation with a real
+  legacy database (a synthetic dump cannot migrate).
 - **Full 12 → 19 data migration** — run the checkpointing driver against a real legacy dump on WSL (needs a
-  user-provided source database). Docker Desktop WSL integration must be enabled for the 12→13 step.
+  user-provided source database). Docker Engine is installed *in the Linux host itself* by
+  `provision apply` (`docker.io`) — no Docker Desktop dependency; `odoo:12.0`/`odoo:13.0` tags verified
+  still pullable (2026-07-18).
 - **VSCode `launch.json` debug shape** — confirm the debugpy + `odoo-bin` launch config attaches against a
   real run on WSL (F1 open question).
 

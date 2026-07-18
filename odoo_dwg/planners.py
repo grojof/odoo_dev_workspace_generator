@@ -254,6 +254,35 @@ def plan_node_rtlcss() -> list[Command]:
     ]
 
 
+# Official images backing the OpenUpgrade 12/13 Docker fallback steps.
+OPENUPGRADE_FALLBACK_IMAGES = ("odoo:13.0", "odoo:12.0")
+
+
+def plan_docker_engine() -> list[Command]:
+    """Docker Engine from the distro archive (``docker.io``) — sufficient for the
+    OpenUpgrade fallback containers, with no extra apt sources/keys. Operators
+    preferring Docker's own ``docker-ce`` repo follow the official Docker docs
+    instead (see docs/provisioning.md); the checks only care that a daemon responds."""
+    return [
+        Command(
+            tf("Install Docker Engine (docker.io)"),
+            "apt-get update && apt-get -y install docker.io",
+        ),
+        Command(tf("Enable and start the Docker service"), "systemctl enable --now docker"),
+    ]
+
+
+def plan_pull_openupgrade_images(
+    images: tuple[str, ...] = OPENUPGRADE_FALLBACK_IMAGES,
+) -> list[Command]:
+    """Pull the fallback images so a migration's Docker step cannot fail on a
+    missing image at run time."""
+    return [
+        Command(tf("Pull Docker image {}", image), f"docker pull {shlex.quote(image)}")
+        for image in images
+    ]
+
+
 # --- migration (F3) --------------------------------------------------------
 
 
@@ -337,14 +366,13 @@ def plan_migration_venvs(env: MigrationEnv, exists: Exists = _never) -> list[Com
 
 def plan_migration_configs(env: MigrationEnv) -> list[Command]:
     """Write the per-step odoo.conf and the run_migration.sh driver."""
+    dirs: list[Path] = [env.conf_dir, env.checkpoints_dir, env.logs_dir, env.requirements_dir]
+    for version in env.chain():
+        dirs += [env.addons_custom_dir(version), env.addons_oca_dir(version)]
     commands: list[Command] = [
         Command(
             tf("Create migration directories"),
-            "mkdir -p "
-            + " ".join(
-                shlex.quote(str(p))
-                for p in (env.conf_dir, env.checkpoints_dir, env.logs_dir, env.requirements_dir)
-            ),
+            "mkdir -p " + " ".join(shlex.quote(str(p)) for p in dirs),
         )
     ]
     for version in env.chain():

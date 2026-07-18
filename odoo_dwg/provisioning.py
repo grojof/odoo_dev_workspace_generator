@@ -25,6 +25,11 @@ class ProvisionFacts:
     wkhtmltopdf: str | None = None
     node: bool = False
     rtlcss: bool = False
+    uv: bool = False
+    docker_binary: bool = False
+    docker_daemon: bool = False
+    docker_daemon_detail: str = ""
+    docker_images: dict[str, bool] = field(default_factory=dict)
 
 
 def gather_facts(dev_role: str = "odoo") -> ProvisionFacts:
@@ -32,6 +37,15 @@ def gather_facts(dev_role: str = "odoo") -> ProvisionFacts:
     release = system.detect_os_release()
     family = system.apt_family()
     role_exists = system.db_role_exists(dev_role) if system.postgres_running() else False
+    docker_binary = system.has_tool("docker")
+    daemon_ready, daemon_detail = (
+        system.docker_daemon_ready() if docker_binary else (False, "")
+    )
+    images = (
+        {tag: system.docker_image_present(tag) for tag in planners.OPENUPGRADE_FALLBACK_IMAGES}
+        if daemon_ready
+        else {}
+    )
     return ProvisionFacts(
         os_family=family,
         os_codename=release.get("VERSION_CODENAME", ""),
@@ -43,6 +57,11 @@ def gather_facts(dev_role: str = "odoo") -> ProvisionFacts:
         wkhtmltopdf=system.wkhtmltopdf_version(),
         node=system.has_tool("node") or system.has_tool("nodejs"),
         rtlcss=system.has_tool("rtlcss"),
+        uv=system.has_tool("uv"),
+        docker_binary=docker_binary,
+        docker_daemon=daemon_ready,
+        docker_daemon_detail=daemon_detail,
+        docker_images=images,
     )
 
 
@@ -81,5 +100,22 @@ def provision_rows(facts: ProvisionFacts) -> list[tuple[str, str, str]]:
 
     rows.append(("OK" if facts.node else "INFO", "Node.js (optional)", "present" if facts.node else "not installed (only needed for RTL/less)"))
     rows.append(("OK" if facts.rtlcss else "INFO", "rtlcss (optional)", "present" if facts.rtlcss else "not installed (only needed for RTL/less)"))
+
+    rows.append(("OK" if facts.uv else "INFO", "uv (migration)", "present" if facts.uv else "not installed (needed for migration interpreters — docs.astral.sh/uv)"))
+
+    if not facts.docker_binary:
+        rows.append(("INFO", "Docker (migration 12/13)", "not installed (only needed for Odoo 12/13 migration steps)"))
+    else:
+        rows.append(("OK", "Docker binary", "present"))
+        if facts.docker_daemon:
+            rows.append(("OK", "Docker daemon", facts.docker_daemon_detail or "responding"))
+            present = [tag for tag, ok in facts.docker_images.items() if ok]
+            missing = [tag for tag, ok in facts.docker_images.items() if not ok]
+            detail = ", ".join(
+                [f"{tag} present" for tag in present] + [f"{tag} not pulled" for tag in missing]
+            )
+            rows.append(("INFO", "OpenUpgrade fallback images", detail or "not checked"))
+        else:
+            rows.append(("WARN", "Docker daemon", facts.docker_daemon_detail or "not responding (service down or missing docker-group permission)"))
 
     return rows

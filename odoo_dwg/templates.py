@@ -291,24 +291,106 @@ def _native_step_command(env: MigrationEnv, version: str) -> str:
 def render_docker_step(env: MigrationEnv, version: str) -> str:
     """A ``docker run`` recipe for a step whose Python (3.5/3.6) uv cannot provide
     (Odoo 12/13), against the shared PostgreSQL. Text only — the host provides the
-    daemon. NOTE: the 12.0/13.0 OpenUpgrade layout predates openupgrade_framework;
-    verify the exact command against those branches' READMEs before relying on it."""
+    daemon. The ≤ 13 OpenUpgrade branches are a full Odoo *fork* (own ``odoo-bin``
+    at the repo root — verified on branch 13.0), so the container runs the fork's
+    odoo-bin from the mounted clone with ``openupgradelib`` installed on the fly;
+    ``--upgrade-path``/``openupgrade_framework`` do not exist before 14.0. Running
+    a non-``odoo`` command bypasses the image entrypoint, so db flags are explicit.
+    TODO: full validation against a real legacy dump (see docs/migration caveats)."""
     major = odoo_major(version)
     ou = env.openupgrade_clone_dir(version)
+    # Double quotes so "$DB" expands in the *driver* shell, not the container.
+    inner = (
+        f'pip3 install --quiet openupgradelib && '
+        f'python3 /openupgrade/odoo-bin -d $DB '
+        f'--db_host={env.db_host} --db_port={env.db_port} --db_user={env.db_user} '
+        f'--update all --stop-after-init'
+    )
     return (
         f'docker run --rm --network=host '
         f'-v "{ou}:/openupgrade" '
         f'odoo:{major}.0 '
-        f'odoo -d "$DB" --db_host={env.db_host} --db_port={env.db_port} --db_user={env.db_user} '
-        f'--upgrade-path=/openupgrade/scripts --update all --stop-after-init '
-        f'--load=base,web  # TODO: confirm 12/13 OpenUpgrade layout/flags'
+        f'bash -c "{inner}"'
     )
 
 
+def _render_preflight_host(env: MigrationEnv) -> str:
+    """Bash host-scope preflight: chain tools, PostgreSQL, dump integrity. The
+    bash mirror of ``preflight.gather_host_facts`` (see design: the driver must
+    stay plain bash, so the checks are rendered, kept in this one function)."""
+    lines = [
+        "preflight_host() {",
+        '  command -v uv >/dev/null 2>&1 || fail "uv not found (needed for the native venvs)"',
+    ]
+    for version in env.chain():
+        if not env.is_native(version):
+            image = f"odoo:{odoo_major(version)}.0"
+            lines += [
+                f'  command -v docker >/dev/null 2>&1 || fail "docker not found (needed for the Odoo {odoo_major(version)} step)"',
+                '  docker info >/dev/null 2>&1 || fail "docker daemon not responding (service down or missing docker-group permission)"',
+                f'  docker image inspect {image} >/dev/null 2>&1 || fail "image {image} missing (docker pull {image})"',
+            ]
+    lines += [
+        '  psql -tAc "SELECT 1" postgres >/dev/null 2>&1 || fail "PostgreSQL not reachable as $PGUSER@$PGHOST:$PGPORT"',
+        '  [ -r "$SRC_DUMP" ] || fail "source dump not readable: $SRC_DUMP"',
+        '  pg_restore --list "$SRC_DUMP" >/dev/null 2>&1 || fail "pg_restore cannot list $SRC_DUMP — a custom-format dump (pg_dump -Fc) is required"',
+        '  echo "[preflight] host checks passed"',
+        "}",
+    ]
+    return "\n".join(lines)
+
+
+def _render_preflight_db(env: MigrationEnv) -> str:
+    """Bash database-scope preflight, run right after the fresh 00_source restore
+    (a resumed database is mid-chain, so the version check only holds there):
+    declared-source match from ir_module_module, then per-step addons coverage."""
+    source_major = odoo_major(env.source)
+    lines = [
+        "preflight_db() {",
+        '  local base_ver missing=0',
+        '  base_ver=$(psql -d "$DB" -tAc "SELECT latest_version FROM ir_module_module WHERE name=\'base\'")',
+        f'  case "$base_ver" in {source_major}.*) ;; *) fail "database base version \'$base_ver\' does not match declared source {env.source}";; esac',
+        '  modules=$(psql -d "$DB" -tAc "SELECT name FROM ir_module_module WHERE state=\'installed\'")',
+    ]
+    for version in env.chain():
+        if not env.is_native(version):
+            lines.append(
+                f'  echo "[preflight] coverage not verifiable for {version} (the odoo:{odoo_major(version)}.0 image provides core)"'
+            )
+            continue
+        sources = " ".join(
+            f'"{p}"'
+            for p in (
+                env.addons_custom_dir(version),
+                env.addons_oca_dir(version),
+                env.openupgrade_clone_dir(version),
+                env.odoo_clone_dir(version) / "addons",
+                env.odoo_clone_dir(version) / "odoo" / "addons",
+            )
+        )
+        lines += [
+            f"  # coverage: step {version}",
+            '  for m in $modules; do',
+            "    found=0",
+            f"    for src in {sources}; do",
+            '      [ -d "$src/$m" ] && found=1 && break',
+            "    done",
+            f'    [ "$found" = 1 ] || {{ echo "[coverage] $m missing for {version} — place it in {env.addons_custom_dir(version)}" >&2; missing=1; }}',
+            "  done",
+        ]
+    lines += [
+        '  [ "$missing" = 0 ] || fail "addons coverage incomplete (see [coverage] lines above)"',
+        '  echo "[preflight] database checks passed"',
+        "}",
+    ]
+    return "\n".join(lines)
+
+
 def render_run_migration_sh(env: MigrationEnv) -> str:
-    """The checkpointing driver: restore a source dump into a working DB, then run
-    each step in order, dumping a checkpoint after each success so a re-run resumes
-    from the last good step (never touches the source/production database)."""
+    """The checkpointing driver: preflight the host, restore a source dump into a
+    working DB (verifying it before step 1), then run each step in order, dumping
+    a checkpoint after each success so a re-run resumes from the last good step
+    (never touches the source/production database)."""
     header = f"""#!/usr/bin/env bash
 # Generated by odoo_dwg — OpenUpgrade migration {env.source} -> {env.target}.
 set -euo pipefail
@@ -320,14 +402,23 @@ CK="{env.checkpoints_dir}"
 LOGS="{env.logs_dir}"
 mkdir -p "$CK" "$LOGS"
 
+fail() {{ echo "[preflight-fail] $1" >&2; exit 1; }}
+
+{_render_preflight_host(env)}
+
+{_render_preflight_db(env)}
+
 have_ck() {{ [ -f "$CK/$1.dump" ]; }}
 checkpoint() {{ pg_dump -Fc "$DB" > "$CK/$1.dump"; echo "[checkpoint] $1"; }}
+
+preflight_host
 
 if ! have_ck 00_source; then
   echo "[init] restoring source dump into working DB '$DB'"
   dropdb --if-exists "$DB"
   createdb "$DB"
   pg_restore --no-owner --dbname "$DB" "$SRC_DUMP"
+  preflight_db
   checkpoint 00_source
 else
   echo "[init] resuming — source checkpoint present"

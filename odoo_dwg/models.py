@@ -347,10 +347,29 @@ class MigrationEnv:
         """OpenUpgrade scripts path (>= 14.0 module layout)."""
         return self.openupgrade_clone_dir(version) / "openupgrade_scripts" / "scripts"
 
+    def addons_custom_dir(self, version: str) -> Path:
+        """Where the operator places each custom module's *migrated branch* for
+        this target version (populated by hand or by the staging workflow)."""
+        return self.root / "addons" / f"odoo{odoo_major(version)}" / "custom"
+
+    def addons_oca_dir(self, version: str) -> Path:
+        return self.root / "addons" / f"odoo{odoo_major(version)}" / "oca"
+
     def addons_path(self, version: str) -> str:
+        """Operator code first (custom → OCA — first match wins in Odoo's module
+        lookup), then the OpenUpgrade checkout *root* (so openupgrade_framework
+        and openupgrade_scripts both resolve), then core."""
         odoo = self.odoo_clone_dir(version)
-        ou = self.openupgrade_clone_dir(version)
-        return ",".join(str(p) for p in (odoo / "addons", odoo / "odoo" / "addons", ou / "openupgrade_scripts"))
+        return ",".join(
+            str(p)
+            for p in (
+                self.addons_custom_dir(version),
+                self.addons_oca_dir(version),
+                self.openupgrade_clone_dir(version),
+                odoo / "addons",
+                odoo / "odoo" / "addons",
+            )
+        )
 
     def needs_docker(self) -> bool:
         return any(not self.is_native(v) for v in self.chain())

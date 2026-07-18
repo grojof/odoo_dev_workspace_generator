@@ -54,6 +54,12 @@ def _apply() -> None:
         commands += planners.plan_wkhtmltopdf(_DEV_WKHTMLTOPDF_MAJOR, facts.os_codename)
     if ask_bool("Also install the optional web toolchain (Node + rtlcss)?", False):
         commands += planners.plan_node_rtlcss()
+    if not facts.docker_daemon and ask_bool(
+        "Install Docker Engine? (only needed for Odoo 12/13 migration steps)", False
+    ):
+        commands += planners.plan_docker_engine()
+    if ask_bool("Pull the OpenUpgrade fallback images (odoo:13.0, odoo:12.0)?", False):
+        commands += planners.plan_pull_openupgrade_images()
 
     if not commands:
         print(level_text("OK", t("Host already provisioned — nothing to do.")))

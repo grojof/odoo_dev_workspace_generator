@@ -59,6 +59,44 @@ def test_postgres_installed_not_running_is_warn():
     assert states["PostgreSQL"] == "WARN"
 
 
+def test_uv_and_docker_absent_are_informational():
+    facts = ProvisionFacts(os_family="debian")
+    states = _states(provision_rows(facts))
+    assert states["uv (migration)"] == "INFO"
+    assert states["Docker (migration 12/13)"] == "INFO"
+
+
+def test_docker_binary_ok_daemon_warn_with_detail():
+    facts = ProvisionFacts(
+        os_family="debian",
+        docker_binary=True,
+        docker_daemon=False,
+        docker_daemon_detail="permission denied while trying to connect",
+    )
+    rows = provision_rows(facts)
+    states = _states(rows)
+    assert states["Docker binary"] == "OK"
+    assert states["Docker daemon"] == "WARN"
+    detail = next(d for _s, c, d in rows if c == "Docker daemon")
+    assert "permission denied" in detail
+
+
+def test_docker_ready_lists_fallback_images():
+    facts = ProvisionFacts(
+        os_family="debian",
+        uv=True,
+        docker_binary=True,
+        docker_daemon=True,
+        docker_images={"odoo:13.0": True, "odoo:12.0": False},
+    )
+    rows = provision_rows(facts)
+    states = _states(rows)
+    assert states["uv (migration)"] == "OK"
+    assert states["Docker daemon"] == "OK"
+    detail = next(d for _s, c, d in rows if c == "OpenUpgrade fallback images")
+    assert "odoo:13.0 present" in detail and "odoo:12.0 not pulled" in detail
+
+
 def test_unpatched_wkhtmltopdf_is_warn():
     facts = ProvisionFacts(os_family="debian", wkhtmltopdf="wkhtmltopdf 0.12.6")
     states = _states(provision_rows(facts))

@@ -46,6 +46,13 @@ python3 -m odoo_dwg provision      # menu: Check / Apply
 - **wkhtmltopdf** — the Odoo-recommended patched build (0.12.6 for Odoo ≥ 15), downloaded for the host
   codename and **verified by SHA-256** before install; a mismatch aborts.
 - **Node + rtlcss** *(opt-in)* — only needed for RTL/less asset compilation.
+- **Docker Engine** *(opt-in)* — only needed for the Odoo 12/13 migration fallback steps. Installed as
+  the distro-maintained **`docker.io`** package (no extra apt sources or GPG keys); if you prefer
+  Docker's own `docker-ce` repository, follow the [official Docker docs](https://docs.docker.com/engine/install/)
+  — the checks only care that a daemon responds. To use Docker as a non-root user, add yourself to the
+  docker group (`usermod -aG docker <user>`, then re-login).
+- **OpenUpgrade fallback images** *(opt-in)* — `docker pull odoo:13.0` / `odoo:12.0`, so the migration's
+  Docker step cannot fail at run time on a missing image. The check table reports both image states.
 
 ## Official references
 

@@ -46,18 +46,30 @@ def test_env_derived_paths():
     assert env.odoo_clone_dir("16.0").name == "odoo-16.0"
     assert env.openupgrade_clone_dir("16.0").name == "openupgrade-16.0"
     assert env.venv_dir("14.0").name == "odoo14"
-    # addons_path threads the OpenUpgrade scripts alongside Odoo add-ons.
-    assert "openupgrade_scripts" in env.addons_path("18.0")
     assert env.upgrade_scripts_dir("18.0").parts[-2:] == ("openupgrade_scripts", "scripts")
+
+
+def test_env_addons_path_order_custom_oca_openupgrade_core():
+    env = MigrationEnv(source="13.0", target="18.0")
+    entries = env.addons_path("18.0").split(",")
+    assert entries[0] == str(env.addons_custom_dir("18.0"))   # operator code wins lookup
+    assert entries[1] == str(env.addons_oca_dir("18.0"))
+    # The OpenUpgrade checkout ROOT — so openupgrade_framework resolves too.
+    assert entries[2] == str(env.openupgrade_clone_dir("18.0"))
+    assert entries[3].endswith("addons")
+    assert env.addons_custom_dir("18.0").parts[-3:] == ("addons", "odoo18", "custom")
+    assert env.addons_oca_dir("16.0").parts[-3:] == ("addons", "odoo16", "oca")
 
 
 # --- planners & templates --------------------------------------------------
 
 
-def test_migration_conf_includes_upgrade_scripts():
+def test_migration_conf_threads_addons_layout_and_openupgrade():
     env = MigrationEnv(source="13.0", target="18.0")
     conf = templates.render_migration_conf(env, "18.0")
-    assert "openupgrade_scripts" in conf
+    assert str(env.addons_custom_dir("18.0")) in conf
+    assert str(env.addons_oca_dir("18.0")) in conf
+    assert str(env.openupgrade_clone_dir("18.0")) in conf
     assert "db_host = 127.0.0.1" in conf
 
 
@@ -154,6 +166,24 @@ def test_venvs_plan_is_self_sufficient_about_directories():
     cmds = planners.plan_migration_venvs(env)
     assert cmds[0].command.startswith("mkdir -p")
     assert str(env.requirements_dir) in cmds[0].command
+
+
+def test_tree_creates_per_version_addons_dirs():
+    env = MigrationEnv(source="13.0", target="15.0")
+    cmds = planners.plan_migration_configs(env)
+    mkdir = cmds[0].command
+    assert mkdir.startswith("mkdir -p")
+    for version in ("14.0", "15.0"):
+        assert str(env.addons_custom_dir(version)) in mkdir
+        assert str(env.addons_oca_dir(version)) in mkdir
+
+
+def test_docker_provision_plans_are_pure_text():
+    engine = planners.plan_docker_engine()
+    assert any("docker.io" in c.command for c in engine)
+    assert any("systemctl enable --now docker" in c.command for c in engine)
+    pulls = planners.plan_pull_openupgrade_images()
+    assert [c.command for c in pulls] == ["docker pull odoo:13.0", "docker pull odoo:12.0"]
 
 
 def test_clean_migration_removes_only_the_environment_by_default():

@@ -48,8 +48,40 @@ Under `~/odoo-migrations/<src>-to-<tgt>/`:
   (`gevent==22.10.2` + `greenlet==2.0.2`, validated on WSL). Each finished venv is stamped with a
   `.odwg-ready` marker; a generation interrupted mid-install rebuilds that venv on the next run
   (`uv venv --clear`) instead of skipping it half-built.
-- A per-step `conf/odoo<major>.conf` whose `addons_path` threads the OpenUpgrade `openupgrade_scripts`.
-- `run_migration.sh` — the checkpointing driver.
+- Per-version addons directories — `addons/odoo<major>/custom` and `addons/odoo<major>/oca` — threaded
+  into each step's `addons_path` ahead of OpenUpgrade and core (operator code wins module lookup).
+- A per-step `conf/odoo<major>.conf` whose `addons_path` composes custom → OCA → the OpenUpgrade
+  checkout → core.
+- `run_migration.sh` — the checkpointing driver, with a built-in preflight.
+
+## Where your addons go
+
+The database being migrated almost certainly has OCA and custom modules installed. Every step must be
+able to *find* every installed module, or it is left broken mid-chain:
+
+- **OCA modules** — clone/copy each OCA module's **published branch for that version** into
+  `addons/odoo<major>/oca/<module>` (e.g. the 16.0 branch of `partner-contact` modules under
+  `addons/odoo16/oca/`).
+- **Custom modules** — place each module's **migrated code for that version** in
+  `addons/odoo<major>/custom/<module>`. Presence is necessary but *not sufficient*: the code must be
+  adapted to each version's breaking changes (e.g. 17.0 removes view `attrs`/`states`; 18.0 renames
+  `<tree>` to `<list>`) and may need its own `migrations/` scripts. The preflight flags every custom
+  module with this warning; the staging workflow (see the `add-custom-module-staging` change) prepares
+  most of this mechanically.
+
+## Preflight: verify before you burn hours
+
+**Menu → Migration → Preflight check** runs a read-only verification, and the same checks run
+automatically when generating an environment (host scope) and inside the driver (both scopes):
+
+| Scope | Checks |
+|-------|--------|
+| Host | `uv`; Docker binary + daemon + `odoo:12.0`/`odoo:13.0` images (only when the chain has a 12/13 step); PostgreSQL reachable + dev role; the dump exists and `pg_restore --list` parses it (which also enforces the required custom format, `pg_dump -Fc` — plain SQL dumps are rejected); addons layout present |
+| Database | actual source version from `ir_module_module` (`base`) vs. the declared source; installed-module list; **per-step coverage** — every installed module must resolve in every step's `addons_path`, and each miss names the exact directory to fill |
+
+The database scope needs a live database: name an already-restored one in the menu action, or let the
+driver verify right after its initial restore (it aborts before step 1 on any failure). Docker-step
+coverage (12/13) is reported as not verifiable — the official image provides core.
 
 ## Running the migration
 
@@ -60,9 +92,11 @@ cd ~/odoo-migrations/13-to-18
 bash run_migration.sh /path/to/source-13.0.dump
 ```
 
-It restores the dump into a working database on the shared PostgreSQL, then runs each step with
+It preflights the host, restores the dump into a working database on the shared PostgreSQL, verifies the
+database (version match, addons coverage) before step 1, then runs each step with
 `--update all --stop-after-init` (Odoo ≥ 14: `--load=base,web,openupgrade_framework`), and **`pg_dump`s a
 checkpoint after each successful step** — so a failure resumes from the last good step, not from the source.
+Any preflight failure exits non-zero with a `[preflight-fail]` line naming the check.
 
 ## Cleaning up
 
@@ -77,7 +111,11 @@ migration database is never touched; drop it manually (`dropdb`) for a fully cle
 - A **full 12 → 19 run needs a real legacy dump** and is not part of automated tests; WSL acceptance covers
   environment generation, `uv` venv builds, `odoo-bin --version`, and `bash -n` on the driver.
 - The `overrides-<ver>.txt` pins for the Python-3.10 steps (16.0/17.0) are validated against a real
-  `uv pip install` on WSL; the 12/13 OpenUpgrade command layout is still refined against real runs.
+  `uv pip install` on WSL. The 12/13 Docker step runs the OpenUpgrade *fork's* own `odoo-bin` (those
+  branches predate `--upgrade-path`/`openupgrade_framework`); the recipe launches and reaches the shared
+  database (verified on WSL) but its migration semantics still await a real legacy dump.
+- Docker for the 12/13 steps means **Docker Engine inside the Linux host itself** (installed by
+  `provision apply` as `docker.io`) — not Docker Desktop integration from Windows.
 - Migrating **custom module code** across versions is a separate job — see
   [`oca-port`](https://github.com/OCA/oca-port) and
   [`odoo-module-migrator`](https://github.com/OCA/odoo-module-migrator).

@@ -41,7 +41,22 @@ All notable changes to this project are documented here. The format is based on
   exact-phrase confirmation (`DELETE`); optionally also the shared `.repos` clone cache (opt-in, it
   serves every environment). The PostgreSQL migration database is deliberately untouched.
 
+- **Migration preflight & Docker readiness** (change `add-migration-preflight`): `provision check` now
+  reports `uv` and Docker (binary / daemon / OpenUpgrade fallback images as distinct signals) and
+  `provision apply` gains opt-in plans for Docker Engine (`docker.io`) and `docker pull odoo:13.0`/`12.0`.
+  New migration-menu **Preflight check** (chain-scoped host checks — Docker rows only when the chain has a
+  12/13 step —, PostgreSQL/role, dump integrity via `pg_restore --list`, and against a named database:
+  actual source version from `ir_module_module`, installed modules, per-step addons coverage naming the
+  exact directory to fill, and a per-custom-module adaptation warning). The generate flow shows the host
+  preflight first (MISSING requires explicit confirmation) and `run_migration.sh` embeds the same checks:
+  host before restore, database right after the initial restore and before step 1, aborting non-zero with
+  the failed check named. Migration environments now define `addons/odoo<major>/{custom,oca}` per version,
+  threaded into each step's `addons_path` ahead of OpenUpgrade and core.
+
 ### Fixed
+- Migration step configs now put the OpenUpgrade checkout **root** on `addons_path` (previously the
+  `openupgrade_scripts` module directory itself), so `openupgrade_framework` resolves as the official
+  OpenUpgrade run instructions require.
 - Migration environment generation failed at the first requirements-overrides write
   (`cat > .../requirements/overrides-<ver>.txt`: "No such file or directory"): the `mkdir -p` for
   `requirements/` ran only in the configs planner, *after* the venvs planner that writes the overrides.
