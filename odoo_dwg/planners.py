@@ -296,6 +296,13 @@ def plan_migration_venvs(env: MigrationEnv, exists: Exists = _never) -> list[Com
         venv = env.venv_dir(version)
         if exists(venv):
             continue
+        if not commands:
+            commands.append(
+                Command(
+                    tf("Create requirements directory"),
+                    f"mkdir -p {shlex.quote(str(env.requirements_dir))}",
+                )
+            )
         odoo = env.odoo_clone_dir(version)
         commands += write_text_file_command(
             env.overrides_file(version), templates.render_migration_overrides(version)
@@ -326,7 +333,7 @@ def plan_migration_configs(env: MigrationEnv) -> list[Command]:
             "mkdir -p "
             + " ".join(
                 shlex.quote(str(p))
-                for p in (env.conf_dir, env.checkpoints_dir, env.logs_dir, env.overrides_file("x").parent)
+                for p in (env.conf_dir, env.checkpoints_dir, env.logs_dir, env.requirements_dir)
             ),
         )
     ]

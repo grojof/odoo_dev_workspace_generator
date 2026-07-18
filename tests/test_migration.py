@@ -103,3 +103,24 @@ def test_generate_migration_composes_everything():
     assert "git clone --depth 1" in joined
     assert "uv venv" in joined
     assert "run_migration.sh" in joined
+
+
+def test_requirements_dir_created_before_first_overrides_write():
+    env = MigrationEnv(source="12.0", target="18.0")
+    cmds = planners.plan_generate_migration(env)
+    requirements_dir = str(env.requirements_dir)
+    mkdir_idx = next(
+        i for i, c in enumerate(cmds)
+        if c.command.startswith("mkdir") and requirements_dir in c.command
+    )
+    overrides_idx = next(
+        i for i, c in enumerate(cmds) if "overrides-" in c.command and c.command.startswith("cat >")
+    )
+    assert mkdir_idx < overrides_idx
+
+
+def test_venvs_plan_is_self_sufficient_about_directories():
+    env = MigrationEnv(source="12.0", target="14.0")
+    cmds = planners.plan_migration_venvs(env)
+    assert cmds[0].command.startswith("mkdir -p")
+    assert str(env.requirements_dir) in cmds[0].command

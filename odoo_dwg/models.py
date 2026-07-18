@@ -310,6 +310,10 @@ class MigrationEnv:
     def logs_dir(self) -> Path:
         return self.root / "logs"
 
+    @property
+    def requirements_dir(self) -> Path:
+        return self.root / "requirements"
+
     def chain(self) -> list[str]:
         return migration_chain(self.source, self.target)
 
@@ -329,7 +333,7 @@ class MigrationEnv:
         return self.root / ".venv" / f"odoo{odoo_major(version)}"
 
     def overrides_file(self, version: str) -> Path:
-        return self.root / "requirements" / f"overrides-{version}.txt"
+        return self.requirements_dir / f"overrides-{version}.txt"
 
     def config_file(self, version: str) -> Path:
         return self.conf_dir / f"odoo{odoo_major(version)}.conf"

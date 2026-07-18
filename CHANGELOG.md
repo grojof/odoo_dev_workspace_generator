@@ -35,3 +35,10 @@ All notable changes to this project are documented here. The format is based on
   planners (`plan_migration_clones`/`plan_migration_venvs`/`plan_migration_configs`/`plan_generate_migration`)
   and templates (per-step `odoo.conf`, checkpointing `run_migration.sh`, Docker recipe); wired in
   `workflows/migration.py`. Docs: `docs/migration.md`.
+
+### Fixed
+- Migration environment generation failed at the first requirements-overrides write
+  (`cat > .../requirements/overrides-<ver>.txt`: "No such file or directory"): the `mkdir -p` for
+  `requirements/` ran only in the configs planner, *after* the venvs planner that writes the overrides.
+  `plan_migration_venvs` now creates the directory itself before its first write (found running a real
+  12 → 18 generation on WSL).
