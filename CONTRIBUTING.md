@@ -22,9 +22,18 @@ openspec validate --specs           # capability specs well-formed
 python -m odoo_dwg --help           # CLI smoke test
 ```
 
+The reference box runs Python 3.12, but the [support matrix](docs/support-matrix.md) declares **3.10** as the
+floor (Ubuntu 22.04's system Python). Nothing else exercises it, so run the suite on it too — `uv` provides
+the interpreter, it costs a fraction of a second, and it is what catches a 3.11+ construct slipping in
+(`tomllib`, for instance, does not exist at 3.10):
+
+```bash
+PYTHONPATH=. uv run --python 3.10 --with pytest --no-project pytest -q
+```
+
 Real end-to-end validation happens on a Linux host (WSL Ubuntu 24.04 is the reference box).
 
-The four checks above need no network. One further check does, and is **not** part of the suite — run it when
+The checks above need no network. One further check does, and is **not** part of the suite — run it when
 an Odoo branch may have changed what it supports, or before trusting a bound in the
 [support matrix](docs/support-matrix.md):
 
@@ -34,7 +43,9 @@ python tools/verify_support_matrix.py 18.0 19.0  # only these versions
 ```
 
 It exits non-zero on drift and never edits the declared matrix: fixing drift means editing
-`odoo_dwg/models.py` and `docs/support-matrix.md` together.
+`odoo_dwg/models.py` and `docs/support-matrix.md` together. There is no scheduled job running it — make it a
+habit before touching the matrix, and every few months otherwise, since a bound drifts when *Odoo* changes,
+not when this repository does.
 
 ## Commits
 
