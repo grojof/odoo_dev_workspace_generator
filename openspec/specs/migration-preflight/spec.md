@@ -5,24 +5,6 @@
 Verifies, before a migration runs and again from inside the driver, that the host, the PostgreSQL server, the source dump and the database itself can actually carry the chain — naming exactly what is missing, including which addons directory to fill, rather than failing mid-upgrade.
 
 ## Requirements
-### Requirement: Chain-scoped host readiness check
-
-The system SHALL provide a read-only migration preflight that verifies the host tools required by the
-*specific* chain: `uv` always; `docker` (binary present), the Docker daemon responding, and the presence of
-the fallback images only when the chain includes an Odoo 12/13 step. It SHALL also verify PostgreSQL
-reachability and the development role. The result SHALL be rendered as a capability table
-(check, state, detail) with states OK / WARN / MISSING / INFO, and the check MUST NOT modify the host.
-
-#### Scenario: Docker checks only appear for chains that need them
-
-- **WHEN** the preflight runs for a 14 → 18 chain (fully native)
-- **THEN** the report contains no Docker rows, and `uv` and PostgreSQL are still verified
-
-#### Scenario: Docker daemon distinct from binary
-
-- **WHEN** `docker` is installed but the daemon is not running (or the user lacks permission)
-- **THEN** the report marks the binary OK and the daemon MISSING/WARN with the underlying error detail
-
 ### Requirement: Source dump integrity check
 
 The preflight SHALL verify the supplied source dump: the file exists and is readable, and
@@ -126,3 +108,25 @@ flow and the run driver rather than duplicating checks ad hoc.
 
 - **WHEN** the operator runs the preflight from the menu without naming a database
 - **THEN** the host-scope checks run and the database-scope checks are reported as skipped, not failed
+
+### Requirement: Host readiness for a native chain
+
+The system SHALL provide a read-only migration preflight that verifies the host tools every chain needs:
+`uv`, PostgreSQL reachability, and the development role. Because every step runs natively, no chain requires
+a container runtime and the preflight SHALL NOT check for one. The result SHALL be rendered as a capability
+table (check, state, detail) with states OK / WARN / MISSING / INFO, and the check MUST NOT modify the host.
+
+#### Scenario: The same tools are checked for every chain
+
+- **WHEN** the preflight runs for a 14 → 18 chain and for a 12 → 19 chain
+- **THEN** both report `uv` and PostgreSQL, and neither reports a container runtime
+
+#### Scenario: A missing interpreter provider is reported
+
+- **WHEN** `uv` is absent from the host
+- **THEN** the report marks it MISSING, because no step can be built without it
+
+#### Scenario: The check changes nothing
+
+- **WHEN** the preflight runs against a host missing every prerequisite
+- **THEN** it reports them and makes no change to the host

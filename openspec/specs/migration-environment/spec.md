@@ -5,60 +5,6 @@
 Generates a self-contained OpenUpgrade environment for a source → target chain: per-version clones, a virtual environment per step on an interpreter that step supports (or the official Docker image where no interpreter can be provided), per-step configs, and the driver that runs them in order.
 
 ## Requirements
-### Requirement: Version-to-interpreter acquisition matrix
-
-The system SHALL map each Odoo target version in a migration chain to a Python interpreter and an acquisition
-method, taking the interpreter from the support matrix's recommendation for that version. For Odoo ≥ 14 the
-interpreter SHALL be provided natively by `uv` (whose installable floor is 3.8); for Odoo 13 (Python 3.6) and
-Odoo 12 (Python 3.5), which `uv` cannot provide, the method SHALL be the Docker fallback (official
-`odoo:13.0` / `odoo:12.0` images).
-
-The recommendation SHALL be a default the operator can override on any step of the chain: an overridden step
-uses the chosen interpreter while every other step keeps its recommendation. An override SHALL be validated
-against that version's declared Python range and, when outside it, used only after the flow has stated the
-range, the chosen version and the bound's evidence tier and the operator has confirmed. An override SHALL be
-refused for a version outside the chain, and for a Docker-fallback step, whose interpreter comes from the
-official image.
-
-A chain's steps are its *target* versions — the source version is restored, never run — so there is no
-source-version interpreter to pin here; rehearsing a client's own environment for the version they run is
-the dev workspace's job.
-
-#### Scenario: Native uv interpreters for modern versions
-
-- **WHEN** the matrix is queried for Odoo 14, 16, and 18
-- **THEN** it returns a `uv`-native interpreter (e.g. 3.8, 3.10, 3.12 respectively), not a Docker fallback
-
-#### Scenario: Docker fallback for Python-3.6/3.5 versions
-
-- **WHEN** the matrix is queried for Odoo 13 (or 12)
-- **THEN** it returns the Docker fallback method, because `uv` cannot install Python 3.6/3.5
-
-#### Scenario: One step pinned, the rest left on their recommendation
-
-- **WHEN** the operator pins one chain step to a specific Python version that is inside that step's declared
-  range
-- **THEN** that step's venv is built with the chosen interpreter, its requirements repair follows that
-  interpreter rather than the recommended one, every other step keeps its recommendation, and the preview
-  names the interpreter per step
-
-#### Scenario: Override refused for a version outside the chain
-
-- **WHEN** the operator tries to pin a version that is not a step in this chain
-- **THEN** the flow refuses, naming the chain's steps
-
-#### Scenario: Override outside the declared range is confirmed first
-
-- **WHEN** an override falls outside that version's declared Python range
-- **THEN** the flow states the range, the chosen version and the bound's evidence tier, and applies the
-  override only on explicit confirmation
-
-#### Scenario: Override refused for a Docker-fallback step
-
-- **WHEN** the operator tries to override the interpreter of an Odoo 12 or 13 step
-- **THEN** the flow refuses, explaining that the interpreter of a Docker-fallback step is fixed by the
-  official image
-
 ### Requirement: Per-version clones from the shared cache
 
 The system SHALL clone, for each target version in the chain, `odoo/odoo` and `OCA/OpenUpgrade` on the
@@ -71,16 +17,20 @@ matching version branch into the shared repo cache, reusing an existing clone ra
 
 ### Requirement: Per-version uv virtualenv with repaired requirements
 
-For each natively-run version the system SHALL create a virtualenv with `uv` using the matched interpreter and
+For each version in the chain the system SHALL create a virtualenv with `uv` using the matched interpreter and
 install that version's `requirements.txt` with a per-version `overrides-<ver>.txt` applied via
 `uv pip install --overrides` (lifting pins that no longer install for the matched interpreter — e.g. the
 16.0/17.0 branches' `gevent==21.8.0` for Python 3.10 exactly, lifted to the branches' own 3.11 pins), plus
 `psycopg2-binary` and `openupgradelib`.
 
+Where a version's dependencies cannot be *built* by a current toolchain, the system SHALL also write a
+per-version `constraints-<ver>.txt` and apply it with `uv pip install --build-constraints`, constraining the
+build environment rather than the installed set — the 13.0 branch needs `setuptools<58` because
+`vatnumber==1.2` still uses `use_2to3`, which setuptools 58 removed. A version needing no such repair SHALL
+NOT get a constraints file.
+
 For versions whose Odoo code imports `pkg_resources` at startup (Odoo ≤ 16), the venv SHALL also install a
-`setuptools` release that still provides it. Nothing declares that dependency — `setuptools` arrives only
-transitively, and which release it resolves to depends on the step's interpreter, so a step can start or fail
-on that accident alone. It SHALL be pinned rather than left to resolution.
+`setuptools` release that still provides it.
 
 A completed venv SHALL be stamped with a ready marker; generation SHALL skip on the marker (not on the venv
 directory) so an interrupted build is redone, not silently skipped.
@@ -105,6 +55,12 @@ directory) so an interrupted build is redone, not silently skipped.
 
 - **WHEN** the environment is generated for a step running Odoo 18
 - **THEN** no `setuptools` constraint is added, because that branch does not import `pkg_resources`
+
+#### Scenario: The 13.0 step carries build constraints
+
+- **WHEN** the environment is generated for a chain that includes the Odoo 13 step
+- **THEN** a `constraints-13.0.txt` is written pinning `setuptools<58`, and the requirements install applies
+  it with `--build-constraints`, so the branch's `use_2to3` dependency builds instead of failing
 
 ### Requirement: Per-step migration config
 
@@ -156,3 +112,45 @@ SHALL require an explicit confirmation to continue.
 
 - **WHEN** the operator generates a 12 → 18 environment on a host without Docker
 - **THEN** the preflight table shows Docker MISSING and generation continues only after the operator confirms
+
+### Requirement: Native interpreter per chain step
+
+The system SHALL map each Odoo target version in a migration chain to a Python interpreter, taken from the
+support matrix's recommendation for that version. Every step SHALL run natively in a `uv`-provided
+virtualenv; no step SHALL depend on a container image. Odoo 13 runs on `uv`'s installable floor (3.8), which
+is above its documented minimum and is what makes a container unnecessary.
+
+The recommendation SHALL be a default the operator can override on any step of the chain: an overridden step
+uses the chosen interpreter while every other step keeps its recommendation. An override SHALL be validated
+against that version's declared Python range and, when outside it, used only after the flow has stated the
+range, the chosen version and the bound's evidence tier and the operator has confirmed. An override SHALL be
+refused for a version outside the chain.
+
+A chain's steps are its *target* versions — the source version is restored, never run — so there is no
+source-version interpreter to pin here; rehearsing a client's own environment for the version they run is
+the dev workspace's job.
+
+#### Scenario: Every step resolves to a uv interpreter
+
+- **WHEN** the matrix is queried for Odoo 13, 14, 16, and 18
+- **THEN** each returns a `uv`-native interpreter (3.8 for 13 and 14, 3.10 for 16, 3.12 for 18) and none
+  returns a container fallback
+
+#### Scenario: One step pinned, the rest left on their recommendation
+
+- **WHEN** the operator pins one chain step to a specific Python version that is inside that step's declared
+  range
+- **THEN** that step's venv is built with the chosen interpreter, its requirements repair follows that
+  interpreter rather than the recommended one, every other step keeps its recommendation, and the preview
+  names the interpreter per step
+
+#### Scenario: Override refused for a version outside the chain
+
+- **WHEN** the operator tries to pin a version that is not a step in this chain
+- **THEN** the flow refuses, naming the chain's steps
+
+#### Scenario: Override outside the declared range is confirmed first
+
+- **WHEN** an override falls outside that version's declared Python range
+- **THEN** the flow states the range, the chosen version and the bound's evidence tier, and applies the
+  override only on explicit confirmation
