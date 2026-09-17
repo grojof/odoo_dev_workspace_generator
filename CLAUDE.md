@@ -81,6 +81,8 @@ python -m odoo_dwg --help           # CLI smoke test
 ```
 
 ```bash
+# The declared floor (3.10) — the reference box runs 3.12, so nothing else exercises it:
+PYTHONPATH=. uv run --python 3.10 --with pytest --no-project pytest -q
 python tools/verify_support_matrix.py   # re-derive the support matrix from its sources (network; not in the suite)
 ```
 

@@ -62,11 +62,17 @@ items are host-dependent.
 - **Workspace shallow-clone option** — an opt-in `--depth 1` for dev workspace clones. F1 acceptance showed a
   full single-branch Odoo clone is ~394 MB; some users want history, some want speed. Add a profile flag.
   (Migration clones already use `--depth 1`.) Candidate for a small OpenSpec change.
-- **CI workflow** — a GitHub Actions workflow running `ruff`, `pytest`, and `openspec validate --specs` on
-  push/PR (mirror the sibling app's `.github/workflows/ci.yml`). **Unblocked** now that the support matrix
-  declares what to test: the Python range (3.10 and 3.12) on the declared Ubuntu hosts. A scheduled job
-  running `tools/verify_support_matrix.py` would also catch an Odoo branch changing what it targets.
-  Optionally a release workflow once a first version is tagged.
+- ~~CI workflow~~ — **not planned for now** (decided 2026-09-17). The case for it was testing the declared
+  Python floor, which the reference box does not run — but that costs a fraction of a second locally
+  (`PYTHONPATH=. uv run --python 3.10 --with pytest --no-project pytest -q`, now in `CONTRIBUTING.md`), so
+  four runners would buy ceremony rather than safety on a single-developer repo. Cost was never the
+  obstacle: this repo is private, so minutes come out of the account allowance, but each job rounds up to a
+  whole minute and the whole matrix would bill roughly 5–6 minutes per push — a few percent of a free tier.
+  The one thing with no local substitute is drift in the support matrix, which is triggered by *Odoo*
+  changing, not by this repo; a scheduled job was considered and dropped because GitHub disables scheduled
+  workflows in repos with 60 days of inactivity, which is precisely when the alert would matter.
+  `tools/verify_support_matrix.py` is a documented manual habit instead. Revisit if more people contribute
+  (then PR gating earns its keep) or if the repo goes public (Actions is free there).
 - **VSCode official-extension emitter** — optional static emitter for the official `Odoo.odoo` extension:
   `odools.toml` profiles (verified schema: `[[config]]` + `name`/`extends`/`odoo_path`/`addons_paths`/
   `python_path`, vars `${workspaceFolder}`/`${detectVersion}`/`$autoDetectAddons`), an OWL `jsconfig.json`,
