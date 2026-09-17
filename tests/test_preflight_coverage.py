@@ -192,7 +192,7 @@ def test_rows_keep_the_two_classes_apart():
         base_version="15.0.1.3",
         installed_modules=["client_sales", "web_diagram"],
     )
-    host = HostFacts(needs_docker=False, uv=True, postgres_running=True,
+    host = HostFacts(uv=True, postgres_running=True,
                      dev_role_exists=True, addons_layout_present=True)
     rows = preflight.preflight_rows(host, db, coverage)
     blocking = next(r for r in rows if r[1] == "Coverage (16.0)")

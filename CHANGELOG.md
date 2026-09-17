@@ -31,12 +31,30 @@ All notable changes to this project are documented here. The format is based on
   provide.
 
 ### Changed
+- **BREAKING — Docker is no longer used or required** (change `drop-docker-run-13-natively`). The Odoo 13
+  step, the only step that ever ran in a container, now runs natively in a `uv` virtualenv on Python 3.8
+  like every other step. `provision check` drops the Docker rows, `provision apply` drops the Docker Engine
+  install and the `odoo:13.0`/`odoo:12.0` image pulls, and the migration preflight and driver stop requiring
+  a daemon. A host that installed Docker for earlier versions can keep or remove it freely.
+
 - **BREAKING — supported hosts narrowed from the Debian/Ubuntu apt family to Ubuntu 22.04 and 24.04.**
   `provision check` reports any other host as unsupported (it still completes and still changes nothing) and
   `provision apply` refuses before assembling a single command. Debian was never validated, so the claim was
   dropped rather than left implied.
 
 ### Fixed
+- **The containerised Odoo 13 step silently under-migrated.** The `odoo:13.0` image sets
+  `addons_path = /mnt/extra-addons`, so the mounted OpenUpgrade fork's `odoo-bin` loaded the *image's*
+  add-ons; in the ≤ 13 layout every migration script lives inside its add-on, so only core scripts ran and
+  the step still reported success. Measured against the same database: the container left
+  `iap_account.company_id` untouched and the orphan column survived to Odoo 19, where the model declares
+  `company_ids`; with IAP accounts present, the post-migration that moves the data would never run. The
+  native step names the fork's `addons` directory explicitly and applies those scripts. Verified on WSL:
+  a full 12 → 19 chain now ends with `openupgrade_legacy_13_0_company_id` and the `company_ids` relation,
+  and no orphan column.
+- The Odoo 13 requirements need `setuptools<58` as a **build** constraint (`vatnumber==1.2` still calls
+  `use_2to3`). Build constraints are generated per version as `requirements/constraints-<ver>.txt` and
+  applied with `uv pip install --build-constraints`, separate from the existing requirement overrides.
 - **A real 12 → 19 migration could not run at all** (change `fix-preflight-coverage-classification`), which
   the first end-to-end run against an Odoo 12 database built from Odoo's own demo data exposed:
   - The per-step addons coverage check treated every installed module as the operator's code, so core

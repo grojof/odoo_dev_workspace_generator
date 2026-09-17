@@ -23,20 +23,17 @@ def test_chain_rejects_bad_range():
 
 
 def test_interpreter_matrix_matches_wsl_measurements():
-    # uv floor is 3.8: 14/15 native on 3.8, 16/17 on 3.10, 18/19 on 3.12.
+    # uv floor is 3.8: 13/14/15 native on 3.8, 16/17 on 3.10, 18/19 on 3.12.
+    assert migration_interpreter("13.0") == ("3.8", "uv")
     assert migration_interpreter("14.0") == ("3.8", "uv")
     assert migration_interpreter("16.0") == ("3.10", "uv")
     assert migration_interpreter("18.0") == ("3.12", "uv")
-    # 12/13 (Python 3.5/3.6) are not uv-installable → Docker.
-    assert migration_interpreter("13.0") == (None, "docker")
-    assert migration_interpreter("12.0") == (None, "docker")
 
 
-def test_env_needs_docker_only_when_running_odoo_13():
-    # 12 → 18 runs the 12→13 step (Odoo 13, Py3.6) → Docker needed.
-    assert MigrationEnv(source="12.0", target="18.0").needs_docker() is True
-    # 13 → 18 runs 14..18, all native → no Docker.
-    assert MigrationEnv(source="13.0", target="18.0").needs_docker() is False
+def test_every_step_of_every_chain_is_native():
+    for source, target in (("12.0", "19.0"), ("13.0", "18.0"), ("12.0", "13.0")):
+        env = MigrationEnv(source=source, target=target)
+        assert all(env.is_native(v) for v in env.chain()), (source, target)
 
 
 def test_env_derived_paths():
@@ -82,12 +79,26 @@ def test_run_migration_sh_native_step_and_checkpoints():
     assert 'have_ck "14.0"' in sh  # resume/skip guard
 
 
-def test_run_migration_sh_uses_docker_for_odoo13_step():
-    env = MigrationEnv(source="12.0", target="14.0")  # steps 13 (docker), 14 (native)
+def test_run_migration_sh_runs_the_13_step_natively_with_an_explicit_addons_path():
+    env = MigrationEnv(source="12.0", target="14.0")  # steps 13 and 14
     sh = templates.render_run_migration_sh(env)
-    assert "docker run --rm --network=host" in sh
-    assert "odoo:13.0" in sh
-    assert "(docker)" in sh and "(native)" in sh
+    assert "docker" not in sh
+    # The <= 13 step runs the fork's own odoo-bin from its venv...
+    assert f'"{env.venv_dir("13.0")}/bin/python" "{env.odoo_bin("13.0")}"' in sh
+    # ...and neither of the >= 14 flags, which do not exist on that branch.
+    step13 = sh.split("upgrade to 13.0")[1].split("upgrade to 14.0")[0]
+    assert "--upgrade-path" not in step13 and "--load=" not in step13
+    # The 14 step keeps them.
+    assert "--load=base,web,openupgrade_framework" in sh
+
+
+def test_the_13_step_config_names_the_forks_own_addons():
+    # The whole point: an add-ons path that misses the fork's addons silently
+    # skips every add-on migration script while the step still succeeds.
+    env = MigrationEnv(source="12.0", target="14.0")
+    conf = templates.render_migration_conf(env, "13.0")
+    assert str(env.openupgrade_clone_dir("13.0") / "addons") in conf
+    assert "odoo-13.0" not in conf  # there is no separate Odoo clone for it
 
 
 def test_clones_openupgrade_always_odoo_only_for_native():
@@ -99,15 +110,30 @@ def test_clones_openupgrade_always_odoo_only_for_native():
     assert "openupgrade-14.0" in joined and "odoo-14.0" in joined
 
 
-def test_venvs_only_for_native_versions_with_uv():
+def test_every_step_gets_a_uv_venv():
     env = MigrationEnv(source="12.0", target="14.0")
     cmds = planners.plan_migration_venvs(env)
     joined = "\n".join(c.command for c in cmds)
-    assert "uv venv --clear --no-project --python 3.8" in joined  # Odoo 14 → 3.8.
+    assert "uv venv --clear --no-project --python 3.8" in joined  # 13 and 14 → 3.8.
     # --clear: replace a half-built venv on resume; --no-project: ignore any
     # pyproject.toml at the caller's CWD (its requires-python is not Odoo's).
     assert "openupgradelib" in joined
-    assert joined.count("uv venv") == 1          # only 14 (13 is docker, no venv)
+    assert joined.count("uv venv") == 2          # one per step, 13 included
+
+
+def test_the_13_step_installs_the_forks_requirements_with_build_constraints():
+    env = MigrationEnv(source="12.0", target="14.0")
+    joined = "\n".join(c.command for c in planners.plan_migration_venvs(env))
+    # The fork is Odoo for that branch, so its own requirements.txt is installed.
+    assert str(env.openupgrade_clone_dir("13.0") / "requirements.txt") in joined
+    # vatnumber==1.2 needs a setuptools that still has use_2to3.
+    assert "constraints-13.0.txt" in joined and "--build-constraints" in joined
+    assert "setuptools<58" in "\n".join(c.command for c in planners.plan_migration_venvs(env))
+    # A modern step needs no build constraints.
+    modern = "\n".join(
+        c.command for c in planners.plan_migration_venvs(MigrationEnv(source="17.0", target="18.0"))
+    )
+    assert "--build-constraints" not in modern
 
 
 def test_venvs_install_applies_the_overrides_file_and_marks_ready():
@@ -178,14 +204,6 @@ def test_tree_creates_per_version_addons_dirs():
         assert str(env.addons_oca_dir(version)) in mkdir
 
 
-def test_docker_provision_plans_are_pure_text():
-    engine = planners.plan_docker_engine()
-    assert any("docker.io" in c.command for c in engine)
-    assert any("systemctl enable --now docker" in c.command for c in engine)
-    pulls = planners.plan_pull_openupgrade_images()
-    assert [c.command for c in pulls] == ["docker pull odoo:13.0", "docker pull odoo:12.0"]
-
-
 def test_clean_migration_removes_only_the_environment_by_default():
     env = MigrationEnv(source="12.0", target="18.0")
     cmds = planners.plan_clean_migration(env.root)
@@ -239,14 +257,14 @@ def test_out_of_range_override_is_reported_but_still_applied():
     assert env.interpreter("14.0") == ("3.8", "uv")
 
 
-def test_override_refused_for_docker_steps_and_off_chain_versions():
+def test_override_refused_for_off_chain_versions():
     env = MigrationEnv(source="12.0", target="15.0")
-    with pytest.raises(ValueError, match="cannot be overridden"):
-        env.set_interpreter_override("13.0", "3.8")
     with pytest.raises(ValueError, match="not a step in this chain"):
         env.set_interpreter_override("18.0", "3.12")
     # A refused override leaves nothing behind.
     assert env.interpreter_overrides == {}
+    # The 13 step is a step like any other now, so it can be pinned.
+    assert env.set_interpreter_override("13.0", "3.9").python == "3.9"
 
 
 def test_venv_plan_pins_setuptools_only_where_pkg_resources_is_imported():

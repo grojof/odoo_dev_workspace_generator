@@ -262,41 +262,13 @@ def plan_node_rtlcss() -> list[Command]:
     ]
 
 
-# Official images backing the OpenUpgrade 12/13 Docker fallback steps.
-OPENUPGRADE_FALLBACK_IMAGES = ("odoo:13.0", "odoo:12.0")
-
-
-def plan_docker_engine() -> list[Command]:
-    """Docker Engine from the distro archive (``docker.io``) — sufficient for the
-    OpenUpgrade fallback containers, with no extra apt sources/keys. Operators
-    preferring Docker's own ``docker-ce`` repo follow the official Docker docs
-    instead (see docs/provisioning.md); the checks only care that a daemon responds."""
-    return [
-        Command(
-            tf("Install Docker Engine (docker.io)"),
-            "apt-get update && apt-get -y install docker.io",
-        ),
-        Command(tf("Enable and start the Docker service"), "systemctl enable --now docker"),
-    ]
-
-
-def plan_pull_openupgrade_images(
-    images: tuple[str, ...] = OPENUPGRADE_FALLBACK_IMAGES,
-) -> list[Command]:
-    """Pull the fallback images so a migration's Docker step cannot fail on a
-    missing image at run time."""
-    return [
-        Command(tf("Pull Docker image {}", image), f"docker pull {shlex.quote(image)}")
-        for image in images
-    ]
-
-
-# --- migration (F3) --------------------------------------------------------
-
-
 def plan_migration_clones(env: MigrationEnv, exists: Exists = _never) -> list[Command]:
-    """Clone OpenUpgrade (every step) and Odoo (native steps) per target version on
-    the matching branch, shallow, skipping present clones."""
+    """Clone what each step needs, shallow, skipping clones already present.
+
+    Every step needs its OpenUpgrade checkout. From 14 it also needs the matching
+    Odoo clone, because the checkout is only an add-on collection; up to 13 the
+    checkout *is* a full Odoo fork, so cloning Odoo separately would fetch a
+    gigabyte nothing reads."""
     commands: list[Command] = []
     for version in env.chain():
         ou_dest = env.openupgrade_clone_dir(version)
@@ -308,7 +280,7 @@ def plan_migration_clones(env: MigrationEnv, exists: Exists = _never) -> list[Co
                     f"{shlex.quote(env.openupgrade_url)} {shlex.quote(str(ou_dest))}",
                 )
             )
-        if env.is_native(version):
+        if not env.uses_legacy_layout(version):
             odoo_dest = env.odoo_clone_dir(version)
             if not exists(odoo_dest):
                 commands.append(
@@ -339,14 +311,14 @@ def _setuptools_pin(version: str) -> str:
 def plan_migration_venvs(env: MigrationEnv, exists: Exists = _never) -> list[Command]:
     """For each natively-run version: write the overrides file, build a uv venv with
     the matched interpreter, and install requirements (with ``--overrides`` repairs)
-    + psycopg2-binary + openupgradelib. Docker steps (Odoo 12/13) have no venv.
+    + psycopg2-binary + openupgradelib. Every step in the chain gets one.
 
     Skips on the ready *marker*, not the venv directory: a venv whose installs
     failed midway has no marker and is rebuilt (``uv venv`` recreates in place)."""
     commands: list[Command] = []
     for version in env.chain():
-        python, method = env.interpreter(version)
-        if method != "uv" or python is None:
+        python, _method = env.interpreter(version)
+        if python is None:  # pragma: no cover - every version declares one
             continue
         if exists(env.venv_ready_marker(version)):
             continue
@@ -358,11 +330,20 @@ def plan_migration_venvs(env: MigrationEnv, exists: Exists = _never) -> list[Com
                 )
             )
         venv = env.venv_dir(version)
-        odoo = env.odoo_clone_dir(version)
+        # For the <= 13 layout the OpenUpgrade checkout *is* Odoo, so its own
+        # requirements.txt is the one to install; there is no separate clone.
+        requirements = (
+            env.openupgrade_clone_dir(version) if env.uses_legacy_layout(version)
+            else env.odoo_clone_dir(version)
+        ) / "requirements.txt"
         overrides = env.overrides_file(version)
         commands += write_text_file_command(
             overrides, templates.render_migration_overrides(version, python)
         )
+        constraints_text = templates.render_migration_constraints(version)
+        constraints = env.constraints_file(version)
+        if constraints_text:
+            commands += write_text_file_command(constraints, constraints_text)
         commands += [
             Command(
                 tf("Create uv venv (Python {}) for Odoo {}", python, version),
@@ -372,8 +353,13 @@ def plan_migration_venvs(env: MigrationEnv, exists: Exists = _never) -> list[Com
             Command(
                 tf("Install Odoo {} requirements", version),
                 f"uv pip install --python {shlex.quote(str(venv))} "
-                f"-r {shlex.quote(str(odoo / 'requirements.txt'))} "
-                f"--overrides {shlex.quote(str(overrides))}",
+                f"-r {shlex.quote(str(requirements))} "
+                f"--overrides {shlex.quote(str(overrides))}"
+                + (
+                    f" --build-constraints {shlex.quote(str(constraints))}"
+                    if constraints_text
+                    else ""
+                ),
             ),
             Command(
                 tf("Install psycopg2-binary and openupgradelib for Odoo {}", version),
@@ -400,10 +386,9 @@ def plan_migration_configs(env: MigrationEnv) -> list[Command]:
         )
     ]
     for version in env.chain():
-        if env.is_native(version):
-            commands += write_text_file_command(
-                env.config_file(version), templates.render_migration_conf(env, version)
-            )
+        commands += write_text_file_command(
+            env.config_file(version), templates.render_migration_conf(env, version)
+        )
     commands += write_text_file_command(
         env.root / "run_migration.sh", templates.render_run_migration_sh(env), "755"
     )

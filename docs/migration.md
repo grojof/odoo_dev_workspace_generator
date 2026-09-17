@@ -26,20 +26,25 @@ oldest interpreters are not natively installable. Measured on the WSL test box:
 | 14 / 15 | 3.8 | **`uv` native** (uv's installable floor is 3.8) |
 | 16 / 17 | 3.10 | `uv` native |
 | 18 / 19 | 3.12 | `uv` native |
-| 13 | 3.6 | **Docker fallback** (`odoo:13.0`) — uv can't provide 3.6 |
-| 12 | 3.5 | Docker fallback (`odoo:12.0`) if the source itself must run |
+| 13 | 3.8 | `uv` native (above its 3.6 floor; the branch installs and runs there) |
+| 12 | — | never executed: the chain restores it and migrates away from it |
 
 These interpreters are the **recommendations** the [support matrix](support-matrix.md) declares per version —
 what this project has built and run — not the only ones each version accepts. Before planning, the generate
 flow shows one row per chain step and lets you **pin any step** to a specific Python; the rest keep their
 recommendation. A pinned step's `overrides-<ver>.txt` repair follows the interpreter actually in use, and an
-out-of-range choice is stated (range, chosen version, evidence tier) before it is accepted. Docker-backed
-steps (12/13) cannot be pinned: the official image fixes their interpreter.
+out-of-range choice is stated (range, chosen version, evidence tier) before it is accepted. Every step can be
+pinned, including 13.
 
-`uv`'s 3.8 ships a bundled OpenSSL, so it works where a source-built 3.6 (pyenv) fails against system OpenSSL 3.
-**Because every step runs the target version, a source database ≥ 13 migrates entirely natively** — only a
-12 → 13 step needs Docker. The `odoo:12.0`/`odoo:13.0` images are still pullable (verified). The generator only
-emits the Docker recipe; your host provides the daemon.
+**Every step runs natively**; the tool needs no container runtime. The Odoo 13 step used to run in the official
+`odoo:13.0` image, and that was a mistake worth recording: the image's `odoo.conf` sets
+`addons_path = /mnt/extra-addons`, so the mounted fork's `odoo-bin` loaded the *image's* add-ons and every
+add-on migration script was skipped while the step still reported success. Running it natively — and naming
+the add-ons path explicitly — fixes that.
+
+The 13 step needs two repairs the modern ones do not: `setuptools<58` as a **build** constraint (its
+`vatnumber==1.2` still calls `use_2to3`) and `setuptools<81` installed (Odoo ≤ 16 imports `pkg_resources`).
+Both are generated for you in `requirements/`.
 
 ## What is generated
 
@@ -60,6 +65,15 @@ Under `~/odoo-migrations/<src>-to-<tgt>/`:
 - A per-step `conf/odoo<major>.conf` whose `addons_path` composes custom → OCA → the OpenUpgrade
   checkout → core.
 - `run_migration.sh` — the checkpointing driver, with a built-in preflight.
+
+## Two OpenUpgrade layouts
+
+Up to 13, the OpenUpgrade checkout **is** a full Odoo fork and each add-on carries its own
+`migrations/<version>/` scripts; the step runs the fork's `odoo-bin` with an `--addons-path` that names the
+fork's `addons` directory, and there is no `--upgrade-path` or `openupgrade_framework`. From 14 the checkout
+is an add-on collection beside a separate Odoo clone, with scripts under `openupgrade_scripts/scripts`
+reached via `--upgrade-path`. The generated per-step `odoo.conf` states the path explicitly in both cases,
+because a defaulted or inherited path is exactly how the container version went wrong.
 
 ## What the coverage check blocks on
 
@@ -129,11 +143,11 @@ automatically when generating an environment (host scope) and inside the driver 
 
 | Scope | Checks |
 |-------|--------|
-| Host | `uv`; Docker binary + daemon + `odoo:12.0`/`odoo:13.0` images (only when the chain has a 12/13 step); PostgreSQL reachable + dev role; the dump exists and `pg_restore --list` parses it (which also enforces the required custom format, `pg_dump -Fc` — plain SQL dumps are rejected); addons layout present |
+| Host | `uv` (every step's interpreter); PostgreSQL reachable + dev role; the dump exists and `pg_restore --list` parses it (which also enforces the required custom format, `pg_dump -Fc` — plain SQL dumps are rejected); addons layout present |
 | Database | actual source version from `ir_module_module` (`base`) vs. the declared source; installed-module list; **per-step coverage** — every installed module must resolve in every step's `addons_path`, and each miss names the exact directory to fill |
 
 The database scope needs a live database: name an already-restored one in the menu action, or let the
-driver verify right after its initial restore (it aborts before step 1 on any failure). Docker-step
+driver verify right after its initial restore (it aborts before step 1 on any failure). Legacy-layout
 coverage (12/13) is reported as not verifiable — the official image provides core.
 
 ## Running the migration
@@ -164,11 +178,11 @@ migration database is never touched; drop it manually (`dropdb`) for a fully cle
 - A **full 12 → 19 run needs a real legacy dump** and is not part of automated tests; WSL acceptance covers
   environment generation, `uv` venv builds, `odoo-bin --version`, and `bash -n` on the driver.
 - The `overrides-<ver>.txt` pins for the Python-3.10 steps (16.0/17.0) are validated against a real
-  `uv pip install` on WSL. The 12/13 Docker step runs the OpenUpgrade *fork's* own `odoo-bin` (those
+  `uv pip install` on WSL. The 13 step runs the OpenUpgrade *fork's* own `odoo-bin` (those
   branches predate `--upgrade-path`/`openupgrade_framework`); the recipe launches and reaches the shared
   database (verified on WSL) but its migration semantics still await a real legacy dump.
-- Docker for the 12/13 steps means **Docker Engine inside the Linux host itself** (installed by
-  `provision apply` as `docker.io`) — not Docker Desktop integration from Windows.
+- The tool needs **no container runtime at all**: every step, 13 included, runs in a `uv` virtualenv on the
+  host.
 - Migrating **custom module code** across versions is a separate job — see
   [`oca-port`](https://github.com/OCA/oca-port) and
   [`odoo-module-migrator`](https://github.com/OCA/odoo-module-migrator).

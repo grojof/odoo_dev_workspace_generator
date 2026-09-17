@@ -41,7 +41,7 @@ Two optional user-facing **sections** plus one **mode**:
 | Surface | What it does | Requires root? |
 |---|---|---|
 | **workspace** | Per-client workspaces: shared Odoo/OCA repo cache, per-instance venv, `addons-custom`/`addons-oca`, per-version `odoo.conf`, VSCode files, and a robust per-workspace README. | No (user's home) |
-| **provision** *(optional)* | Prepare *a Linux host*: PostgreSQL + role, wkhtmltopdf, Node + rtlcss, and the migration toolchain (uv, Docker Engine + OpenUpgrade images, both opt-in). Host-agnostic — never assumes WSL. | `apply` may |
+| **provision** *(optional)* | Prepare *a Linux host*: build dependencies, PostgreSQL + role, wkhtmltopdf, and Node + rtlcss (opt-in). Targets the Ubuntu releases in the [support matrix](docs/support-matrix.md). | `apply` may |
 | **migration** *(mode)* | OpenUpgrade chained upgrade **12 → 19** (sequential, no skips): **preflight verification** (host, dump, database, addons coverage), per-version interpreters via `uv`, **custom-module staging** (OCA `odoo-module-migrator` + analysis findings + scaffolds), a checkpointing driver, and environment cleanup. | No |
 
 ## Install & first run
@@ -61,8 +61,7 @@ python3 -m odoo_dwg provision       # check first — read-only readiness table:
 #   State  Capability               Detail
 #   OK     PostgreSQL               installed and running
 #   OK     wkhtmltopdf              wkhtmltopdf 0.12.6.1 (with patched qt)
-#   OK     uv (migration)           present
-#   WARN   Docker daemon            not responding (service down or missing docker-group permission)
+#   OK     uv (interpreters)        present — provides 3.8, 3.10, 3.12 …
 
 python3 -m odoo_dwg migrate         # generate env / preflight / stage custom modules / clean
 ODWG_LANG=es python3 -m odoo_dwg    # Spanish UI (English is the default)
@@ -75,8 +74,9 @@ Every command, menu action, and confirmation phrase: [`docs/commands.md`](docs/c
 - A **Linux** host (target: Ubuntu 24.04) — don't have one? [`docs/wsl-setup.md`](docs/wsl-setup.md) sets up
   Ubuntu 24.04 on WSL 2 step by step. Development *of this tool* works on any OS; real end-to-end
   generation is validated on WSL/Linux.
-- `python3` ≥ 3.10 (the tool itself). Host tools it orchestrates — `git`, `psql`/`createdb`, and, for
-  migration, `uv` (and optionally `docker`) — are checked by `provision check`, not bundled.
+- `python3` ≥ 3.10 (the tool itself). Host tools it orchestrates — `git`, `psql`/`createdb` and `uv`
+  (which provides every migration step's interpreter) — are checked by `provision check`, not bundled. No
+  container runtime is needed.
 
 ## Supported versions
 
@@ -99,7 +99,7 @@ By surface:
 - **Workspaces** — [`docs/workspace-layout.md`](docs/workspace-layout.md) (generated tree, conventions) ·
   [`docs/configuration-reference.md`](docs/configuration-reference.md) (JSON profile fields).
 - **Host setup** — [`docs/wsl-setup.md`](docs/wsl-setup.md) (Ubuntu 24.04 on WSL 2, from zero) ·
-  [`docs/provisioning.md`](docs/provisioning.md) (host check/apply, Docker option).
+  [`docs/provisioning.md`](docs/provisioning.md) (host check/apply).
 - **Migration** — [`docs/migration.md`](docs/migration.md) (interpreters, preflight, staging, checkpointing driver).
 - **What is supported** — [`docs/support-matrix.md`](docs/support-matrix.md) (hosts, Python per Odoo version,
   PostgreSQL — with the source behind every bound and how to re-verify it).

@@ -11,7 +11,6 @@ import pytest
 
 from odoo_dwg.models import (
     DERIVED,
-    DOCKER_PYTHON,
     EVIDENCE_TIERS,
     HOST_PYTHON,
     ODOO_SUPPORT,
@@ -43,9 +42,10 @@ def test_every_supported_version_has_a_complete_row():
         assert support.python_min.value, f"Odoo {major} has no Python floor"
         assert support.postgres_min.tier in EVIDENCE_TIERS
         assert support.python_max.tier in EVIDENCE_TIERS
-        assert support.acquisition in {"uv", "docker"}
-        # A native version must recommend an interpreter; a Docker one must not.
-        assert bool(support.recommended_python) is support.is_native
+        # Every version runs on a uv-provided interpreter, so every row
+        # recommends one.
+        assert support.acquisition == "uv"
+        assert support.is_native and support.recommended_python
 
 
 def test_recommended_interpreter_is_inside_the_declared_range():
@@ -208,12 +208,14 @@ def test_out_of_range_override_is_reported_with_the_bound_it_crosses():
     assert low.out_of_range and low.crossed.value == "3.10"
 
 
-def test_docker_versions_have_no_interpreter_choice():
-    choice = resolve_interpreter("13.0", host_python="3.12")
-    assert (choice.python, choice.source) == (None, DOCKER_PYTHON)
-    assert choice.describe() == "official Docker image"
-    with pytest.raises(ValueError, match="cannot be overridden"):
-        resolve_interpreter("12.0", operator_choice="3.8")
+def test_the_legacy_versions_resolve_to_a_uv_interpreter():
+    # Odoo 13 used to run in a container; it now resolves like any other step.
+    # Migration never offers the host interpreter, so it asks without one.
+    choice = resolve_interpreter("13.0")
+    assert (choice.python, choice.source) == ("3.8", UV_PYTHON)
+    assert choice.needs_uv
+    # And it can be pinned, which a container-backed step could not be.
+    assert resolve_interpreter("13.0", operator_choice="3.9").python == "3.9"
 
 
 # --- the docs must not drift from the declared matrix ----------------------

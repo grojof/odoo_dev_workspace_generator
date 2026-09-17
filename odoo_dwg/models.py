@@ -25,6 +25,11 @@ WORKSPACE_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 # First-class development versions (see the plan: dev on current majors).
 SUPPORTED_DEV_VERSIONS: tuple[str, ...] = ("17.0", "18.0", "19.0")
 
+# OpenUpgrade changed layout at 14: up to 13 the checkout is a full Odoo fork
+# whose migration scripts live inside each add-on; from 14 it is an add-on
+# collection with scripts under openupgrade_scripts/scripts.
+LEGACY_LAYOUT_MAX_MAJOR = 13
+
 # The OpenUpgrade migration chain runs one step per version, in order, no skips.
 MIGRATION_CHAIN: tuple[str, ...] = (
     "12.0", "13.0", "14.0", "15.0", "16.0", "17.0", "18.0", "19.0",
@@ -125,7 +130,7 @@ class VersionSupport:
     python_max: Bound
     postgres_min: Bound
     recommended_python: str | None
-    acquisition: str  # "uv" (native interpreter) or "docker" (official image)
+    acquisition: str  # "uv" — every version runs on a uv-provided interpreter
 
     @property
     def major(self) -> int:
@@ -179,16 +184,21 @@ ODOO_SUPPORT: dict[int, VersionSupport] = {
         python_min=Bound("3.5", OFFICIAL, _official_docs("12.0")),
         python_max=Bound(None, UNTESTED, "no requirements bucket names a distribution"),
         postgres_min=Bound(None, UNTESTED, 'docs say only "the latest version of PostgreSQL"'),
-        recommended_python=None,
-        acquisition="docker",
+        # Nominal: no chain ever runs Odoo 12 (it is the database's starting
+        # point, restored and migrated away from), so this is never exercised.
+        recommended_python="3.8",
+        acquisition="uv",
     ),
     13: VersionSupport(
         version="13.0",
         python_min=Bound("3.6", OFFICIAL, _official_setup("13.0")),
         python_max=Bound(None, UNTESTED, "no requirements bucket names a distribution"),
         postgres_min=Bound(None, UNTESTED, "the 13.0 install page states no floor"),
-        recommended_python=None,
-        acquisition="docker",
+        # Above its documented 3.6 floor, but uv's floor is 3.8 and the branch's
+        # requirements install and run there (measured on WSL, 2026-09-17), which
+        # is what lets this step run natively instead of in a container.
+        recommended_python="3.8",
+        acquisition="uv",
     ),
     14: VersionSupport(
         version="14.0",
@@ -347,9 +357,8 @@ def postgres_floor_for(versions: list[str] | tuple[str, ...]) -> tuple[str, str]
 
 
 # Interpreter sources: where the Python running an Odoo version comes from.
-HOST_PYTHON = "host"      # the host's own python3
-UV_PYTHON = "uv"          # an interpreter uv provides
-DOCKER_PYTHON = "docker"  # fixed by the official image (Odoo 12/13)
+HOST_PYTHON = "host"  # the host's own python3
+UV_PYTHON = "uv"      # an interpreter uv provides
 
 
 @dataclass(frozen=True)
@@ -369,8 +378,6 @@ class InterpreterChoice:
         return self.source == UV_PYTHON
 
     def describe(self) -> str:
-        if self.source == DOCKER_PYTHON:
-            return "official Docker image"
         label = f"{self.python} ({self.source})"
         if self.out_of_range:
             return f"{label} — outside the supported range"
@@ -392,14 +399,6 @@ def resolve_interpreter(
     accepted, when it falls outside the range.
     """
     support = version_support(version)
-    if not support.is_native:
-        if operator_choice:
-            raise ValueError(
-                f"Odoo {support.version} runs through the official Docker image, "
-                "whose interpreter is fixed; it cannot be overridden."
-            )
-        return InterpreterChoice(support.version, None, DOCKER_PYTHON)
-
     if operator_choice:
         chosen = operator_choice
         source = HOST_PYTHON if host_python and chosen == host_python else UV_PYTHON
@@ -432,8 +431,8 @@ def _crossed_bound(support: VersionSupport, python: str) -> Bound | None:
 
 def migration_interpreter(version: str) -> tuple[str | None, str]:
     """``(python, method)`` for running an Odoo version during migration —
-    ``("3.8", "uv")`` for natives, ``(None, "docker")`` for 12/13. The Python is
-    the matrix's recommendation for that version."""
+    e.g. ``("3.8", "uv")``. The Python is the matrix's recommendation for that
+    version."""
     support = version_support(version)
     return support.recommended_python, support.acquisition
 
@@ -701,13 +700,12 @@ class MigrationEnv:
         return choice.python, choice.source
 
     def set_interpreter_override(self, version: str, python: str) -> InterpreterChoice:
-        """Pin one chain step to an interpreter. Refuses a step outside the chain
-        and a Docker-backed step, whose interpreter the official image fixes.
-        Returns the resolved choice, which reports whether it is out of range."""
+        """Pin one chain step to an interpreter. Refuses a version outside the
+        chain. Returns the resolved choice, which reports whether it is out of
+        range."""
         chain = self.chain()
         if version not in chain:
             raise ValueError(f"{version} is not a step in this chain ({', '.join(chain)}).")
-        # resolve_interpreter refuses an override for a Docker-backed version.
         choice = resolve_interpreter(version, operator_choice=python)
         self.interpreter_overrides[version] = python
         return choice
@@ -771,22 +769,48 @@ class MigrationEnv:
 
     def addons_path(self, version: str) -> str:
         """Operator code first (custom → OCA — first match wins in Odoo's module
-        lookup), then the OpenUpgrade checkout *root* (so openupgrade_framework
-        and openupgrade_scripts both resolve), then core."""
-        odoo = self.odoo_clone_dir(version)
-        return ",".join(
-            str(p)
-            for p in (
+        lookup), then the OpenUpgrade checkout, then core.
+
+        Two layouts. For Odoo >= 14 the checkout is an add-on collection beside a
+        separate Odoo clone, and its *root* is listed so ``openupgrade_framework``
+        and ``openupgrade_scripts`` both resolve. For Odoo <= 13 the checkout *is*
+        Odoo (a full fork) and every migration script lives inside its own add-on,
+        so the path names the fork's ``addons`` directory — listing anything else
+        leaves those scripts unreachable and the step silently skips them."""
+        openupgrade = self.openupgrade_clone_dir(version)
+        if odoo_major(version) <= LEGACY_LAYOUT_MAX_MAJOR:
+            parts = (
                 self.addons_custom_dir(version),
                 self.addons_oca_dir(version),
-                self.openupgrade_clone_dir(version),
+                openupgrade / "addons",
+            )
+        else:
+            odoo = self.odoo_clone_dir(version)
+            parts = (
+                self.addons_custom_dir(version),
+                self.addons_oca_dir(version),
+                openupgrade,
                 odoo / "addons",
                 odoo / "odoo" / "addons",
             )
-        )
+        return ",".join(str(p) for p in parts)
 
-    def needs_docker(self) -> bool:
-        return any(not self.is_native(v) for v in self.chain())
+    def uses_legacy_layout(self, version: str) -> bool:
+        """True where OpenUpgrade keeps migrations inside each add-on (<= 13),
+        rather than under an upgrade path."""
+        return odoo_major(version) <= LEGACY_LAYOUT_MAX_MAJOR
+
+    def odoo_bin(self, version: str) -> Path:
+        """The ``odoo-bin`` a step runs: the fork's own for the <= 13 layout,
+        where the checkout is a full Odoo, and the Odoo clone's otherwise."""
+        if self.uses_legacy_layout(version):
+            return self.openupgrade_clone_dir(version) / "odoo-bin"
+        return self.odoo_clone_dir(version) / "odoo-bin"
+
+    def constraints_file(self, version: str) -> Path:
+        """Build constraints for a step whose dependencies a current toolchain
+        cannot build as pinned (see ``templates.render_migration_constraints``)."""
+        return self.requirements_dir / f"constraints-{version}.txt"
 
     def validate(self) -> None:
         # migration_chain enforces source < target and the 12–19 range.

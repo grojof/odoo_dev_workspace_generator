@@ -88,7 +88,7 @@ items are host-dependent.
 
 - ~~Migration overrides tuning~~ — **done** (2026-07-18): 14/15 install clean on 3.8; 16/17 needed the
   `--overrides` lift to `gevent==22.10.2`/`greenlet==2.0.2` (validated by real `uv pip install` on WSL).
-- **12/13 OpenUpgrade command shape** — the recipe now runs the ≤ 13 *fork's* own `odoo-bin` from the
+- ~~12/13 OpenUpgrade command shape~~ — **done**: — the recipe now runs the ≤ 13 *fork's* own `odoo-bin` from the
   mounted clone with `openupgradelib` installed on the fly (verified on WSL against `odoo:13.0`: container
   reaches OpenUpgrade code against the shared PostgreSQL). **Semantic validation done** (2026-09-17): the
   step migrated a real Odoo 12 demo database to 13.0 and checkpointed, as part of the full 12 → 19 run.
@@ -101,10 +101,13 @@ items are host-dependent.
   Odoo's own renamed/dropped modules as the operator's, and Odoo ≤ 16 needing `setuptools<81` for
   `pkg_resources`. Docker Engine (`docker.io`) is installed in the Linux host itself by `provision apply` —
   no Docker Desktop dependency — and the 12/13 fallback images were pulled by the same plan.
-- **Still open from that run**: whether the 12/13 steps could run natively on `uv`'s 3.8 floor instead of the
-  Docker fallback. The run used Docker for step 13 as designed and did not test the native path; their
-  requirements buckets reach `>= '3.8'` but name no distribution, so the support matrix still marks that
-  ceiling `untested`.
+- ~~Native 12/13 instead of the Docker fallback~~ — **done** (2026-09-17, change
+  `drop-docker-run-13-natively`). Odoo 13 — the only step that ever ran in a container, since Odoo 12 is
+  restored and never executed — installs its full requirements on `uv`'s 3.8 with one build constraint
+  (`setuptools<58`, for `vatnumber`'s `use_2to3`) and migrates correctly. Testing it also exposed why the
+  container path was worse than a workaround: the `odoo:13.0` image's `addons_path` meant the step ran the
+  *image's* add-ons, skipping every add-on migration script while reporting success. **Docker is gone from
+  the project** — provisioning, preflight and the driver no longer mention it.
 - **Confirm the Ubuntu 22.04 column of the support matrix** — its system Python (3.10) and PostgreSQL (14)
   are read from `packages.ubuntu.com`, not from a running jammy host. Needs a 22.04 host or container, which
   the CI item above would also provide.

@@ -40,10 +40,6 @@ class ProvisionFacts:
     host_python: str | None = None
     # Odoo versions this check is scoped to, which set the PostgreSQL floor.
     versions: list[str] = field(default_factory=list)
-    docker_binary: bool = False
-    docker_daemon: bool = False
-    docker_daemon_detail: str = ""
-    docker_images: dict[str, bool] = field(default_factory=dict)
 
 
 def gather_facts(dev_role: str = "odoo", versions: list[str] | None = None) -> ProvisionFacts:
@@ -52,15 +48,6 @@ def gather_facts(dev_role: str = "odoo", versions: list[str] | None = None) -> P
     release = system.detect_os_release()
     running = system.postgres_running()
     role_exists = system.db_role_exists(dev_role) if running else False
-    docker_binary = system.has_tool("docker")
-    daemon_ready, daemon_detail = (
-        system.docker_daemon_ready() if docker_binary else (False, "")
-    )
-    images = (
-        {tag: system.docker_image_present(tag) for tag in planners.OPENUPGRADE_FALLBACK_IMAGES}
-        if daemon_ready
-        else {}
-    )
     uv_present = system.has_tool("uv")
     return ProvisionFacts(
         os_id=release.get("ID", ""),
@@ -80,10 +67,6 @@ def gather_facts(dev_role: str = "odoo", versions: list[str] | None = None) -> P
         uv_pythons=system.uv_python_minors() if uv_present else [],
         host_python=system.detect_python_version(),
         versions=list(versions or []),
-        docker_binary=docker_binary,
-        docker_daemon=daemon_ready,
-        docker_daemon_detail=daemon_detail,
-        docker_images=images,
     )
 
 
@@ -171,20 +154,5 @@ def provision_rows(facts: ProvisionFacts) -> list[tuple[str, str, str]]:
 
     if facts.host_python:
         rows.append(("INFO", "Host python3", facts.host_python))
-
-    if not facts.docker_binary:
-        rows.append(("INFO", "Docker (migration 12/13)", "not installed (only needed for Odoo 12/13 migration steps)"))
-    else:
-        rows.append(("OK", "Docker binary", "present"))
-        if facts.docker_daemon:
-            rows.append(("OK", "Docker daemon", facts.docker_daemon_detail or "responding"))
-            present = [tag for tag, ok in facts.docker_images.items() if ok]
-            missing = [tag for tag, ok in facts.docker_images.items() if not ok]
-            detail = ", ".join(
-                [f"{tag} present" for tag in present] + [f"{tag} not pulled" for tag in missing]
-            )
-            rows.append(("INFO", "OpenUpgrade fallback images", detail or "not checked"))
-        else:
-            rows.append(("WARN", "Docker daemon", facts.docker_daemon_detail or "not responding (service down or missing docker-group permission)"))
 
     return rows
