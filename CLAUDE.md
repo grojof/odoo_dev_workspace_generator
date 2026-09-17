@@ -1,96 +1,86 @@
 # odoo_dwg — AI Agent Guide (CLAUDE.md)
 
-A zero-runtime-dependency (Python **standard library only**) generator that creates and maintains
-**Odoo Community** *development* workspaces and *migration* environments on a **Linux host** (WSL Ubuntu
-24.04, a server, or a container — the host is the user's choice, never provisioned implicitly). It is a
-**user-run** CLI (it generates workspaces under the user's home and needs no root by itself; only
-`provision apply` may escalate, and it says so). It never mutates the host directly: every host-mutating
-action assembles a command **plan**, previews it, and applies it only after confirmation. This file is the
-single authored source of truth for AI agents working *on* this project.
+A zero-runtime-dependency (Python standard library only) CLI that generates and maintains **Odoo
+Community** development workspaces and OpenUpgrade migration environments on a **Linux host**. This file is
+a stable router: it says *where* things live and *which rules never change*. It deliberately holds no
+project status — look that up in the files below.
 
-> **Status: F0 (foundation).** The package skeleton, i18n, UI/prompts, `system`, `models`, and the CLI/menu
-> are in place; the three sections are navigable **stubs**. Real capability lands in F1 (workspace), F2
-> (provision), F3 (migration). See `docs/roadmap.md` and the plan. Do not describe stubbed behavior as done.
+## Where to look (and what to update)
 
-## Project boundary & paths
+| Need | Read / update |
+|---|---|
+| Current status, phases, backlog, next work | [`docs/roadmap.md`](docs/roadmap.md) |
+| Work in flight | `openspec/changes/<name>/` (`proposal.md`, `design.md`, `tasks.md`) |
+| Behavior source of truth (per capability) | `openspec/specs/<capability>/spec.md` |
+| Why a decision was made | `openspec/changes/archive/*/design.md` (no separate ADR series) |
+| OpenSpec project context & artifact rules | [`openspec/config.yaml`](openspec/config.yaml) |
+| What the tool does, user-facing map | [`README.md`](README.md) |
+| Commands, menus, confirmation phrases | [`docs/commands.md`](docs/commands.md) |
+| Workspace profile / layout | [`docs/configuration-reference.md`](docs/configuration-reference.md), [`docs/workspace-layout.md`](docs/workspace-layout.md) |
+| Provisioning / migration guides | [`docs/provisioning.md`](docs/provisioning.md), [`docs/migration.md`](docs/migration.md) |
+| Contribution rules, checks, commits | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
+| User-facing change log & version | [`CHANGELOG.md`](CHANGELOG.md) (`[Unreleased]`), `version` in [`pyproject.toml`](pyproject.toml) |
 
-- **This repository is the project root.** A single Python package, no nested repos.
-- `odoo_dev_workspace_generator.py` — thin root entry point (also `python -m odoo_dwg` and the `odoo-dwg`
-  console script).
-- `odoo_dwg/` — the package, in strict layers (mirrors the sibling app `odoo_instance_manager`):
-  - `models.py` — `WorkspaceConfig` / `InstanceConfig`, version facts, path/port derivation, JSON round-trip.
-    Pure data + validation, **no I/O, no execution**.
-  - `system.py` — execution primitives (`Command`, `run`, `run_streaming`), host probes, and the
-    `preview_commands` / `apply_commands` contract.
-  - `planners.py` *(arrives with F1/F2/F3)* — **pure** builders returning `list[Command]` (odoo.conf,
-    VSCode files, venv/setup scripts, the migration driver). No I/O, no execution.
-  - `prompts.py` — interactive input, `choose`, `confirm_with_phrase`.
-  - `ui.py` — terminal tables and styling.
-  - `i18n.py` — English-source translation with an optional Spanish catalog (`t`/`tf`).
-  - `cli.py` — language selection, the interactive menu, and the argparse CLI.
-  - `workflows/` — one module per user-facing surface: `workspace.py`, `provision.py`, `migration.py`.
-  - `templates/` — text templates for generated artifacts (odoo.conf, VSCode, READMEs, bash scripts).
-- `openspec/specs/` — the **behavior source of truth** (one spec per capability). Changes live in
-  `openspec/changes/`; the `/opsx:*` flow drives them.
-- `docs/` — user/operator docs, each with frontmatter; the README is the map. Decision records (the *why*)
-  live in the archived OpenSpec changes' `design.md` files, not in a separate ADR series.
+When a change lands, keep these in lockstep: the spec (via `/opsx:archive`), `README.md` + the relevant
+`docs/` page, `CHANGELOG.md`, and `docs/roadmap.md` (move items from backlog to done).
+
+## Code layout (layer contract)
+
+The package `odoo_dwg/` is layered; respect the direction of dependencies:
+
+- `models.py` — config dataclasses, version facts, path/port derivation, identifier validators. Pure data.
+- `planners.py` + `templates.py` — **pure** builders returning `list[Command]` / rendered text. No I/O.
+- `system.py` — the only place that executes (`run`, `run_streaming`, host probes,
+  `preview_commands` / `apply_commands`).
+- `ui.py`, `prompts.py`, `i18n.py` — terminal output, input/confirmation, translation.
+- `workflows/` — one module per surface (`workspace`, `provision`, `migration`) wiring the above.
+- `cli.py` — language selection, interactive menu, argparse. Entry points: `python -m odoo_dwg`,
+  `odoo-dwg`, `odoo_dev_workspace_generator.py`.
+
+Other modules (e.g. `provisioning.py`, `preflight.py`, `analysis.py`) follow the same rule: pure logic
+unless they are `system.py`.
 
 ## Non-negotiable principles
 
-- **Zero runtime dependencies.** Python 3.10+, `from __future__ import annotations`, standard library only.
-  The app *emits scripts and orchestrates system tools* (`git`, `python3 -m venv`, `pip`, `psql`/`createdb`,
-  and — migration only — `uv`, optionally `docker`); those are **host prerequisites**, detected by
-  `provision check`, not Python dependencies. Adding a runtime dependency is itself an ADR-worthy decision.
-- **Preview → confirm → apply is inviolable.** Every host-mutating action goes through a previewed plan;
-  destructive/data actions keep an exact-phrase confirmation (`confirm_with_phrase`). Never add a code path
-  that mutates the host without a plan. **Keep planners pure** — building a command is not running it.
-- **English is canonical** for code, docs, specs, and **all generated artifacts** (odoo.conf, scripts,
-  per-workspace README). Spanish is offered only as an optional **UI** language via `odoo_dwg/i18n.py`: every
-  operator-facing string goes through `t`/`tf` with the **English text as the source key** — never a
-  hardcoded Spanish literal. Language is chosen at startup or via `ODWG_LANG=en|es`.
-- **Anchor everything to OFFICIAL documentation.** Never assume an Odoo/OpenUpgrade fact (Python floor,
-  wkhtmltopdf version, PostgreSQL minimum, migration command shape). Cite the official source in `docs/` and
-  keep `models.ODOO_PYTHON_MINIMUM` / version facts traceable to it.
-- **Host-agnostic.** `provision` prepares *a Linux host*; it must not assume WSL. The environment
-  (Linux/WSL/Docker) is the user's, not this tool's.
-- **No AI/MCP coupling.** The tool is assistant-agnostic and installs nothing AI-related. Its substitute for
-  that is a **robust generated README** giving any assistant full context. Optional AI emitters (opt-in,
-  text-only) are a future F4 concern, never a default.
-- **Quote and validate every operator-supplied value** reaching a shell command or SQL string (`shlex.quote`
-  and the identifier validators in `models.py`). Never interpolate raw input.
+- **Zero runtime dependencies.** Python 3.10+, `from __future__ import annotations`, stdlib only. System
+  tools (`git`, `uv`, `psql`, `docker`…) are host prerequisites detected by `provision check`, never Python
+  deps. Adding a runtime dependency requires a documented design decision.
+- **Plan → preview → confirm → apply is inviolable.** No code path mutates the host without a previewed
+  plan; destructive/data actions require `confirm_with_phrase`. Planners stay pure.
+- **English is canonical** for code, docs, specs, and all generated artifacts. Spanish is only an optional
+  UI language: every operator-facing string goes through `t`/`tf` with the English text as key.
+- **Anchor Odoo/OpenUpgrade facts to official documentation**, cited in `docs/`; never assume them.
+- **Host-agnostic.** Target "a Linux host"; never assume WSL. The environment is the user's choice.
+- **No AI/MCP coupling.** Install nothing AI-related; the generated per-workspace README is the context
+  source. AI emitters are an opt-in future item (see roadmap).
+- **Quote and validate** every operator-supplied value reaching a shell or SQL string (`shlex.quote`,
+  validators in `models.py`).
 
-## How to work in this project
+## How to work
 
-- **Non-trivial changes are spec-first.** Use the OpenSpec `/opsx:*` flow
-  (`/opsx:explore → /opsx:propose <name> → /opsx:apply → /opsx:archive`); behavior is specified in
-  `openspec/specs/`. Validate with `openspec validate --specs`.
-- **Match the surrounding code**: small functions, early returns, type hints, LF newlines, final newline,
-  UTF-8. Line length aims ≤100 (E501 is deferred for embedded shell/SQL strings).
-- **Keep the root `README.md` current** as the friendly front door *and* routable map: what it does, the two
-  sections + migration mode, a version/platform matrix, and links into `docs/`. Update it in lockstep with
-  any behavior or docs change.
-- **Keep the changelog and version in lockstep** (Keep a Changelog + SemVer). User-facing changes go under
-  `## [Unreleased]` in `CHANGELOG.md`; bump `version` in `pyproject.toml` when cutting a release.
-- **Some actions are irreversible or sensitive** (force-push, history rewrite, deleting a workspace/DB, secret
-  access): pause and confirm first. Conventional Commits, imperative mood, one logical change per commit, **no
-  AI-attribution trailers**.
+- **Non-trivial changes are spec-first**: `/opsx:explore → /opsx:propose <name> → /opsx:apply →
+  /opsx:archive`. Trivial fixes may go direct.
+- Match the surrounding code: small functions, early returns, type hints, LF, UTF-8, final newline, lines
+  ≤100 (E501 deferred for embedded shell/SQL).
+- Conventional Commits, imperative mood, one logical change per commit, **no AI-attribution trailers**.
+- Pause and confirm before irreversible or sensitive actions (force-push, history rewrite, deleting a
+  workspace/DB, secret access).
 
-## Testing & checks
+## Checks
 
-- Tests are **standard library + pytest**, run without shelling out or touching the real filesystem (use
-  `tmp_path`, assert on rendered template text and validated config objects). Never require a live Odoo/PG.
-- The real end-to-end validation (a generated workspace actually cloning Odoo, building a venv, and launching
-  `odoo-bin`) happens **on WSL Ubuntu 24.04** — it is intrinsically Linux and cannot be verified from Windows.
+Tests use stdlib + pytest only: no shelling out, no real filesystem (use `tmp_path`), no live Odoo/PG.
 
 ```bash
 python -m pytest -q                 # unit tests
 python -m ruff check .              # lint (E,F,I,UP,B,W; E501 deferred)
-openspec validate --specs           # every capability spec is well-formed
+openspec validate --specs           # specs well-formed
 python -m odoo_dwg --help           # CLI smoke test
 ```
 
+End-to-end validation (cloning Odoo, building venvs, running `odoo-bin`, migrations) happens on a real
+Linux host — WSL Ubuntu 24.04 is the reference box; it cannot be verified from Windows.
+
 ## Safe controls
 
-- Runtime guardrails come from the user-level **eunomai** Claude Code plugin (ask-by-default on force-push /
-  `rm -rf` / secret access; deny on AI-attribution commit trailers). Fail-open — a floor-raiser, not a
-  boundary. Project-level static path rules would live in `.claude/settings.json` if added.
+Runtime guardrails come from the user-level **eunomai** Claude Code plugin (fail-open floor-raiser, not a
+boundary). Project-level static rules would go in `.claude/settings.json` if added.

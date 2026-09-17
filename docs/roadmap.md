@@ -3,7 +3,7 @@ type: explanation
 title: "Roadmap (F0–F4) and backlog"
 description: "Phased delivery plan and the parked backlog for the Odoo dev/migration workspace generator."
 audience: [contributor]
-updated: 2026-07-18
+updated: 2026-09-17
 ---
 
 # Roadmap
@@ -47,6 +47,17 @@ items are host-dependent.
 
 ## Features (OpenSpec)
 
+- **Support matrix (next — do first, on WSL)** — define one authoritative matrix in
+  `docs/support-matrix.md` (+ a spec) and make code/docs derive from it. Decisions taken (2026-09-17):
+  - **Hosts: Ubuntu 22.04 and 24.04 only** (Debian dropped to keep scope small; 24.04 stays the reference
+    box).
+  - **Tool Python floor: 3.10**, justified as Ubuntu 22.04's system Python; day-to-day development runs on
+    3.12 (Ubuntu 24.04's system Python).
+  - Still to resolve: official per-Odoo Python minimum *and maximum* (15/16/19 floors are currently not
+    cited; dev workspace venvs use the host `python3` with no upper-bound check), PostgreSQL range, and
+    rewording "apt-family" provisioning to "Ubuntu".
+  - Development of this repo moves into WSL (clone under `~`, not `/mnt/c`); add a short how-to for getting
+    the tool onto a WSL host (the tool never creates WSL itself).
 - **F4 — Optional AI emitters** — opt-in, text-only emitters (CLAUDE.md / skills / agents for a user's
   assistant), never installing runtimes, never a default. A parked proposal exists:
   `openspec/changes/add-ai-emitters/` — fill it forward with `/opsx:` and apply.
@@ -54,7 +65,9 @@ items are host-dependent.
   full single-branch Odoo clone is ~394 MB; some users want history, some want speed. Add a profile flag.
   (Migration clones already use `--depth 1`.) Candidate for a small OpenSpec change.
 - **CI workflow** — a GitHub Actions workflow running `ruff`, `pytest`, and `openspec validate --specs` on
-  push/PR (mirror the sibling app's `.github/workflows/ci.yml`). Optionally a release workflow.
+  push/PR (mirror the sibling app's `.github/workflows/ci.yml`). Blocked on the support matrix: its main value
+  is testing the declared Python range (3.10 and 3.12) on the declared Ubuntu hosts. Optionally a release
+  workflow once a first version is tagged.
 - **VSCode official-extension emitter** — optional static emitter for the official `Odoo.odoo` extension:
   `odools.toml` profiles (verified schema: `[[config]]` + `name`/`extends`/`odoo_path`/`addons_paths`/
   `python_path`, vars `${workspaceFolder}`/`${detectVersion}`/`$autoDetectAddons`), an OWL `jsconfig.json`,
