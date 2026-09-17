@@ -72,7 +72,8 @@ Every command, menu action, and confirmation phrase: [`docs/commands.md`](docs/c
 
 ## Requirements
 
-- A **Linux** host (target: Ubuntu 24.04). Development *of this tool* works on any OS; real end-to-end
+- A **Linux** host (target: Ubuntu 24.04) — don't have one? [`docs/wsl-setup.md`](docs/wsl-setup.md) sets up
+  Ubuntu 24.04 on WSL 2 step by step. Development *of this tool* works on any OS; real end-to-end
   generation is validated on WSL/Linux.
 - `python3` ≥ 3.10 (the tool itself). Host tools it orchestrates — `git`, `psql`/`createdb`, and, for
   migration, `uv` (and optionally `docker`) — are checked by `provision check`, not bundled.
@@ -96,7 +97,8 @@ By surface:
 - **Using the tool** — [`docs/commands.md`](docs/commands.md) (every command and menu action).
 - **Workspaces** — [`docs/workspace-layout.md`](docs/workspace-layout.md) (generated tree, conventions) ·
   [`docs/configuration-reference.md`](docs/configuration-reference.md) (JSON profile fields).
-- **Provisioning** — [`docs/provisioning.md`](docs/provisioning.md) (Debian/Ubuntu check/apply, Docker option).
+- **Host setup** — [`docs/wsl-setup.md`](docs/wsl-setup.md) (Ubuntu 24.04 on WSL 2, from zero) ·
+  [`docs/provisioning.md`](docs/provisioning.md) (Debian/Ubuntu check/apply, Docker option).
 - **Migration** — [`docs/migration.md`](docs/migration.md) (interpreters, preflight, staging, checkpointing driver).
 - **Project** — [`docs/roadmap.md`](docs/roadmap.md) (phases + backlog) · [`CLAUDE.md`](CLAUDE.md) (AI-agent
   guide) · [`CONTRIBUTING.md`](CONTRIBUTING.md) · [`SECURITY.md`](SECURITY.md) ·

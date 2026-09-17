@@ -62,6 +62,11 @@ All notable changes to this project are documented here. The format is based on
   `pre-migration.generated.py` beside existing files), and produces `staging/report-<module>.md` with the
   tool log verbatim. Staging is a prepared starting point; developer review completes the migration.
 
+- New `docs/wsl-setup.md`: a step-by-step guide to set up an Ubuntu 24.04 host on WSL 2 for the tool
+  (install, user creation, systemd check, optional custom instance name, cloning into the Linux file
+  system, `provision` check/apply, optional `uv`/Docker and editor setup). Anchored to Microsoft Learn;
+  linked from the README. The tool still never creates a host — the environment stays the user's.
+
 - Docs refreshed to the eunomai living-docs v2 standard with the **CLI-tool profile**: new
   `docs/commands.md` (full command/menu/phrase reference), README reshaped as a product map (Mermaid
   plan→preview→apply flowchart, real invocations, surface-organized index), new `SECURITY.md` (private
