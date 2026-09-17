@@ -48,8 +48,8 @@ Every menu shows a numbered list; `0` (or `Back`/`Cancel`) always returns withou
 
 | Action | Behavior | Guard |
 |---|---|---|
-| Check host readiness | Read-only capability table (build deps, PostgreSQL + role, wkhtmltopdf, Node, uv, Docker binary/daemon/images) | Never mutates |
-| Apply (install what's missing) | Plans installs for missing capabilities; Node + rtlcss, Docker Engine (`docker.io`) and the OpenUpgrade image pulls are separate opt-ins | Root required; preview + confirm |
+| Check host readiness | Read-only capability table (host release, build deps, PostgreSQL + role + server version, wkhtmltopdf, Node, host `python3`, uv interpreters) | Never mutates |
+| Apply (install what's missing) | Plans installs for missing capabilities; Node + rtlcss is a separate opt-in | Root required; preview + confirm |
 
 ### Migration (OpenUpgrade 12→19)
 

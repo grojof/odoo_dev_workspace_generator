@@ -247,7 +247,7 @@ def choose_interpreter(
     matrix's recommendation is the default; the operator can keep the host
     interpreter or name any other version, and an out-of-range answer is stated
     plainly (with the evidence tier of the bound being crossed) before it is
-    accepted. Docker-backed versions have no choice to make.
+    accepted.
     """
     support = version_support(version)
     resolved = resolve_interpreter(version, host_python=host_python)

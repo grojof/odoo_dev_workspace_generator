@@ -2,8 +2,7 @@
 
 Two scopes, because database facts need a live database:
 
-- *host*: tools required by the **specific** chain (``uv`` always; Docker binary,
-  daemon and fallback images only when the chain includes an Odoo 12/13 step),
+- *host*: the tools every chain needs (``uv`` for the per-step interpreters),
   PostgreSQL reachability and role, source-dump integrity (``pg_restore --list``,
   which also enforces the custom format), and the addons layout.
 - *database*: the restored database's actual Odoo version (``ir_module_module``,
@@ -31,13 +30,7 @@ Exists = Callable[[Path], bool]
 
 @dataclass
 class HostFacts:
-    needs_docker: bool
-    docker_versions: list[str] = field(default_factory=list)
     uv: bool = False
-    docker_binary: bool = False
-    docker_daemon: bool = False
-    docker_daemon_detail: str = ""
-    images: dict[str, bool] = field(default_factory=dict)
     postgres_running: bool = False
     dev_role: str = "odoo"
     dev_role_exists: bool = False
@@ -73,10 +66,7 @@ class Coverage:
 
 def gather_host_facts(env: MigrationEnv, dump_path: str | None = None) -> HostFacts:
     """Probe the host for this chain's requirements (I/O)."""
-    docker_versions = [v for v in env.chain() if not env.is_native(v)]
     facts = HostFacts(
-        needs_docker=bool(docker_versions),
-        docker_versions=docker_versions,
         uv=system.has_tool("uv"),
         postgres_running=system.postgres_running(),
         dev_role=env.db_user,
@@ -88,15 +78,6 @@ def gather_host_facts(env: MigrationEnv, dump_path: str | None = None) -> HostFa
     )
     if facts.postgres_running:
         facts.dev_role_exists = system.db_role_exists(env.db_user)
-    if facts.needs_docker:
-        facts.docker_binary = system.has_tool("docker")
-        if facts.docker_binary:
-            facts.docker_daemon, facts.docker_daemon_detail = system.docker_daemon_ready()
-        if facts.docker_daemon:
-            facts.images = {
-                f"odoo:{odoo_major(v)}.0": system.docker_image_present(f"odoo:{odoo_major(v)}.0")
-                for v in docker_versions
-            }
     if dump_path:
         facts.dump_readable = Path(dump_path).is_file()
         if facts.dump_readable:
@@ -217,8 +198,7 @@ def gather_coverage(
     asking for the impossible. What is left is Odoo's own dropped code (a warning;
     the upgrade removes it) or somebody else's (blocking; the step needs it).
 
-    Docker steps (12/13) are skipped — the official image provides core, and their
-    coverage is reported as not verifiable."""
+    Every step is native, so every step's coverage is verifiable."""
     coverage = Coverage()
     authors = authors or {}
     for version in env.chain():
@@ -256,27 +236,12 @@ def preflight_rows(
     custom_dir_for: Callable[[str], Path] | None = None,
 ) -> list[tuple[str, str, str]]:
     """Pure: map preflight facts to (state, check, detail) rows
-    (state ∈ OK/WARN/MISSING/INFO). Docker rows appear only for chains that
-    need them; database rows are 'skipped', not failed, when no DB was given."""
+    (state ∈ OK/WARN/MISSING/INFO). Database rows are 'skipped', not failed, when
+    no DB was given."""
     rows: list[tuple[str, str, str]] = []
 
     rows.append(("OK" if host.uv else "MISSING", "uv",
                  "present" if host.uv else "not installed (needed to build the native venvs)"))
-
-    if host.needs_docker:
-        if not host.docker_binary:
-            majors = "/".join(str(odoo_major(v)) for v in host.docker_versions)
-            rows.append(("MISSING", "Docker binary", f"not installed (chain runs Odoo {majors})"))
-        else:
-            rows.append(("OK", "Docker binary", "present"))
-            if host.docker_daemon:
-                rows.append(("OK", "Docker daemon", host.docker_daemon_detail or "responding"))
-                for tag, present in host.images.items():
-                    rows.append(("OK" if present else "MISSING", f"Image {tag}",
-                                 "present" if present else f"not pulled (docker pull {tag})"))
-            else:
-                rows.append(("MISSING", "Docker daemon",
-                             host.docker_daemon_detail or "not responding (service down or missing docker-group permission)"))
 
     if not host.postgres_running:
         rows.append(("MISSING", "PostgreSQL", "not reachable"))

@@ -1,8 +1,19 @@
 # Spec Delta
 
-## MODIFIED Requirements
+## REMOVED Requirements
 
 ### Requirement: Version-to-interpreter acquisition matrix
+
+**Reason**: The requirement was built around two acquisition methods, a native interpreter and a container
+image, and its scenarios asserted the container path for Odoo 12/13. That path is gone: the Odoo 13 step runs
+on a `uv`-provided Python 3.8 like every other step, and Odoo 12 is never executed by a chain at all.
+
+**Migration**: Replaced by "Native interpreter per chain step" below, which keeps the override behaviour
+unchanged and drops only what described the container.
+
+## ADDED Requirements
+
+### Requirement: Native interpreter per chain step
 
 The system SHALL map each Odoo target version in a migration chain to a Python interpreter, taken from the
 support matrix's recommendation for that version. Every step SHALL run natively in a `uv`-provided
@@ -43,6 +54,8 @@ the dev workspace's job.
 - **WHEN** an override falls outside that version's declared Python range
 - **THEN** the flow states the range, the chosen version and the bound's evidence tier, and applies the
   override only on explicit confirmation
+
+## MODIFIED Requirements
 
 ### Requirement: Per-version uv virtualenv with repaired requirements
 

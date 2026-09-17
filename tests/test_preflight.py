@@ -9,7 +9,6 @@ from odoo_dwg.preflight import DbFacts, HostFacts
 
 def _ready_host(**overrides) -> HostFacts:
     facts = HostFacts(
-        needs_docker=False,
         uv=True,
         postgres_running=True,
         dev_role_exists=True,
@@ -28,34 +27,6 @@ def test_native_chain_has_no_docker_rows():
     rows = preflight.preflight_rows(_ready_host())
     assert not any("Docker" in check or "Image" in check for _s, check, _d in rows)
     assert _states(rows)["uv"] == "OK"
-
-
-def test_docker_chain_reports_binary_daemon_and_images_distinctly():
-    host = _ready_host(
-        needs_docker=True,
-        docker_versions=["13.0"],
-        docker_binary=True,
-        docker_daemon=False,
-        docker_daemon_detail="permission denied on /var/run/docker.sock",
-    )
-    states = _states(preflight.preflight_rows(host))
-    assert states["Docker binary"] == "OK"
-    assert states["Docker daemon"] == "MISSING"
-    detail = next(d for _s, c, d in preflight.preflight_rows(host) if c == "Docker daemon")
-    assert "permission denied" in detail
-
-
-def test_missing_image_row_names_the_pull_command():
-    host = _ready_host(
-        needs_docker=True,
-        docker_versions=["13.0"],
-        docker_binary=True,
-        docker_daemon=True,
-        images={"odoo:13.0": False},
-    )
-    rows = preflight.preflight_rows(host)
-    state, _check, detail = next(r for r in rows if r[1] == "Image odoo:13.0")
-    assert state == "MISSING" and "docker pull odoo:13.0" in detail
 
 
 def test_plain_sql_dump_fails_with_format_guidance():
@@ -121,10 +92,13 @@ def test_gather_coverage_classifies_by_where_found():
     assert coverage.customs == {"client_sales"}
 
 
-def test_gather_coverage_skips_docker_steps():
-    env = MigrationEnv(source="12.0", target="13.0")  # single docker step
-    coverage = preflight.gather_coverage(env, ["sale"], exists=lambda p: False)
-    assert coverage.blocking == {} and coverage.warnings == {} and coverage.customs == set()
+def test_coverage_now_verifies_the_13_step_too():
+    # It used to be skipped as "not verifiable" while it ran in a container.
+    env = MigrationEnv(source="12.0", target="13.0")
+    coverage = preflight.gather_coverage(
+        env, ["sale"], exists=lambda _p: False, authors={"sale": "Acme"}
+    )
+    assert coverage.blocking == {"13.0": ["sale"]}
 
 
 def test_driver_preflight_host_runs_before_restore_and_db_after():
@@ -133,16 +107,15 @@ def test_driver_preflight_host_runs_before_restore_and_db_after():
     assert sh.index("preflight_host\n") < sh.index("pg_restore --no-owner")
     assert sh.index("pg_restore --no-owner") < sh.index("  preflight_db")
     assert sh.index("  preflight_db") < sh.index("checkpoint 00_source")
-    # Chain needs docker → daemon and image checks present, failing loudly.
-    assert "docker info >/dev/null" in sh
-    assert "docker image inspect odoo:13.0" in sh
+    # No chain needs a container any more; uv is what every step depends on.
+    assert "docker" not in sh
+    assert 'command -v uv' in sh
     assert "[preflight-fail]" in sh
 
 
-def test_driver_native_chain_has_no_docker_checks_but_verifies_version():
+def test_driver_verifies_the_declared_source_version():
     env = MigrationEnv(source="14.0", target="15.0")
     sh = templates.render_run_migration_sh(env)
-    assert "docker info" not in sh
     assert "ir_module_module" in sh
     assert 'case "$base_ver" in 14.*)' in sh
     # Coverage failure pinpoints the custom dir to fill.

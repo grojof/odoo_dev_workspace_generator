@@ -3,7 +3,7 @@
 Generates a migration environment (per-version clones, uv venvs with matched
 interpreters, per-step configs, and a checkpointing `run_migration.sh`) for a
 source → target chain, over plan → preview → apply. The chain is sequential (no
-skips); the step that runs Odoo 13 (Python 3.6) uses a Docker fallback. Running
+skips); every step runs natively in its own uv virtualenv. Running
 the driver against a real source dump is a manual, host-side step.
 """
 
@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .. import analysis, planners, preflight, templates
 from ..i18n import t, tf
-from ..models import DOCKER_PYTHON, MigrationEnv
+from ..models import MigrationEnv
 from ..planners import write_text_file_command
 from ..prompts import ask_bool, ask_text, choose, confirm_with_phrase
 from ..system import Command, apply_commands, list_dirs, preview_commands
@@ -44,13 +44,7 @@ def _interpreter_rows(env: MigrationEnv) -> list[tuple[str, str, str]]:
     rows: list[tuple[str, str, str]] = []
     for version in env.chain():
         choice = env.interpreter_choice(version)
-        pinned = version in env.interpreter_overrides
-        if choice.source == DOCKER_PYTHON:
-            detail = t("fixed by the official image")
-        elif pinned:
-            detail = t("pinned by you")
-        else:
-            detail = t("recommended")
+        detail = t("pinned by you") if version in env.interpreter_overrides else t("recommended")
         rows.append((version, choice.describe(), detail))
     return rows
 
@@ -67,11 +61,7 @@ def _choose_step_interpreters(env: MigrationEnv) -> bool:
         )
         if not ask_bool("Pin a step to a specific Python version?", False):
             return True
-        native = [v for v in env.chain() if env.interpreter_choice(v).source != DOCKER_PYTHON]
-        if not native:
-            print(level_text("INFO", t("Every step in this chain runs from a Docker image.")))
-            return True
-        version = choose(t("Which step"), native + [t("Back")], default_index=None)
+        version = choose(t("Which step"), list(env.chain()) + [t("Back")], default_index=None)
         if version in ("", t("Back")):
             return True
         support_default = env.interpreter_choice(version).python

@@ -53,8 +53,8 @@ runs on 3.12, the reference box's Python.
 
 | Odoo | Python min | tier | Python max | tier | Recommended | PostgreSQL min | tier |
 |---|---|---|---|---|---|---|---|
-| 12.0 | 3.5 | official | — | untested | Docker image | — | untested |
-| 13.0 | 3.6 | official | — | untested | Docker image | — | untested |
+| 12.0 | 3.5 | official | — | untested | 3.8 | — | untested |
+| 13.0 | 3.6 | official | — | untested | 3.8 | — | untested |
 | 14.0 | 3.7 | official¹ | 3.10 | derived | 3.8 | 12.0 | official |
 | 15.0 | 3.7 | official | 3.12 | derived | 3.8 | 12.0 | official |
 | 16.0 | 3.7 | official | 3.13 | derived | 3.10 | 12.0 | official |
@@ -104,9 +104,10 @@ derivation reproduces it exactly (`MAX_PY_VERSION = (3, 14)` ⇔ the Resolute bu
 checkable case right is the best available answer for the ones that state nothing.
 
 Odoo 12 and 13 have open-ended `>= '3.7'` / `>= '3.8'` buckets that name **no** distribution, so they get no
-ceiling — tier `untested`. They are only ever run through the official Docker images today, so the unknown is
-inert. Whether they would run natively on `uv`'s 3.8 floor (and let the tool drop Docker entirely) is an open
-validation item, not an assumption.
+ceiling — tier `untested`. Odoo 13 is nevertheless known to *run* on `uv`'s 3.8 floor: its requirements
+install there and a 12 → 13 migration completes (measured 2026-09-17), which is what lets every step run
+natively. That is a floor result, not a ceiling: nothing says where the branch stops working, so the bound
+stays `untested`. Odoo 12 is never executed by a chain at all.
 
 ### Known divergences
 
@@ -178,11 +179,11 @@ The path changed twice across the supported range, so it must be resolved per ve
   `pip` and everything downstream is unchanged).
 - **Migration environments** take each step's interpreter from the recommendation, and let the operator pin
   any step to a specific Python. A pinned step's requirements repair follows the interpreter actually in use.
-  Docker-backed steps (12/13) cannot be pinned — the official image fixes their interpreter.
+  Every step runs natively on a `uv` interpreter, including Odoo 13, so no chain needs a container runtime.
 
 ## See also
 
 - [`provisioning.md`](provisioning.md) — the host readiness table and what `apply` installs.
-- [`migration.md`](migration.md) — chains, interpreters and the Docker fallback.
+- [`migration.md`](migration.md) — chains, interpreters and the two OpenUpgrade layouts.
 - [`configuration-reference.md`](configuration-reference.md) — the workspace profile.
 - [`roadmap.md`](roadmap.md) — the open validation items this page depends on.

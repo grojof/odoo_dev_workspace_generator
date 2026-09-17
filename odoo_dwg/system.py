@@ -217,22 +217,6 @@ def db_role_exists(role: str) -> bool:
 # --- migration preflight probes --------------------------------------------
 
 
-def docker_daemon_ready() -> tuple[bool, str]:
-    """(ready, detail): whether ``docker info`` succeeds. On failure the detail
-    carries the daemon's own last message, which distinguishes a stopped service
-    from a permission problem (an absent binary is ``has_tool("docker")``)."""
-    result = run("docker info --format '{{.ServerVersion}}' 2>&1", check=False)
-    text = (result.stdout or result.stderr).strip()
-    if result.returncode == 0:
-        return True, text.splitlines()[0].strip() if text else ""
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    return False, lines[-1] if lines else "docker info failed"
-
-
-def docker_image_present(tag: str) -> bool:
-    return command_ok(f"docker image inspect {shlex.quote(tag)} >/dev/null 2>&1")
-
-
 def pg_restore_lists(dump_path: str) -> tuple[bool, str]:
     """(ok, detail): whether ``pg_restore --list`` parses the dump — which also
     proves the custom/tar format the driver needs (a plain-SQL dump fails here)."""
