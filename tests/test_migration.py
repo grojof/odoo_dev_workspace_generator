@@ -247,3 +247,25 @@ def test_override_refused_for_docker_steps_and_off_chain_versions():
         env.set_interpreter_override("18.0", "3.12")
     # A refused override leaves nothing behind.
     assert env.interpreter_overrides == {}
+
+
+def test_venv_plan_pins_setuptools_only_where_pkg_resources_is_imported():
+    """Odoo <= 16 imports pkg_resources, which setuptools dropped in 81. Which
+    setuptools a venv resolves depends on the step's interpreter, so the step
+    that needs it must pin it rather than hope."""
+    from odoo_dwg import planners
+
+    env = MigrationEnv(source="12.0", target="19.0")
+    installs = {
+        version: next(
+            c.command
+            for c in planners.plan_migration_venvs(env)
+            if "psycopg2-binary" in c.command and f"odoo{version.split('.')[0]}" in c.command
+        )
+        for version in env.chain()
+        if env.is_native(version)
+    }
+    for version in ("14.0", "15.0", "16.0"):
+        assert "setuptools<81" in installs[version], version
+    for version in ("17.0", "18.0", "19.0"):
+        assert "setuptools" not in installs[version], version

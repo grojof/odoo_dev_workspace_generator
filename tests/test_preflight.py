@@ -88,7 +88,7 @@ def test_coverage_missing_module_names_step_and_custom_dir():
     env = MigrationEnv(source="15.0", target="16.0")
     db = DbFacts(declared_source="15.0", base_version="15.0.1.3",
                  installed_modules=["client_sales"])
-    coverage = {"16.0": ["client_sales"]}
+    coverage = preflight.Coverage(blocking={"16.0": ["client_sales"]})
     rows = preflight.preflight_rows(
         _ready_host(), db, coverage, {"client_sales"}, custom_dir_for=env.addons_custom_dir
     )
@@ -100,7 +100,9 @@ def test_coverage_missing_module_names_step_and_custom_dir():
 def test_custom_module_flagged_even_when_coverage_passes():
     db = DbFacts(declared_source="15.0", base_version="15.0.1.3",
                  installed_modules=["client_sales"])
-    rows = preflight.preflight_rows(_ready_host(), db, {}, {"client_sales"})
+    rows = preflight.preflight_rows(
+        _ready_host(), db, preflight.Coverage(), {"client_sales"}
+    )
     state, _check, detail = next(r for r in rows if r[1] == "Custom module client_sales")
     assert state == "WARN" and "adapted" in detail
 
@@ -110,17 +112,19 @@ def test_gather_coverage_classifies_by_where_found():
     core = env.odoo_clone_dir("16.0") / "addons"
     custom = env.addons_custom_dir("16.0")
     present = {core / "sale", custom / "client_sales"}
-    missing, customs = preflight.gather_coverage(
+    coverage = preflight.gather_coverage(
         env, ["sale", "client_sales", "ghost_module"], exists=lambda p: p in present
     )
-    assert missing == {"16.0": ["ghost_module"]}
-    assert customs == {"client_sales", "ghost_module"}  # custom dir OR found nowhere
+    # No recorded author → the operator owes that code, so it blocks.
+    assert coverage.blocking == {"16.0": ["ghost_module"]}
+    assert coverage.warnings == {}
+    assert coverage.customs == {"client_sales"}
 
 
 def test_gather_coverage_skips_docker_steps():
     env = MigrationEnv(source="12.0", target="13.0")  # single docker step
-    missing, customs = preflight.gather_coverage(env, ["sale"], exists=lambda p: False)
-    assert missing == {} and customs == set()
+    coverage = preflight.gather_coverage(env, ["sale"], exists=lambda p: False)
+    assert coverage.blocking == {} and coverage.warnings == {} and coverage.customs == set()
 
 
 def test_driver_preflight_host_runs_before_restore_and_db_after():

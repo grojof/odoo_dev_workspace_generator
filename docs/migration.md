@@ -61,6 +61,25 @@ Under `~/odoo-migrations/<src>-to-<tgt>/`:
   checkout → core.
 - `run_migration.sh` — the checkpointing driver, with a built-in preflight.
 
+## What the coverage check blocks on
+
+Before the first step, the preflight lists every module installed in the source database and asks whether each
+step of the chain can resolve it. A long chain is full of core modules Odoo renamed, merged or deleted, so
+"not found" alone would refuse almost every real migration. The check therefore:
+
+1. **Resolves what OpenUpgrade declares.** Each step's checkout carries `openupgrade_scripts/apriori.py` with
+   its `renamed_modules` and `merged_modules`; a module whose declared successor exists in that step is
+   covered. This is why `web_editor` does not block a 12 → 19 chain — 19.0 declares it renamed to
+   `html_editor`.
+2. **Splits the rest by author.** A module authored by Odoo that no step provides and no rename accounts for
+   is Odoo's own dropped code: it is reported as a **warning**, and the upgrade uninstalls it. Anything else
+   — your modules, OCA, a vendor's — is **blocking**, and the report names the module, the step and the exact
+   `addons/odoo<major>/custom` directory to fill.
+
+The driver applies the same rule and refuses only on the blocking class. The author test is an exact match on
+Odoo's own spellings, never a substring: OCA modules are authored "Odoo Community Association (OCA)", and
+treating those as Odoo's would wave through exactly the code whose absence breaks a step.
+
 ## Where your addons go
 
 The database being migrated almost certainly has OCA and custom modules installed. Every step must be

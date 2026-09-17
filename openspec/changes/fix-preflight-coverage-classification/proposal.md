@@ -37,6 +37,14 @@ invented module lists; only a real database exposed it.
   warnings with their reason. **BREAKING** only in the sense that a chain previously refused now runs.
 - Both paths — the interactive preflight action and the checks embedded in `run_migration.sh` — apply the
   same rule, so the menu and the driver cannot disagree.
+- **Pin `setuptools` for the steps that need `pkg_resources`.** Scope added while validating the fix above:
+  with the gate passing, the chain then died at step 16 with
+  `ModuleNotFoundError: No module named 'pkg_resources'`. Odoo ≤ 16 imports it at startup, `setuptools`
+  removed it in 81, and nothing declares that dependency — `setuptools` arrives transitively and its version
+  follows the step's interpreter, so the Python 3.8 steps resolved 75.x and worked while the 3.10 steps
+  resolved 84.x and failed. The venvs for Odoo ≤ 16 now install `setuptools<81`, which is the pin
+  `setuptools` itself recommends to `pkg_resources` users. It belongs in this change because the chain is
+  unrunnable without both fixes, and neither was visible until a real database moved through it.
 
 Out of scope: acting on the warnings (OpenUpgrade owns uninstalling dropped modules), staging or migrating
 the operator's modules (that is the existing staging surface), and anything about the support matrix.
@@ -46,6 +54,8 @@ the operator's modules (that is the existing staging surface), and anything abou
 ### Modified Capabilities
 - `migration-preflight`: per-step addons coverage resolves OpenUpgrade's declared renames and merges, and
   distinguishes a core module dropped upstream (warning) from code the operator must supply (blocking).
+- `migration-environment`: a step's virtualenv pins a `setuptools` that still provides `pkg_resources` when
+  that step's Odoo imports it, instead of leaving it to transitive resolution.
 
 ## Impact
 
@@ -57,5 +67,8 @@ the operator's modules (that is the existing staging surface), and anything abou
 - **Docs**: `docs/migration.md` (what the coverage check blocks on and what it only warns about).
 - **Tests**: the existing coverage tests inject module lists, which is how this survived — new cases cover a
   renamed module, a merged one, a dropped core module and an unaccounted operator module.
-- **Verifiable on the reference host**: the 12 → 19 environment and the Odoo 12 demo dump are already built
-  on this box, so the fix is checked by rerunning the driver that currently refuses.
+- **Verified on the reference host**: with both fixes, a 12 → 19 chain ran end to end against an Odoo 12
+  database built from Odoo's own demo data — eight checkpoints, `[done]`, and the working database at
+  `base 19.0.1.3` with its data intact. The classification proved itself in the result: `web_editor` is gone
+  and `html_editor` is installed (the rename OpenUpgrade declares), while the three modules Odoo dropped are
+  simply no longer there.
