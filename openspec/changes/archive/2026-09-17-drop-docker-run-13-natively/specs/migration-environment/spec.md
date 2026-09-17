@@ -103,3 +103,14 @@ directory) so an interrupted build is redone, not silently skipped.
 - **WHEN** the environment is generated for a chain that includes the Odoo 13 step
 - **THEN** a `constraints-13.0.txt` is written pinning `setuptools<58`, and the requirements install applies
   it with `--build-constraints`, so the branch's `use_2to3` dependency builds instead of failing
+
+### Requirement: Generation runs the host preflight first
+
+`Generate a migration environment` SHALL run the chain-scoped host preflight before planning and show its
+table. MISSING chain-required tools SHALL NOT hard-block generation (the plan itself may be unaffected) but
+SHALL require an explicit confirmation to continue.
+
+#### Scenario: A missing tool prompts before generating
+
+- **WHEN** the operator generates a 12 → 18 environment on a host without `uv`
+- **THEN** the preflight table shows it MISSING and generation continues only after the operator confirms

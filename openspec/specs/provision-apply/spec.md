@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Installs and configures what a supported Ubuntu host is missing to build Odoo from source — build dependencies, PostgreSQL with a development role, the patched wkhtmltopdf, and optionally Node and Docker — as a previewed, confirmed, root-gated plan that refuses any host outside the support matrix.
+Installs and configures what a supported Ubuntu host is missing to build Odoo from source — build dependencies, PostgreSQL with a development role, the patched wkhtmltopdf, and optionally Node — as a previewed, confirmed, root-gated plan that refuses any host outside the support matrix.
 
 ## Requirements
 ### Requirement: Apply is root-gated and previewed
