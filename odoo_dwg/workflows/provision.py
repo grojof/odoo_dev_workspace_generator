@@ -3,8 +3,8 @@
 Prepares a *Linux* host for Odoo development: `check` reports host readiness
 (read-only), and `apply` installs/configures the missing capabilities (apt build
 deps, PostgreSQL + dev role, patched wkhtmltopdf, optional Node + rtlcss) via
-plan → preview → apply. `apply` requires root and targets the Debian/Ubuntu (apt)
-family only. Never assumes WSL.
+plan → preview → apply. `apply` requires root and refuses any host outside the
+releases the support matrix declares. Never assumes WSL.
 """
 
 from __future__ import annotations
@@ -12,7 +12,8 @@ from __future__ import annotations
 import os
 
 from .. import planners, provisioning
-from ..i18n import t
+from ..i18n import t, tf
+from ..models import supported_host, supported_hosts_text
 from ..prompts import ask_bool, ask_text, choose
 from ..system import apply_commands, preview_commands
 from ..ui import level_text, render_table
@@ -41,8 +42,21 @@ def _apply() -> None:
     role = ask_text("Development PostgreSQL role", "odoo", required=True)
     facts = provisioning.gather_facts(dev_role=role)
 
-    if facts.os_family != "debian":
-        print(level_text("ERROR", t("Only the Debian/Ubuntu (apt) family is supported.")))
+    # Refuse before assembling any command: this host is not one the project
+    # supports, so its packages are nothing we make a claim about.
+    host = supported_host(facts.os_id, facts.os_version_id)
+    if host is None:
+        detected = facts.os_pretty_name or f"{facts.os_id or 'unknown'} {facts.os_version_id}".strip()
+        print(
+            level_text(
+                "ERROR",
+                tf(
+                    "{} is not supported — supported hosts: {}.",
+                    detected,
+                    supported_hosts_text(),
+                ),
+            )
+        )
         return
 
     commands: list = []

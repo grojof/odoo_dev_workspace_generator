@@ -12,9 +12,22 @@ from pathlib import Path
 
 from .. import planners
 from ..i18n import t, tf
-from ..models import WorkspaceConfig, odoo_major
-from ..prompts import ask_bool, ask_text, choose, confirm_with_phrase, select_file_path
-from ..system import apply_commands, list_dirs, preview_commands
+from ..models import InterpreterChoice, WorkspaceConfig, odoo_major
+from ..prompts import (
+    ask_bool,
+    ask_text,
+    choose,
+    choose_interpreter,
+    confirm_with_phrase,
+    select_file_path,
+)
+from ..system import (
+    apply_commands,
+    detect_python_version,
+    list_dirs,
+    preview_commands,
+    uv_python_minors,
+)
 from ..ui import level_text
 
 
@@ -29,6 +42,27 @@ def _apply_if_confirmed(commands: list) -> None:
     preview_commands(commands)
     if ask_bool("Apply this plan now?", False):
         apply_commands(commands)
+
+
+def _resolve_interpreters(versions: list[str]) -> dict[str, InterpreterChoice] | None:
+    """Resolve the interpreter for every version, asking only where the host's
+    ``python3`` is outside the version's supported range. ``None`` means the
+    operator cancelled."""
+    host_python = detect_python_version()
+    uv_minors = uv_python_minors()
+    resolved: dict[str, InterpreterChoice] = {}
+    for version in versions:
+        choice = choose_interpreter(version, host_python, uv_minors)
+        if choice is None:
+            print(level_text("INFO", t("Cancelled.")))
+            return None
+        resolved[version] = choice
+        print(
+            level_text(
+                "INFO", tf("Odoo {} venv will use Python {}.", version, choice.describe())
+            )
+        )
+    return resolved
 
 
 # --- create ---------------------------------------------------------------
@@ -77,7 +111,11 @@ def _create_workspace() -> None:
         )
         return
 
-    commands = planners.plan_generate_workspace(cfg, exists=_exists)
+    interpreters = _resolve_interpreters(list(cfg.versions))
+    if interpreters is None:
+        return
+
+    commands = planners.plan_generate_workspace(cfg, exists=_exists, interpreters=interpreters)
     preview_commands(commands)
     if ask_bool("Apply this plan now?", False):
         apply_commands(commands)
@@ -109,7 +147,14 @@ def _regenerate_venv(cfg: WorkspaceConfig) -> None:
     ):
         print(level_text("INFO", t("Cancelled.")))
         return
-    _apply_if_confirmed(planners.plan_build_venv(cfg, version, recreate=True))
+    interpreters = _resolve_interpreters([version])
+    if interpreters is None:
+        return
+    _apply_if_confirmed(
+        planners.plan_build_venv(
+            cfg, version, recreate=True, interpreter=interpreters[version]
+        )
+    )
 
 
 def _refresh_repos(cfg: WorkspaceConfig) -> None:
@@ -136,7 +181,10 @@ def _add_version(cfg: WorkspaceConfig) -> None:
     # and build the new version's venv if absent.
     commands = planners.plan_repo_cache(cfg, exists=_exists) + planners.plan_workspace_tree(cfg)
     if not cfg.venv_dir(version).exists():
-        commands += planners.plan_build_venv(cfg, version)
+        interpreters = _resolve_interpreters([version])
+        if interpreters is None:
+            return
+        commands += planners.plan_build_venv(cfg, version, interpreter=interpreters[version])
     _apply_if_confirmed(commands)
 
 

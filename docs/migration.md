@@ -29,6 +29,13 @@ oldest interpreters are not natively installable. Measured on the WSL test box:
 | 13 | 3.6 | **Docker fallback** (`odoo:13.0`) — uv can't provide 3.6 |
 | 12 | 3.5 | Docker fallback (`odoo:12.0`) if the source itself must run |
 
+These interpreters are the **recommendations** the [support matrix](support-matrix.md) declares per version —
+what this project has built and run — not the only ones each version accepts. Before planning, the generate
+flow shows one row per chain step and lets you **pin any step** to a specific Python; the rest keep their
+recommendation. A pinned step's `overrides-<ver>.txt` repair follows the interpreter actually in use, and an
+out-of-range choice is stated (range, chosen version, evidence tier) before it is accepted. Docker-backed
+steps (12/13) cannot be pinned: the official image fixes their interpreter.
+
 `uv`'s 3.8 ships a bundled OpenSSL, so it works where a source-built 3.6 (pyenv) fails against system OpenSSL 3.
 **Because every step runs the target version, a source database ≥ 13 migrates entirely natively** — only a
 12 → 13 step needs Docker. The `odoo:12.0`/`odoo:13.0` images are still pullable (verified). The generator only

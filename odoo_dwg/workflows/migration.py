@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .. import analysis, planners, preflight, templates
 from ..i18n import t, tf
-from ..models import MigrationEnv
+from ..models import DOCKER_PYTHON, MigrationEnv
 from ..planners import write_text_file_command
 from ..prompts import ask_bool, ask_text, choose, confirm_with_phrase
 from ..system import Command, apply_commands, list_dirs, preview_commands
@@ -38,6 +38,66 @@ def _ask_env() -> MigrationEnv | None:
     return env
 
 
+def _interpreter_rows(env: MigrationEnv) -> list[tuple[str, str, str]]:
+    """One row per chain step: the interpreter it will run and where it comes
+    from, so the operator sees the whole chain before pinning anything."""
+    rows: list[tuple[str, str, str]] = []
+    for version in env.chain():
+        choice = env.interpreter_choice(version)
+        pinned = version in env.interpreter_overrides
+        if choice.source == DOCKER_PYTHON:
+            detail = t("fixed by the official image")
+        elif pinned:
+            detail = t("pinned by you")
+        else:
+            detail = t("recommended")
+        rows.append((version, choice.describe(), detail))
+    return rows
+
+
+def _choose_step_interpreters(env: MigrationEnv) -> bool:
+    """Let the operator pin the interpreter of individual chain steps. Returns
+    False when the operator cancels out of the whole flow."""
+    while True:
+        print(
+            render_table(
+                [t("Step"), t("Interpreter"), t("Source")],
+                [list(row) for row in _interpreter_rows(env)],
+            )
+        )
+        if not ask_bool("Pin a step to a specific Python version?", False):
+            return True
+        native = [v for v in env.chain() if env.interpreter_choice(v).source != DOCKER_PYTHON]
+        if not native:
+            print(level_text("INFO", t("Every step in this chain runs from a Docker image.")))
+            return True
+        version = choose(t("Which step"), native + [t("Back")], default_index=None)
+        if version in ("", t("Back")):
+            return True
+        support_default = env.interpreter_choice(version).python
+        python = ask_text(tf("Python for Odoo {}", version), support_default, required=True)
+        try:
+            choice = env.set_interpreter_override(version, python)
+        except ValueError as error:
+            print(level_text("ERROR", str(error)))
+            continue
+        if choice.out_of_range:
+            crossed = choice.crossed
+            print(
+                level_text(
+                    "WARN",
+                    tf(
+                        "Python {} is outside the supported range for Odoo {} (bound: {}).",
+                        python,
+                        version,
+                        crossed.describe() if crossed else "",
+                    ),
+                )
+            )
+            if not ask_bool("Pin it anyway?", False):
+                env.clear_interpreter_override(version)
+
+
 def _print_preflight(rows: list[tuple[str, str, str]]) -> None:
     print(render_table(["State", "Check", "Detail"], [list(row) for row in rows]))
 
@@ -48,6 +108,11 @@ def _generate_environment() -> None:
         return
 
     print(level_text("INFO", tf("Migration chain: {}", " -> ".join([env.source, *env.chain()]))))
+
+    # Interpreters per step: the matrix recommends, the operator may pin.
+    if not _choose_step_interpreters(env):
+        print(level_text("INFO", t("Cancelled.")))
+        return
 
     # Host-scope preflight first: fail early, informed — MISSING chain-required
     # tools do not hard-block (the plan itself may be what fixes the host), but

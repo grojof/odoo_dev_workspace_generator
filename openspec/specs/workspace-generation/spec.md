@@ -1,7 +1,9 @@
 # workspace-generation Specification
 
 ## Purpose
-TBD - created by archiving change add-workspace-generation. Update Purpose after archive.
+
+Creates a workspace on disk from its profile: a shared read-only clone cache, the per-client tree, one virtual environment per Odoo version built with an interpreter that version supports, the per-version config and editor files, and a README that documents the result. Create-only and previewed, so it never clobbers work already there.
+
 ## Requirements
 ### Requirement: Shared read-only repo cache
 

@@ -1,7 +1,9 @@
 # provision-check Specification
 
 ## Purpose
-TBD - created by archiving change add-system-provisioning. Update Purpose after archive.
+
+Reports, read-only, whether a host can build and run Odoo: its release against the supported list, the build dependencies, PostgreSQL and its version against the matrix floor, wkhtmltopdf, the optional web toolchain, and the interpreters and container images the migration paths need. It reports; it never changes the host.
+
 ## Requirements
 ### Requirement: Read-only host readiness report
 

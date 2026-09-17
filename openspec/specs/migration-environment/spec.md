@@ -1,7 +1,9 @@
 # migration-environment Specification
 
 ## Purpose
-TBD - created by archiving change add-openupgrade-migration. Update Purpose after archive.
+
+Generates a self-contained OpenUpgrade environment for a source → target chain: per-version clones, a virtual environment per step on an interpreter that step supports (or the official Docker image where no interpreter can be provided), per-step configs, and the driver that runs them in order.
+
 ## Requirements
 ### Requirement: Version-to-interpreter acquisition matrix
 

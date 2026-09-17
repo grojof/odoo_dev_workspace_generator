@@ -1,7 +1,9 @@
 # migration-preflight Specification
 
 ## Purpose
-TBD - created by archiving change add-migration-preflight. Update Purpose after archive.
+
+Verifies, before a migration runs and again from inside the driver, that the host, the PostgreSQL server, the source dump and the database itself can actually carry the chain — naming exactly what is missing, including which addons directory to fill, rather than failing mid-upgrade.
+
 ## Requirements
 ### Requirement: Chain-scoped host readiness check
 

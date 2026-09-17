@@ -1,7 +1,9 @@
 # workspace-configuration Specification
 
 ## Purpose
-TBD - created by archiving change add-workspace-generation. Update Purpose after archive.
+
+Describes a per-client development workspace as a validated JSON profile, and derives every convention that follows from it — instance names, paths, ports, database user and each version's `addons_path` — so the same profile always produces the same workspace.
+
 ## Requirements
 ### Requirement: Workspace profile schema and loading
 

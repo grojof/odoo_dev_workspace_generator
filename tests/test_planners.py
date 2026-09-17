@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from odoo_dwg import planners
-from odoo_dwg.models import WorkspaceConfig
+from odoo_dwg.models import WorkspaceConfig, resolve_interpreter
 
 
 def _cfg(**kw) -> WorkspaceConfig:
@@ -62,6 +62,38 @@ def test_build_venv_creates_and_installs():
     assert "python3 -m venv" in joined
     assert "requirements.txt" in joined
     assert "rm -rf" not in joined  # no recreate by default
+
+
+def test_build_venv_uses_uv_for_an_out_of_range_interpreter():
+    # Odoo 14 tops out at 3.10, so a 3.12 host resolves to a uv-provided 3.8.
+    cfg = _cfg(versions=["14.0"])
+    choice = resolve_interpreter("14.0", host_python="3.12")
+    cmds = planners.plan_build_venv(cfg, "14.0", interpreter=choice)
+    create = cmds[0].command
+    assert create.startswith("uv venv --seed --no-project --python 3.8 ")
+    assert "python3 -m venv" not in "\n".join(c.command for c in cmds)
+    # --seed puts pip in the venv, so the install steps stay unchanged.
+    assert any("/bin/pip install -r " in c.command for c in cmds)
+
+
+def test_build_venv_keeps_plain_python3_for_an_in_range_interpreter():
+    cfg = _cfg(versions=["18.0"])
+    choice = resolve_interpreter("18.0", host_python="3.12")
+    cmds = planners.plan_build_venv(cfg, "18.0", interpreter=choice)
+    assert cmds[0].command.startswith("python3 -m venv ")
+    assert "uv venv" not in "\n".join(c.command for c in cmds)
+
+
+def test_generate_workspace_applies_per_version_interpreters():
+    cfg = _cfg(versions=["14.0", "18.0"])
+    interpreters = {
+        version: resolve_interpreter(version, host_python="3.12") for version in cfg.versions
+    }
+    cmds = planners.plan_generate_workspace(cfg, interpreters=interpreters)
+    joined = "\n".join(c.command for c in cmds)
+    # One venv per version, each with the interpreter resolved for it.
+    assert "uv venv --seed --no-project --python 3.8 " in joined
+    assert "python3 -m venv " in joined
 
 
 def test_build_venv_recreate_removes_first():

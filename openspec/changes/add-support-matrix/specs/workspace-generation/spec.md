@@ -34,6 +34,12 @@ the preview for every instance.
 - **THEN** the flow reports the version's range, the detected host version and the bound's evidence tier, and
   offers to build that instance's venv with a matching `uv`-provisioned interpreter
 
+#### Scenario: The generated helper script rebuilds with the same interpreter
+
+- **WHEN** a workspace is generated where one version's venv is built with a `uv`-provided interpreter
+- **THEN** the generated venv-setup script rebuilds that version's venv with that same interpreter, so
+  re-running it cannot silently replace the venv with an out-of-range host interpreter
+
 #### Scenario: The uv alternative is unavailable
 
 - **WHEN** the operator asks for the `uv`-provisioned interpreter and `uv` is not present on the host

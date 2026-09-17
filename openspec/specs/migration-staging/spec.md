@@ -1,7 +1,9 @@
 # migration-staging Specification
 
 ## Purpose
-TBD - created by archiving change add-custom-module-staging. Update Purpose after archive.
+
+Brings an operator's custom modules along the chain one step at a time, running the OCA module migrator per bump and cross-referencing the result against OpenUpgrade's analysis files, so breaking references surface as reviewable findings and inert scaffolds instead of runtime errors.
+
 ## Requirements
 ### Requirement: Stepwise staging of custom modules
 
