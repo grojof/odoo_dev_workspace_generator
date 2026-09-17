@@ -46,11 +46,11 @@
       a unit test covers below-floor (WARN) and at-or-above (OK)
 - [x] 4.3 Narrow the `provision apply` refusal to the declared releases in `workflows/provision.py`, and
       verify a unit test asserts it refuses before assembling any command
-- [ ] 4.4 Run `provision check` on this Ubuntu 24.04 host and confirm the host row, the PostgreSQL version
-      row and the `uv` interpreter row read correctly — **partially done**: the host row (Ubuntu 24.04 LTS
-      (noble)), the `uv` row (provides 3.8–3.15) and the host-python3 row (3.12) all read correctly on
-      this box. The PostgreSQL version row cannot be confirmed here: PostgreSQL is not installed and
-      installing it needs `sudo` with a password. Unit-tested below/above the floor in the meantime
+- [x] 4.4 Run `provision check` on this Ubuntu 24.04 host and confirm the host row, the PostgreSQL version
+      row and the `uv` interpreter row read correctly — done after `provision apply` provisioned the box
+      (12 commands, agent-driven): host row `Ubuntu 24.04 LTS (noble)`, PostgreSQL version row
+      `16 (Odoo 19.0 requires 13.0)` which re-scales to `requires 12.0` for an Odoo 14 scope, `uv` row
+      `provides 3.8 … 3.15`, host python3 `3.12`
 
 ## 5. Re-verification tooling
 
@@ -85,6 +85,10 @@
       `openspec validate --specs`, `python -m odoo_dwg --help`
 - [x] 7.2 Generate a workspace profile containing both an in-range version (18.0) and an out-of-range one
       (14.0) on this host, and confirm the preview offers the `uv` interpreter only for 14.0 and that
-      applying it builds both venvs
+      applying it builds both venvs — **applied for real** on WSL Ubuntu 24.04: the prompt warned with the
+      range and its evidence tier, offered uv 3.8 for 14.0 only, and the applied plan built
+      `.venv/odoo14` on Python 3.8.20 and `.venv/odoo18` on 3.12.3. Both requirement sets installed with
+      no overrides needed, and `odoo-bin --version` reports `Odoo Server 14.0` / `Odoo Server 18.0`. The
+      generated `scripts/setup_venv.sh` on disk rebuilds odoo14 with `uv venv --seed --python 3.8`
 - [x] 7.3 Generate a migration environment with the source step overridden to a client-style interpreter and
       confirm the per-step interpreters in the preview and driver match the choice

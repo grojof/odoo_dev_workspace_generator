@@ -98,8 +98,11 @@ items are host-dependent.
 - **Confirm the Ubuntu 22.04 column of the support matrix** — its system Python (3.10) and PostgreSQL (14)
   are read from `packages.ubuntu.com`, not from a running jammy host. Needs a 22.04 host or container, which
   the CI item above would also provide.
-- **Workspace venv on a `uv`-provisioned interpreter** — the out-of-range path (e.g. an Odoo 14 workspace on
-  a 3.12 host building its venv on `uv` 3.8) is unit-tested at the plan level; building and serving one for
-  each version is a host-side check.
+- ~~Workspace venv on a `uv`-provisioned interpreter~~ — **done** (2026-09-17): an `acme` workspace with
+  Odoo 14 + 18 was generated and applied on WSL Ubuntu 24.04. The out-of-range version built on `uv`
+  Python 3.8.20 and the in-range one on the host's 3.12.3; both requirement sets installed **without
+  overrides** (unlike the migration path, which needs them at 3.10), and `odoo-bin --version` runs in each
+  venv. Remaining for a full serve check: the generated profile's `db_user` defaults to the workspace name,
+  so serving needs a PostgreSQL role of that name — `provision apply` creates whichever role you name.
 - **VSCode `launch.json` debug shape** — confirm the debugpy + `odoo-bin` launch config attaches against a
   real run on WSL (F1 open question).
