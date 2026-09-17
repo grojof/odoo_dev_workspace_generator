@@ -15,7 +15,7 @@ from pathlib import Path
 
 from . import templates
 from .i18n import tf
-from .models import MigrationEnv, WorkspaceConfig, odoo_major
+from .models import UV_PYTHON, InterpreterChoice, MigrationEnv, WorkspaceConfig, odoo_major
 from .system import Command
 
 Exists = Callable[[Path], bool]
@@ -69,12 +69,18 @@ def plan_repo_cache(cfg: WorkspaceConfig, exists: Exists = _never) -> list[Comma
     return commands
 
 
-def plan_workspace_tree(cfg: WorkspaceConfig) -> list[Command]:
+def plan_workspace_tree(
+    cfg: WorkspaceConfig,
+    interpreters: dict[str, InterpreterChoice] | None = None,
+) -> list[Command]:
     """Create the per-client workspace tree and write every generated file.
 
     Pure and create-friendly: directory creation is idempotent (``mkdir -p``) and
     the OCA symlinks use ``ln -sfn``; the create-only guard (refusing to clobber an
     existing workspace) lives in the workflow, not here.
+
+    ``interpreters`` is passed through to the generated ``setup_venv.sh`` so the
+    script rebuilds each venv with the interpreter the plan chose.
     """
     commands: list[Command] = [
         Command(
@@ -120,7 +126,9 @@ def plan_workspace_tree(cfg: WorkspaceConfig) -> list[Command]:
 
     # Workspace-wide scripts and editor files.
     commands += write_text_file_command(
-        cfg.scripts_dir / "setup_venv.sh", templates.render_setup_venv_sh(cfg), "755"
+        cfg.scripts_dir / "setup_venv.sh",
+        templates.render_setup_venv_sh(cfg, interpreters),
+        "755",
     )
     commands += write_text_file_command(
         cfg.vscode_dir / "settings.json", templates.render_vscode_settings(cfg)
@@ -338,7 +346,7 @@ def plan_migration_venvs(env: MigrationEnv, exists: Exists = _never) -> list[Com
         odoo = env.odoo_clone_dir(version)
         overrides = env.overrides_file(version)
         commands += write_text_file_command(
-            overrides, templates.render_migration_overrides(version)
+            overrides, templates.render_migration_overrides(version, python)
         )
         commands += [
             Command(
@@ -521,25 +529,45 @@ def plan_refresh_repos(cfg: WorkspaceConfig, exists: Exists = _never) -> list[Co
     return commands
 
 
-def plan_generate_workspace(cfg: WorkspaceConfig, exists: Exists = _never) -> list[Command]:
+def plan_generate_workspace(
+    cfg: WorkspaceConfig,
+    exists: Exists = _never,
+    interpreters: dict[str, InterpreterChoice] | None = None,
+) -> list[Command]:
     """Full create plan: shared repo cache (skipping present clones), the workspace
     tree, then a venv build for each version whose venv is not already present. Pure
     — existence is injected; the workflow passes ``Path.exists`` and enforces the
-    create-only guard (refusing to clobber an existing workspace)."""
+    create-only guard (refusing to clobber an existing workspace).
+
+    ``interpreters`` maps a version to the interpreter its venv must be built with
+    (resolved against the support matrix by the workflow, which is what probes the
+    host); versions absent from it use the host ``python3``."""
     commands = plan_repo_cache(cfg, exists)
-    commands += plan_workspace_tree(cfg)
+    commands += plan_workspace_tree(cfg, interpreters)
     for version in cfg.versions:
         if not exists(cfg.venv_dir(version)):
-            commands += plan_build_venv(cfg, version)
+            commands += plan_build_venv(
+                cfg, version, interpreter=(interpreters or {}).get(version)
+            )
     return commands
 
 
-def plan_build_venv(cfg: WorkspaceConfig, version: str, recreate: bool = False) -> list[Command]:
+def plan_build_venv(
+    cfg: WorkspaceConfig,
+    version: str,
+    recreate: bool = False,
+    interpreter: InterpreterChoice | None = None,
+) -> list[Command]:
     """Build one instance venv and install its version-matched requirements.
 
     ``recreate`` removes an existing venv first (management "regenerate"); by
     default it does not, so generation can skip versions whose venv already exists
     by simply not calling this.
+
+    ``interpreter`` is the resolved choice for this version. A ``uv``-provided
+    interpreter is created with ``uv venv --seed``, which seeds ``pip`` so every
+    following step — and everything the generated workspace documents — is
+    identical to a stdlib venv. Without it, the host ``python3`` is used.
     """
     venv = cfg.venv_dir(version)
     odoo = cfg.odoo_clone_dir(version)
@@ -548,11 +576,19 @@ def plan_build_venv(cfg: WorkspaceConfig, version: str, recreate: bool = False) 
         commands.append(
             Command(tf("Remove existing venv {}", str(venv)), f"rm -rf {shlex.quote(str(venv))}")
         )
-    commands += [
-        Command(
+    if interpreter and interpreter.source == UV_PYTHON and interpreter.python:
+        create = Command(
+            tf("Create venv {} with uv (Python {})", str(venv), interpreter.python),
+            f"uv venv --seed --no-project --python {shlex.quote(interpreter.python)} "
+            f"{shlex.quote(str(venv))}",
+        )
+    else:
+        create = Command(
             tf("Create venv {}", str(venv)),
             f"python3 -m venv {shlex.quote(str(venv))}",
-        ),
+        )
+    commands += [
+        create,
         Command(
             tf("Upgrade pip/wheel/setuptools in {}", str(venv)),
             f"{shlex.quote(str(venv / 'bin' / 'pip'))} install --upgrade pip wheel setuptools",

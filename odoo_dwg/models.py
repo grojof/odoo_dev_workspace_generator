@@ -4,9 +4,10 @@ Pure data + validation, no I/O and no execution (that lives in ``system``). A
 ``WorkspaceConfig`` is loaded from / saved to a JSON profile; everything derived
 (paths, ports, per-version Python) is computed here so ``planners`` stay pure.
 
-Version facts are anchored to official documentation — see ``docs/`` and the
-plan's references appendix. Notably the *minimum* Python per Odoo major
-(``ODOO_PYTHON_MINIMUM``) comes from the official "Source install" pages.
+Version facts live in one authoritative support matrix (``ODOO_SUPPORT`` plus
+``SUPPORTED_HOSTS``), where every bound carries the evidence behind it. See
+``docs/support-matrix.md`` for the sources and the procedure that re-derives
+them.
 """
 
 from __future__ import annotations
@@ -29,16 +30,6 @@ MIGRATION_CHAIN: tuple[str, ...] = (
     "12.0", "13.0", "14.0", "15.0", "16.0", "17.0", "18.0", "19.0",
 )
 
-# Minimum Python per Odoo major, from the official "Source install" pages
-# (verbatim: 12→3.5, 13→3.6, 14→3.7, 17→3.10, 18→3.10). 15/16 track 3.7 as the
-# documented floor (packaged against newer). This is the *floor*; the migration
-# environment pairs a concrete interpreter per step (see docs/migration).
-ODOO_PYTHON_MINIMUM: dict[int, str] = {
-    12: "3.5", 13: "3.6", 14: "3.7", 15: "3.7",
-    16: "3.7", 17: "3.10", 18: "3.10", 19: "3.10",
-}
-
-
 def odoo_major(version: str) -> int:
     """Parse the major from an Odoo version string (``18.0`` → ``18``)."""
     match = re.search(r"\d+", version or "")
@@ -47,32 +38,404 @@ def odoo_major(version: str) -> int:
     return int(match.group(0))
 
 
-def python_minimum_for(version: str) -> str:
-    """Documented minimum Python for an Odoo version (falls back to 3.10)."""
-    return ODOO_PYTHON_MINIMUM.get(odoo_major(version), "3.10")
+def python_tuple(python: str) -> tuple[int, ...]:
+    """``"3.10"`` → ``(3, 10)``, so Python versions compare numerically rather
+    than as strings (where ``"3.9" > "3.10"``)."""
+    try:
+        return tuple(int(part) for part in str(python).split(".") if part != "")
+    except ValueError as exc:
+        raise ValueError(f"Unparseable Python version: {python!r}") from exc
 
 
-# Migration interpreter matrix — the Python and acquisition method per Odoo major.
-# Measured on WSL Ubuntu 24.04: uv's installable floor is 3.8 (3.6/3.7 unavailable),
-# so Odoo >= 14 runs natively via uv; Odoo 13 (Py 3.6) and 12 (Py 3.5) fall back to
-# the official Docker images. Each step runs the *target* version, so only a chain
-# that runs Odoo 13 (a 12->13 step) needs Docker.
-MIGRATION_INTERPRETER: dict[int, tuple[str | None, str]] = {
-    12: (None, "docker"),
-    13: (None, "docker"),
-    14: ("3.8", "uv"),
-    15: ("3.8", "uv"),
-    16: ("3.10", "uv"),
-    17: ("3.10", "uv"),
-    18: ("3.12", "uv"),
-    19: ("3.12", "uv"),
+# --- support matrix ---------------------------------------------------------
+# The single authoritative declaration of what this tool supports. Every
+# operator-facing surface reads its bounds from here and none restates them, so
+# changing a bound here changes every surface. Each bound carries the evidence
+# backing it, because only Odoo 19 states a Python *maximum* outright: the rest
+# are derived from each branch's own requirements, and output must never pass a
+# derived bound off as an official Odoo requirement.
+#
+# The sources, their precedence and the procedure that re-derives them live in
+# docs/support-matrix.md; tools/verify_support_matrix.py checks this data
+# against them.
+
+OFFICIAL = "official"  # stated outright by Odoo or by the distribution
+DERIVED = "derived"    # deduced from an official artifact (e.g. requirements.txt)
+UNTESTED = "untested"  # no source states it and this project has not validated it
+
+EVIDENCE_TIERS: tuple[str, ...] = (OFFICIAL, DERIVED, UNTESTED)
+
+# Source URL shapes. The documentation layout changed twice across the supported
+# range, which is why the era is resolved rather than assumed — and why the
+# repository, not the manual, is the primary source (13.0's page is a stub).
+ODOO_SETUP_PY_URL = "https://raw.githubusercontent.com/odoo/odoo/{version}/setup.py"
+ODOO_RELEASE_PY_URL = "https://raw.githubusercontent.com/odoo/odoo/{version}/odoo/release.py"
+ODOO_REQUIREMENTS_URL = "https://raw.githubusercontent.com/odoo/odoo/{version}/requirements.txt"
+_DOCS_SETUP_ERA = "https://www.odoo.com/documentation/{version}/setup/install.html"
+_DOCS_INSTALL_ERA = "https://www.odoo.com/documentation/{version}/administration/install/source.html"
+_DOCS_ON_PREMISE_ERA = (
+    "https://www.odoo.com/documentation/{version}/administration/on_premise/source.html"
+)
+
+
+def odoo_docs_url(version: str) -> str:
+    """The official source-install page for an Odoo version, picking the URL
+    layout of its era (12/13, 14, then 15+)."""
+    major = odoo_major(version)
+    if major <= 13:
+        template = _DOCS_SETUP_ERA
+    elif major == 14:
+        template = _DOCS_INSTALL_ERA
+    else:
+        template = _DOCS_ON_PREMISE_ERA
+    return template.format(version=version)
+
+
+@dataclass(frozen=True)
+class Bound:
+    """A support bound plus the evidence behind it. ``value is None`` means no
+    source states the bound at all (tier ``untested``)."""
+
+    value: str | None
+    tier: str
+    source: str
+
+    @property
+    def is_official(self) -> bool:
+        return self.tier == OFFICIAL
+
+    def describe(self) -> str:
+        """Operator-facing text. A derived or untested bound always says so, so
+        it cannot read as something Odoo requires."""
+        if self.value is None:
+            return f"not stated — {self.source}"
+        if self.tier == OFFICIAL:
+            return self.value
+        return f"{self.value} ({self.tier}: {self.source})"
+
+
+@dataclass(frozen=True)
+class VersionSupport:
+    """What the project supports for one Odoo version: the Python range Odoo
+    declares (or that its own requirements imply), the interpreter this project
+    recommends and has built with, and the PostgreSQL floor."""
+
+    version: str
+    python_min: Bound
+    python_max: Bound
+    postgres_min: Bound
+    recommended_python: str | None
+    acquisition: str  # "uv" (native interpreter) or "docker" (official image)
+
+    @property
+    def major(self) -> int:
+        return odoo_major(self.version)
+
+    @property
+    def is_native(self) -> bool:
+        return self.acquisition == "uv"
+
+    def python_range_text(self) -> str:
+        """e.g. ``3.10 – 3.14 (official)`` or ``3.7 – 3.12 (derived: …)``."""
+        upper = self.python_max.describe() if self.python_max.value else "no maximum stated"
+        return f"{self.python_min.describe()} – {upper}"
+
+    def python_in_range(self, python: str) -> bool:
+        """Whether a concrete interpreter falls inside the declared range. An
+        unstated maximum bounds nothing, so only the floor applies."""
+        candidate = python_tuple(python)
+        if self.python_min.value and candidate < python_tuple(self.python_min.value):
+            return False
+        if self.python_max.value and candidate > python_tuple(self.python_max.value):
+            return False
+        return True
+
+
+def _official_docs(version: str) -> str:
+    return f"Odoo {version} source install — {odoo_docs_url(version)}"
+
+
+def _official_setup(version: str) -> str:
+    return f"odoo/odoo@{version} setup.py python_requires"
+
+
+def _derived_requirements(version: str, distro: str) -> str:
+    return (
+        f"odoo/odoo@{version} requirements.txt — newest interpreter bucket targets {distro}"
+    )
+
+
+# Python minima are the documented floors (all confirmed against each branch's
+# setup.py). Maxima come from the newest interpreter bucket each branch's
+# requirements.txt declares, read through the distribution its comment names —
+# a derivation that reproduces Odoo 19's own MAX_PY_VERSION exactly, which is
+# what makes it trustworthy for the versions that state nothing. Recommended
+# interpreters are the ones this project has actually built and run (measured on
+# WSL Ubuntu 24.04, where uv's installable floor is 3.8), so they are inside the
+# range but not always at its top.
+ODOO_SUPPORT: dict[int, VersionSupport] = {
+    12: VersionSupport(
+        version="12.0",
+        python_min=Bound("3.5", OFFICIAL, _official_docs("12.0")),
+        python_max=Bound(None, UNTESTED, "no requirements bucket names a distribution"),
+        postgres_min=Bound(None, UNTESTED, 'docs say only "the latest version of PostgreSQL"'),
+        recommended_python=None,
+        acquisition="docker",
+    ),
+    13: VersionSupport(
+        version="13.0",
+        python_min=Bound("3.6", OFFICIAL, _official_setup("13.0")),
+        python_max=Bound(None, UNTESTED, "no requirements bucket names a distribution"),
+        postgres_min=Bound(None, UNTESTED, "the 13.0 install page states no floor"),
+        recommended_python=None,
+        acquisition="docker",
+    ),
+    14: VersionSupport(
+        version="14.0",
+        # The docs say 3.7 while setup.py declares >=3.6; the stricter,
+        # documented floor is the one carried here.
+        python_min=Bound("3.7", OFFICIAL, _official_docs("14.0") + " (setup.py says >=3.6)"),
+        python_max=Bound("3.10", DERIVED, _derived_requirements("14.0", "Ubuntu 22.04 Jammy")),
+        postgres_min=Bound("12.0", OFFICIAL, _official_docs("14.0")),
+        recommended_python="3.8",
+        acquisition="uv",
+    ),
+    15: VersionSupport(
+        version="15.0",
+        python_min=Bound("3.7", OFFICIAL, _official_docs("15.0")),
+        python_max=Bound("3.12", DERIVED, _derived_requirements("15.0", "Ubuntu 24.04 Noble")),
+        postgres_min=Bound("12.0", OFFICIAL, _official_docs("15.0")),
+        recommended_python="3.8",
+        acquisition="uv",
+    ),
+    16: VersionSupport(
+        version="16.0",
+        python_min=Bound("3.7", OFFICIAL, _official_docs("16.0")),
+        python_max=Bound("3.13", DERIVED, _derived_requirements("16.0", "Debian 13 Trixie")),
+        postgres_min=Bound("12.0", OFFICIAL, _official_docs("16.0")),
+        recommended_python="3.10",
+        acquisition="uv",
+    ),
+    17: VersionSupport(
+        version="17.0",
+        python_min=Bound("3.10", OFFICIAL, _official_docs("17.0")),
+        python_max=Bound("3.14", DERIVED, _derived_requirements("17.0", "Ubuntu 26.04 Resolute")),
+        postgres_min=Bound("12.0", OFFICIAL, _official_docs("17.0")),
+        recommended_python="3.10",
+        acquisition="uv",
+    ),
+    18: VersionSupport(
+        version="18.0",
+        python_min=Bound("3.10", OFFICIAL, _official_docs("18.0")),
+        python_max=Bound("3.14", DERIVED, _derived_requirements("18.0", "Ubuntu 26.04 Resolute")),
+        postgres_min=Bound("12.0", OFFICIAL, _official_docs("18.0")),
+        recommended_python="3.12",
+        acquisition="uv",
+    ),
+    19: VersionSupport(
+        version="19.0",
+        python_min=Bound("3.10", OFFICIAL, "odoo/odoo@19.0 odoo/release.py MIN_PY_VERSION"),
+        # The one version that declares a maximum outright — and it agrees with
+        # the requirements-bucket derivation used for 14–18.
+        python_max=Bound("3.14", OFFICIAL, "odoo/odoo@19.0 odoo/release.py MAX_PY_VERSION"),
+        postgres_min=Bound("13.0", OFFICIAL, _official_docs("19.0")),
+        recommended_python="3.12",
+        acquisition="uv",
+    ),
 }
+
+
+@dataclass(frozen=True)
+class HostSupport:
+    """A Linux host release this project supports, with the facts that follow
+    from the release (its system Python and PostgreSQL major)."""
+
+    name: str
+    os_id: str
+    version_id: str
+    codename: str
+    system_python: str
+    postgres_major: str
+    reference: bool = False
+
+
+# Ubuntu only, and only these releases: Debian was dropped rather than implying
+# support that was never validated. Each row's system Python and PostgreSQL come
+# from packages.ubuntu.com for that codename.
+SUPPORTED_HOSTS: tuple[HostSupport, ...] = (
+    HostSupport("Ubuntu 22.04 LTS", "ubuntu", "22.04", "jammy", "3.10", "14"),
+    HostSupport("Ubuntu 24.04 LTS", "ubuntu", "24.04", "noble", "3.12", "16", reference=True),
+)
+
+# The tool's own floor: Ubuntu 22.04's system Python, the oldest host it targets.
+# Kept in step with ``requires-python`` in pyproject.toml.
+TOOL_PYTHON_MINIMUM = "3.10"
+
+
+def supported_host(os_id: str, version_id: str) -> HostSupport | None:
+    """The matching supported host release, or ``None`` when the host is not one
+    this project supports."""
+    for host in SUPPORTED_HOSTS:
+        if host.os_id == (os_id or "").lower() and host.version_id == (version_id or ""):
+            return host
+    return None
+
+
+def supported_hosts_text() -> str:
+    return " / ".join(host.name for host in SUPPORTED_HOSTS)
+
+
+def version_support(version: str) -> VersionSupport:
+    """The matrix row for an Odoo version. Raises for a version outside the
+    matrix rather than guessing a bound for it."""
+    major = odoo_major(version)
+    support = ODOO_SUPPORT.get(major)
+    if support is None:
+        supported = ", ".join(str(v) for v in sorted(ODOO_SUPPORT))
+        raise ValueError(f"Unsupported Odoo version: {version} (supported majors: {supported}).")
+    return support
+
+
+def version_support_or_none(version: str) -> VersionSupport | None:
+    """Like ``version_support`` but returns ``None`` instead of raising, for
+    surfaces that report an unsupported version rather than failing on it."""
+    try:
+        return version_support(version)
+    except ValueError:
+        return None
+
+
+def python_minimum_for(version: str) -> str:
+    """Documented minimum Python for an Odoo version."""
+    minimum = version_support(version).python_min.value
+    # Every row in the matrix declares a floor; guard so a future gap is loud.
+    if minimum is None:
+        raise ValueError(f"No Python minimum declared for Odoo {version}.")
+    return minimum
+
+
+def python_maximum_for(version: str) -> str | None:
+    """Maximum Python for an Odoo version, or ``None`` when no source states
+    one. Check ``version_support(version).python_max.tier`` before presenting
+    it: only Odoo 19 declares its maximum officially."""
+    return version_support(version).python_max.value
+
+
+def python_in_range(version: str, python: str) -> bool:
+    """Whether an interpreter falls inside an Odoo version's declared range."""
+    return version_support(version).python_in_range(python)
+
+
+def postgres_minimum_for(version: str) -> str | None:
+    """Minimum PostgreSQL for an Odoo version, or ``None`` when not stated."""
+    return version_support(version).postgres_min.value
+
+
+def postgres_floor_for(versions: list[str] | tuple[str, ...]) -> tuple[str, str] | None:
+    """The highest PostgreSQL floor across several Odoo versions, as
+    ``(floor, version requiring it)`` — what a single shared server must meet.
+    ``None`` when none of them states a floor."""
+    floors = [
+        (support.postgres_min.value, support.version)
+        for support in (version_support_or_none(v) for v in versions)
+        if support is not None and support.postgres_min.value
+    ]
+    if not floors:
+        return None
+    floor, version = max(floors, key=lambda item: python_tuple(item[0]))
+    return floor, version
+
+
+# Interpreter sources: where the Python running an Odoo version comes from.
+HOST_PYTHON = "host"      # the host's own python3
+UV_PYTHON = "uv"          # an interpreter uv provides
+DOCKER_PYTHON = "docker"  # fixed by the official image (Odoo 12/13)
+
+
+@dataclass(frozen=True)
+class InterpreterChoice:
+    """The interpreter an environment will be built with, and whether that
+    crosses one of the version's declared bounds. Pure derivation: deciding is
+    separate from probing the host and from running anything."""
+
+    version: str
+    python: str | None
+    source: str
+    out_of_range: bool = False
+    crossed: Bound | None = None
+
+    @property
+    def needs_uv(self) -> bool:
+        return self.source == UV_PYTHON
+
+    def describe(self) -> str:
+        if self.source == DOCKER_PYTHON:
+            return "official Docker image"
+        label = f"{self.python} ({self.source})"
+        if self.out_of_range:
+            return f"{label} — outside the supported range"
+        return label
+
+
+def resolve_interpreter(
+    version: str,
+    host_python: str | None = None,
+    operator_choice: str | None = None,
+) -> InterpreterChoice:
+    """Decide which interpreter builds an Odoo version's environment.
+
+    The host ``python3`` wins whenever it is inside the version's declared range,
+    so nothing changes for the common case. Outside the range, the matrix's
+    recommendation is offered instead (provisioned by ``uv``). An
+    ``operator_choice`` always takes precedence — that is how a migration is
+    rehearsed on the exact Python a client runs — and is reported, not silently
+    accepted, when it falls outside the range.
+    """
+    support = version_support(version)
+    if not support.is_native:
+        if operator_choice:
+            raise ValueError(
+                f"Odoo {support.version} runs through the official Docker image, "
+                "whose interpreter is fixed; it cannot be overridden."
+            )
+        return InterpreterChoice(support.version, None, DOCKER_PYTHON)
+
+    if operator_choice:
+        chosen = operator_choice
+        source = HOST_PYTHON if host_python and chosen == host_python else UV_PYTHON
+    elif host_python and support.python_in_range(host_python):
+        chosen, source = host_python, HOST_PYTHON
+    elif support.recommended_python:
+        chosen, source = support.recommended_python, UV_PYTHON
+    else:  # pragma: no cover - every native row recommends an interpreter
+        chosen, source = host_python or "", HOST_PYTHON
+
+    in_range = support.python_in_range(chosen)
+    return InterpreterChoice(
+        support.version,
+        chosen,
+        source,
+        out_of_range=not in_range,
+        crossed=None if in_range else _crossed_bound(support, chosen),
+    )
+
+
+def _crossed_bound(support: VersionSupport, python: str) -> Bound | None:
+    """Which declared bound a chosen interpreter falls outside of."""
+    candidate = python_tuple(python)
+    if support.python_max.value and candidate > python_tuple(support.python_max.value):
+        return support.python_max
+    if support.python_min.value and candidate < python_tuple(support.python_min.value):
+        return support.python_min
+    return None
 
 
 def migration_interpreter(version: str) -> tuple[str | None, str]:
     """``(python, method)`` for running an Odoo version during migration —
-    ``("3.8", "uv")`` for natives, ``(None, "docker")`` for 12/13."""
-    return MIGRATION_INTERPRETER.get(odoo_major(version), ("3.12", "uv"))
+    ``("3.8", "uv")`` for natives, ``(None, "docker")`` for 12/13. The Python is
+    the matrix's recommendation for that version."""
+    support = version_support(version)
+    return support.recommended_python, support.acquisition
 
 
 def migration_chain(source: str, target: str) -> list[str]:
@@ -287,6 +650,10 @@ class MigrationEnv:
     db_port: int = 5432
     db_user: str = "odoo"
     working_db: str = "migration"
+    # Per-step interpreter overrides, ``{version: python}``. Empty means every
+    # step uses the matrix's recommendation. An override exists so a migration
+    # can be rehearsed on the exact Python a client runs.
+    interpreter_overrides: dict[str, str] = field(default_factory=dict)
 
     # --- derived ----------------------------------------------------------
 
@@ -317,8 +684,36 @@ class MigrationEnv:
     def chain(self) -> list[str]:
         return migration_chain(self.source, self.target)
 
+    def interpreter_choice(self, version: str) -> InterpreterChoice:
+        """The resolved interpreter for one chain step, applying an override when
+        the operator set one. Migration venvs are always ``uv``-provided, so the
+        host ``python3`` is deliberately not offered here."""
+        return resolve_interpreter(
+            version,
+            host_python=None,
+            operator_choice=self.interpreter_overrides.get(version),
+        )
+
     def interpreter(self, version: str) -> tuple[str | None, str]:
-        return migration_interpreter(version)
+        """``(python, method)`` for a chain step — the override if one is set,
+        otherwise the matrix's recommendation."""
+        choice = self.interpreter_choice(version)
+        return choice.python, choice.source
+
+    def set_interpreter_override(self, version: str, python: str) -> InterpreterChoice:
+        """Pin one chain step to an interpreter. Refuses a step outside the chain
+        and a Docker-backed step, whose interpreter the official image fixes.
+        Returns the resolved choice, which reports whether it is out of range."""
+        chain = self.chain()
+        if version not in chain:
+            raise ValueError(f"{version} is not a step in this chain ({', '.join(chain)}).")
+        # resolve_interpreter refuses an override for a Docker-backed version.
+        choice = resolve_interpreter(version, operator_choice=python)
+        self.interpreter_overrides[version] = python
+        return choice
+
+    def clear_interpreter_override(self, version: str) -> None:
+        self.interpreter_overrides.pop(version, None)
 
     def is_native(self, version: str) -> bool:
         return self.interpreter(version)[1] == "uv"

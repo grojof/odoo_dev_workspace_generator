@@ -1,16 +1,18 @@
 ---
 type: how-to
 title: "Provisioning a Linux host"
-description: "Use the provision section to make a Debian/Ubuntu host Odoo-ready."
+description: "Use the provision section to make a supported Ubuntu host Odoo-ready."
 audience: [developer]
-updated: 2026-07-18
+updated: 2026-09-17
 ---
 
 # Provisioning a Linux host
 
 The optional **provision** section prepares a *Linux* host (bare server, WSL, or container) for Odoo
-development. It is host-agnostic but **package-manager-specific**: this version targets the **Debian/Ubuntu
-(apt) family**, detected from `/etc/os-release`. A non-apt host is reported and refused rather than guessed at.
+development. The host releases it supports are declared in the
+[support matrix](support-matrix.md) — **Ubuntu 22.04 and 24.04** — detected from `/etc/os-release`. Any other
+host is reported by `check` and refused by `apply` rather than guessed at: earlier versions accepted the whole
+apt family, which implied Debian support that was never validated.
 
 ```bash
 python3 -m odoo_dwg provision      # menu: Check / Apply
@@ -24,12 +26,15 @@ python3 -m odoo_dwg provision      # menu: Check / Apply
 +-------+-------------------------+------------------------------------------+
 | State | Capability              | Detail                                   |
 +-------+-------------------------+------------------------------------------+
-| OK    | Package family          | Debian/Ubuntu (apt) — noble              |
+| OK    | Host release            | Ubuntu 24.04 LTS (noble)                 |
 | OK    | Odoo build dependencies | all present                              |
 | OK    | PostgreSQL              | installed and running                    |
 | OK    | Dev role (odoo)         | present                                  |
 | OK    | wkhtmltopdf             | wkhtmltopdf 0.12.6.1 (with patched qt)   |
+| OK    | PostgreSQL version      | 16 (Odoo 19.0 requires 13.0)             |
 | INFO  | Node.js (optional)      | not installed (only needed for RTL/less) |
+| OK    | uv (interpreters)       | present — provides 3.8, 3.10, 3.12 …     |
+| INFO  | Host python3            | 3.12                                     |
 +-------+-------------------------+------------------------------------------+
 ```
 

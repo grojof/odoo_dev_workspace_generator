@@ -16,6 +16,7 @@ project status — look that up in the files below.
 | OpenSpec project context & artifact rules | [`openspec/config.yaml`](openspec/config.yaml) |
 | What the tool does, user-facing map | [`README.md`](README.md) |
 | Commands, menus, confirmation phrases | [`docs/commands.md`](docs/commands.md) |
+| What is supported (hosts, Python, PostgreSQL) | [`docs/support-matrix.md`](docs/support-matrix.md) — declared in `models.py`, re-verified by `tools/verify_support_matrix.py` |
 | Workspace profile / layout | [`docs/configuration-reference.md`](docs/configuration-reference.md), [`docs/workspace-layout.md`](docs/workspace-layout.md) |
 | Provisioning / migration guides | [`docs/provisioning.md`](docs/provisioning.md), [`docs/migration.md`](docs/migration.md) |
 | Contribution rules, checks, commits | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
@@ -49,7 +50,9 @@ unless they are `system.py`.
   plan; destructive/data actions require `confirm_with_phrase`. Planners stay pure.
 - **English is canonical** for code, docs, specs, and all generated artifacts. Spanish is only an optional
   UI language: every operator-facing string goes through `t`/`tf` with the English text as key.
-- **Anchor Odoo/OpenUpgrade facts to official documentation**, cited in `docs/`; never assume them.
+- **Anchor Odoo/OpenUpgrade facts to official sources**, cited bound by bound in
+  `docs/support-matrix.md` and declared once in `models.py`; never assume them, and never restate a
+  bound elsewhere. Each bound carries its evidence tier (`official`/`derived`/`untested`).
 - **Host-agnostic.** Target "a Linux host"; never assume WSL. The environment is the user's choice.
 - **No AI/MCP coupling.** Install nothing AI-related; the generated per-workspace README is the context
   source. AI emitters are an opt-in future item (see roadmap).
@@ -75,6 +78,10 @@ python -m pytest -q                 # unit tests
 python -m ruff check .              # lint (E,F,I,UP,B,W; E501 deferred)
 openspec validate --specs           # specs well-formed
 python -m odoo_dwg --help           # CLI smoke test
+```
+
+```bash
+python tools/verify_support_matrix.py   # re-derive the support matrix from its sources (network; not in the suite)
 ```
 
 End-to-end validation (cloning Odoo, building venvs, running `odoo-bin`, migrations) happens on a real

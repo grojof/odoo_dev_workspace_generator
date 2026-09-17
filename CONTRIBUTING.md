@@ -24,6 +24,18 @@ python -m odoo_dwg --help           # CLI smoke test
 
 Real end-to-end validation happens on a Linux host (WSL Ubuntu 24.04 is the reference box).
 
+The four checks above need no network. One further check does, and is **not** part of the suite — run it when
+an Odoo branch may have changed what it supports, or before trusting a bound in the
+[support matrix](docs/support-matrix.md):
+
+```bash
+python tools/verify_support_matrix.py            # re-derive every bound from its official source
+python tools/verify_support_matrix.py 18.0 19.0  # only these versions
+```
+
+It exits non-zero on drift and never edits the declared matrix: fixing drift means editing
+`odoo_dwg/models.py` and `docs/support-matrix.md` together.
+
 ## Commits
 
 Conventional Commits, imperative mood, one logical change per commit. User-facing changes get a line under

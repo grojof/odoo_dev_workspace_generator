@@ -24,7 +24,8 @@ Accepted on WSL: a generated Odoo 18 workspace served HTTP 200 at `/web/login`.
 ## F2 — Provision ✅ (accepted E2E)
 
 `check` (host-readiness table) + `apply` (build deps, PostgreSQL + dev role + loopback trust, checksum-verified
-patched wkhtmltopdf, optional Node + rtlcss); apt-family only, root-gated. Accepted on WSL.
+patched wkhtmltopdf, optional Node + rtlcss); root-gated, and since the support matrix landed it targets
+the declared Ubuntu releases rather than the whole apt family. Accepted on WSL.
 
 ## F3 — Migration ✅ (accepted)
 
@@ -47,17 +48,14 @@ items are host-dependent.
 
 ## Features (OpenSpec)
 
-- **Support matrix (next — do first, on WSL)** — define one authoritative matrix in
-  `docs/support-matrix.md` (+ a spec) and make code/docs derive from it. Decisions taken (2026-09-17):
-  - **Hosts: Ubuntu 22.04 and 24.04 only** (Debian dropped to keep scope small; 24.04 stays the reference
-    box).
-  - **Tool Python floor: 3.10**, justified as Ubuntu 22.04's system Python; day-to-day development runs on
-    3.12 (Ubuntu 24.04's system Python).
-  - Still to resolve: official per-Odoo Python minimum *and maximum* (15/16/19 floors are currently not
-    cited; dev workspace venvs use the host `python3` with no upper-bound check), PostgreSQL range, and
-    rewording "apt-family" provisioning to "Ubuntu".
-  - Development of this repo moves into WSL (clone under `~`, not `/mnt/c`); add a short how-to for getting
-    the tool onto a WSL host (the tool never creates WSL itself).
+- ~~Support matrix~~ — **done** (2026-09-17, change `add-support-matrix`): one authoritative,
+  evidence-tiered matrix in `models.py` + [`docs/support-matrix.md`](support-matrix.md), with
+  `tools/verify_support_matrix.py` to re-derive every bound from its official source. Hosts narrowed to
+  Ubuntu 22.04/24.04 (BREAKING for Debian); tool Python floor 3.10; per-version Python maxima added
+  (derived from each branch's own `requirements.txt` buckets, cross-validated against Odoo 19's declared
+  `MAX_PY_VERSION`); Odoo 19's PostgreSQL floor corrected to 13. Interpreter choice now exists in both the
+  workspace and migration flows. Development of this repo moved into WSL (clone under `~`, not `/mnt/c`);
+  [`docs/wsl-setup.md`](wsl-setup.md) covers getting the tool onto a host.
 - **F4 — Optional AI emitters** — opt-in, text-only emitters (CLAUDE.md / skills / agents for a user's
   assistant), never installing runtimes, never a default. A parked proposal exists:
   `openspec/changes/add-ai-emitters/` — fill it forward with `/opsx:` and apply.
@@ -65,9 +63,10 @@ items are host-dependent.
   full single-branch Odoo clone is ~394 MB; some users want history, some want speed. Add a profile flag.
   (Migration clones already use `--depth 1`.) Candidate for a small OpenSpec change.
 - **CI workflow** — a GitHub Actions workflow running `ruff`, `pytest`, and `openspec validate --specs` on
-  push/PR (mirror the sibling app's `.github/workflows/ci.yml`). Blocked on the support matrix: its main value
-  is testing the declared Python range (3.10 and 3.12) on the declared Ubuntu hosts. Optionally a release
-  workflow once a first version is tagged.
+  push/PR (mirror the sibling app's `.github/workflows/ci.yml`). **Unblocked** now that the support matrix
+  declares what to test: the Python range (3.10 and 3.12) on the declared Ubuntu hosts. A scheduled job
+  running `tools/verify_support_matrix.py` would also catch an Odoo branch changing what it targets.
+  Optionally a release workflow once a first version is tagged.
 - **VSCode official-extension emitter** — optional static emitter for the official `Odoo.odoo` extension:
   `odools.toml` profiles (verified schema: `[[config]]` + `name`/`extends`/`odoo_path`/`addons_paths`/
   `python_path`, vars `${workspaceFolder}`/`${detectVersion}`/`$autoDetectAddons`), an OWL `jsconfig.json`,
@@ -87,9 +86,23 @@ items are host-dependent.
   mounted clone with `openupgradelib` installed on the fly (verified on WSL against `odoo:13.0`: container
   reaches OpenUpgrade code against the shared PostgreSQL). Remaining: semantic validation with a real
   legacy database (a synthetic dump cannot migrate).
-- **Full 12 → 19 data migration** — run the checkpointing driver against a real legacy dump on WSL (needs a
-  user-provided source database). Docker Engine is installed *in the Linux host itself* by
-  `provision apply` (`docker.io`) — no Docker Desktop dependency; `odoo:12.0`/`odoo:13.0` tags verified
-  still pullable (2026-07-18).
+- **Full 12 → 19 data migration** — run the checkpointing driver end to end on WSL. No longer blocked on a
+  client dump: build the source database with **Odoo 12's own demo data** (create a database from the
+  `odoo:12.0` image with demo data enabled, then dump it). That is a real Odoo 12 database rather than a
+  synthetic one, so it can actually migrate, and it makes the run reproducible for anyone. The same run
+  answers two open questions at once: whether the 12/13 steps can run natively on `uv`'s 3.8 floor instead
+  of the Docker fallback (their requirements buckets reach `>= '3.8'` but name no distribution, so the
+  matrix marks that ceiling `untested`), and whether each step's recommended interpreter holds against real
+  data. Docker Engine is installed *in the Linux host itself* by `provision apply` (`docker.io`) — no Docker
+  Desktop dependency; `odoo:12.0`/`odoo:13.0` tags verified still pullable (2026-07-18).
+- **Confirm the Ubuntu 22.04 column of the support matrix** — its system Python (3.10) and PostgreSQL (14)
+  are read from `packages.ubuntu.com`, not from a running jammy host. Needs a 22.04 host or container, which
+  the CI item above would also provide.
+- ~~Workspace venv on a `uv`-provisioned interpreter~~ — **done** (2026-09-17): an `acme` workspace with
+  Odoo 14 + 18 was generated and applied on WSL Ubuntu 24.04. The out-of-range version built on `uv`
+  Python 3.8.20 and the in-range one on the host's 3.12.3; both requirement sets installed **without
+  overrides** (unlike the migration path, which needs them at 3.10), and `odoo-bin --version` runs in each
+  venv. Remaining for a full serve check: the generated profile's `db_user` defaults to the workspace name,
+  so serving needs a PostgreSQL role of that name — `provision apply` creates whichever role you name.
 - **VSCode `launch.json` debug shape** — confirm the debugpy + `odoo-bin` launch config attaches against a
   real run on WSL (F1 open question).

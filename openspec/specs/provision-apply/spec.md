@@ -1,7 +1,9 @@
 # provision-apply Specification
 
 ## Purpose
-TBD - created by archiving change add-system-provisioning. Update Purpose after archive.
+
+Installs and configures what a supported Ubuntu host is missing to build Odoo from source — build dependencies, PostgreSQL with a development role, the patched wkhtmltopdf, and optionally Node and Docker — as a previewed, confirmed, root-gated plan that refuses any host outside the support matrix.
+
 ## Requirements
 ### Requirement: Apply is root-gated and previewed
 
@@ -18,16 +20,6 @@ clear message when not run with sufficient privileges, making no changes.
 
 - **WHEN** an apply is confirmed
 - **THEN** the full command plan is shown and no command runs until the user confirms
-
-### Requirement: Debian/Ubuntu family only
-
-`provision apply` SHALL target the Debian/Ubuntu (apt) family only in this version. On a non-apt host it MUST
-refuse cleanly rather than run apt commands blindly.
-
-#### Scenario: Non-apt host is refused
-
-- **WHEN** `provision apply` runs on a host that is not in the Debian/Ubuntu family
-- **THEN** it refuses with a message that only the apt family is supported, and makes no changes
 
 ### Requirement: Install Odoo build dependencies
 
@@ -98,3 +90,18 @@ The pull SHALL be part of the previewed plan like every other host-mutating comm
 - **WHEN** the user opts into the image pull
 - **THEN** the previewed plan contains the `docker pull` commands and they run only after confirmation
 
+### Requirement: Supported Ubuntu releases only
+
+`provision apply` SHALL target only the host releases the support matrix declares. On any other host —
+including an apt-family host that is not one of those releases — it MUST refuse cleanly, naming the detected
+release and the supported ones, before assembling or running any command.
+
+#### Scenario: A supported release proceeds to the plan
+
+- **WHEN** `provision apply` runs on one of the Ubuntu releases the matrix declares
+- **THEN** it assembles and previews the plan as usual
+
+#### Scenario: An unsupported host is refused before any command
+
+- **WHEN** `provision apply` runs on a host that is not one of the declared releases
+- **THEN** it refuses with a message naming the detected release and the supported ones, and makes no changes

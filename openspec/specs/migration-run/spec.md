@@ -1,7 +1,9 @@
 # migration-run Specification
 
 ## Purpose
-TBD - created by archiving change add-openupgrade-migration. Update Purpose after archive.
+
+Runs the chain one version at a time against a copy of the source database, checkpointing after each step so a failure is resumable, and never touching production data.
+
 ## Requirements
 ### Requirement: Sequential chain with no skipped versions
 

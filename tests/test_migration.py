@@ -201,3 +201,49 @@ def test_clean_migration_includes_shared_repos_only_on_opt_in():
     assert len(cmds) == 2
     assert str(env.repos_dir) in cmds[1].command
     assert cmds[1].command.startswith("rm -rf")
+
+
+# --- per-step interpreter overrides ---------------------------------------
+
+
+def test_override_pins_one_step_and_leaves_the_rest_recommended():
+    env = MigrationEnv(source="15.0", target="18.0")
+    choice = env.set_interpreter_override("16.0", "3.11")
+    assert (choice.python, choice.out_of_range) == ("3.11", False)
+    assert env.interpreter("16.0") == ("3.11", "uv")
+    # Every other step keeps the matrix recommendation.
+    assert env.interpreter("17.0") == ("3.10", "uv")
+    assert env.interpreter("18.0") == ("3.12", "uv")
+
+
+def test_override_drives_the_venv_command_and_the_requirements_repair():
+    from odoo_dwg import planners, templates
+
+    env = MigrationEnv(source="15.0", target="17.0")
+    env.set_interpreter_override("16.0", "3.11")
+    joined = "\n".join(c.command for c in planners.plan_migration_venvs(env))
+    assert "--python 3.11 " in joined
+    # The 3.10-only gevent repair must follow the interpreter actually used:
+    # present for the still-3.10 step, absent for the pinned 3.11 one.
+    assert "gevent==22.10.2" in templates.render_migration_overrides("17.0", "3.10")
+    assert "gevent==22.10.2" not in templates.render_migration_overrides("16.0", "3.11")
+
+
+def test_out_of_range_override_is_reported_but_still_applied():
+    env = MigrationEnv(source="13.0", target="15.0")
+    # Odoo 14 tops out at 3.10 (derived from its Jammy bucket).
+    choice = env.set_interpreter_override("14.0", "3.12")
+    assert choice.out_of_range and choice.crossed.value == "3.10"
+    assert env.interpreter("14.0") == ("3.12", "uv")
+    env.clear_interpreter_override("14.0")
+    assert env.interpreter("14.0") == ("3.8", "uv")
+
+
+def test_override_refused_for_docker_steps_and_off_chain_versions():
+    env = MigrationEnv(source="12.0", target="15.0")
+    with pytest.raises(ValueError, match="cannot be overridden"):
+        env.set_interpreter_override("13.0", "3.8")
+    with pytest.raises(ValueError, match="not a step in this chain"):
+        env.set_interpreter_override("18.0", "3.12")
+    # A refused override leaves nothing behind.
+    assert env.interpreter_overrides == {}

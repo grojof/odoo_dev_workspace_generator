@@ -44,7 +44,7 @@ Every menu shows a numbered list; `0` (or `Back`/`Cancel`) always returns withou
 | Manage → Refresh shared repos | `git pull --ff-only` on present clones in the shared cache | Preview + confirm |
 | Manage → Add a version | Extends an existing workspace with a new Odoo version | Preview + confirm |
 
-### System provisioning (optional; Debian/Ubuntu apt family)
+### System provisioning (optional; the Ubuntu releases in the [support matrix](support-matrix.md))
 
 | Action | Behavior | Guard |
 |---|---|---|

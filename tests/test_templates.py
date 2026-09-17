@@ -53,3 +53,30 @@ def test_launch_has_one_config_per_version():
     cfg.normalize_defaults()
     launch = json.loads(templates.render_vscode_launch(cfg))
     assert len(launch["configurations"]) == 2
+
+
+def test_setup_venv_script_uses_the_same_interpreter_as_the_plan():
+    """An out-of-range version is built with uv in the plan, so the generated
+    script must rebuild it the same way — otherwise re-running the script would
+    silently replace that venv with the host python3."""
+    from odoo_dwg.models import resolve_interpreter
+
+    cfg = WorkspaceConfig(name="acme", versions=["14.0", "18.0"])
+    cfg.normalize_defaults()
+    interpreters = {
+        version: resolve_interpreter(version, host_python="3.12") for version in cfg.versions
+    }
+    script = templates.render_setup_venv_sh(cfg, interpreters)
+    assert 'uv venv --seed --no-project --python 3.8 "' in script
+    # Only the in-range version falls back to the host interpreter.
+    assert script.count("python3 -m venv") == 1
+    assert "odoo18" in script.split("python3 -m venv")[1]
+    # The reason is stated in the script itself.
+    assert "Odoo 14.0 supports Python 3.7" in script
+
+
+def test_setup_venv_script_without_interpreters_keeps_the_host_python():
+    cfg = WorkspaceConfig(name="acme", versions=["18.0"])
+    cfg.normalize_defaults()
+    script = templates.render_setup_venv_sh(cfg)
+    assert "python3 -m venv" in script and "uv venv" not in script

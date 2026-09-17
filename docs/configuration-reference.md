@@ -22,14 +22,25 @@ older profiles keep loading. Loading a profile validates it before use.
 | `db_user` | string | = `name` | PostgreSQL role written into each `odoo.conf`. |
 | `oca_repos` | string[] | `[]` | OCA repository names (e.g. `"web"`, `"server-tools"`), cloned per version from `github.com/OCA/<repo>` and symlinked into `addons-oca/odoo<major>/`. Empty by default — no opinionated preset. |
 
-## Development versions and Python floors
+## Development versions and interpreters
 
-First-class development targets are **17.0 / 18.0 / 19.0**. The documented minimum Python per Odoo major
-(official "Source install"): 12→3.5, 13→3.6, 14→3.7, 17→3.10, 18→3.10. On Ubuntu 24.04 the system Python is
-3.12, which covers 17–19.
+First-class development targets are **17.0 / 18.0 / 19.0**, but a profile may name any version in the
+[support matrix](support-matrix.md) (12.0–19.0), which is the single place the Python range, the recommended
+interpreter and the PostgreSQL floor per version are declared — with the source behind each one.
 
-- Source install: <https://www.odoo.com/documentation/18.0/administration/on_premise/source.html>
-- Supported versions / PostgreSQL: <https://www.odoo.com/documentation/18.0/administration/supported_versions.html>
+Each instance's venv is built with an interpreter resolved against that matrix:
+
+- The host `python3` is used whenever it is inside the version's declared range. On Ubuntu 24.04 that is
+  3.12, which covers Odoo 15 through 19.
+- When it is outside the range — an Odoo 14 instance on that same host, say, since 14 tops out at 3.10 —
+  generation says so, naming the range, the detected version and the evidence tier of the bound, and offers
+  to build that venv with a matching `uv`-provisioned interpreter (`uv venv --seed`, so the venv still has
+  `pip`).
+- The recommendation is a default, not a mandate: you can keep the host interpreter or name any other
+  version. That is how a workspace reproduces a client's exact environment — pin the interpreter they run.
+
+There is no profile field for the interpreter: it is asked at generation time, because the answer depends on
+the host, not on the profile.
 
 ## Example
 

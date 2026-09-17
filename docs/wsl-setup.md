@@ -70,7 +70,7 @@ Inside Ubuntu:
 
 ```bash
 lsb_release -a        # expect: Ubuntu 24.04 LTS (noble)
-python3 --version     # expect: Python 3.12.x — the tool needs 3.10 or newer
+python3 --version     # expect: Python 3.12.x — the tool needs 3.10 or newer (see docs/support-matrix.md)
 systemctl status      # expect: "State: running" — systemd manages PostgreSQL later
 ```
 
@@ -170,7 +170,7 @@ full plan, and only runs it after you confirm.
 +-------+-------------------------+------------------------------------------+
 | State | Capability              | Detail                                   |
 +-------+-------------------------+------------------------------------------+
-| OK    | Package family          | Debian/Ubuntu (apt) — noble              |
+| OK    | Host release            | Ubuntu 24.04 LTS (noble)                 |
 | MISS  | PostgreSQL              | not installed                            |
 +-------+-------------------------+------------------------------------------+
 ```

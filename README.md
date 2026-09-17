@@ -87,7 +87,8 @@ Every command, menu action, and confirmation phrase: [`docs/commands.md`](docs/c
 ## Design principles
 
 Standard library only · English canonical (Spanish optional UI) · plan → preview → apply · pure planners ·
-every Odoo/OpenUpgrade fact anchored to **official documentation** (see [`docs/`](docs/)) · assistant-agnostic
+every Odoo/OpenUpgrade fact anchored to **official sources** and cited bound by bound in
+[`docs/support-matrix.md`](docs/support-matrix.md) · assistant-agnostic
 (no AI/MCP installed).
 
 ## Documentation
@@ -98,8 +99,10 @@ By surface:
 - **Workspaces** — [`docs/workspace-layout.md`](docs/workspace-layout.md) (generated tree, conventions) ·
   [`docs/configuration-reference.md`](docs/configuration-reference.md) (JSON profile fields).
 - **Host setup** — [`docs/wsl-setup.md`](docs/wsl-setup.md) (Ubuntu 24.04 on WSL 2, from zero) ·
-  [`docs/provisioning.md`](docs/provisioning.md) (Debian/Ubuntu check/apply, Docker option).
+  [`docs/provisioning.md`](docs/provisioning.md) (host check/apply, Docker option).
 - **Migration** — [`docs/migration.md`](docs/migration.md) (interpreters, preflight, staging, checkpointing driver).
+- **What is supported** — [`docs/support-matrix.md`](docs/support-matrix.md) (hosts, Python per Odoo version,
+  PostgreSQL — with the source behind every bound and how to re-verify it).
 - **Project** — [`docs/roadmap.md`](docs/roadmap.md) (phases + backlog) · [`CLAUDE.md`](CLAUDE.md) (AI-agent
   guide) · [`CONTRIBUTING.md`](CONTRIBUTING.md) · [`SECURITY.md`](SECURITY.md) ·
   [`CHANGELOG.md`](CHANGELOG.md).

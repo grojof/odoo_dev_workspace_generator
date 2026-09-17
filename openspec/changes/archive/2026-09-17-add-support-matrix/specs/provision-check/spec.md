@@ -1,10 +1,7 @@
-# provision-check Specification
+# Spec Delta
 
-## Purpose
+## MODIFIED Requirements
 
-Reports, read-only, whether a host can build and run Odoo: its release against the supported list, the build dependencies, PostgreSQL and its version against the matrix floor, wkhtmltopdf, the optional web toolchain, and the interpreters and container images the migration paths need. It reports; it never changes the host.
-
-## Requirements
 ### Requirement: Read-only host readiness report
 
 The system SHALL provide a `provision check` that inspects the host and renders a capability table of
@@ -46,27 +43,19 @@ declares for the Odoo versions in play, and reported WARN when it is below that 
 - **WHEN** the installed PostgreSQL server meets the floor for every version in play
 - **THEN** the version row is OK and states the detected server version
 
-### Requirement: wkhtmltopdf patched-build detection
+## REMOVED Requirements
 
-The system SHALL detect the installed wkhtmltopdf version and whether it is the Odoo-recommended patched
-build, reporting a plain (un-patched) distribution build as WARN because Odoo reports may be degraded.
+### Requirement: Package-family detection
 
-#### Scenario: Un-patched wkhtmltopdf is flagged
+**Reason**: The tool now declares a supported-host list (Ubuntu 22.04 and 24.04) in the support matrix rather
+than a package family. Reporting "the apt family" implied support for Debian hosts that were never validated,
+so family detection is replaced by supported-release detection.
 
-- **WHEN** wkhtmltopdf is present but is the plain distribution build (not "with patched qt")
-- **THEN** the report marks it WARN with a note that reports may be degraded
+**Migration**: Replaced by "Supported host release detection" below. A Debian or other apt-family host that
+was previously reported as supported is now reported as unsupported; `provision check` still completes and
+still changes nothing, so the only change for such a host is the reported state.
 
-### Requirement: Docker detection distinguishes binary, daemon, and images
-
-The system SHALL report Docker as three distinct signals: the `docker` binary present, the daemon
-responding (`docker info`), and the presence of the OpenUpgrade fallback images (`odoo:13.0` / `odoo:12.0`)
-as an informational row. A permission failure talking to the daemon SHALL be reported distinctly from
-Docker not being installed.
-
-#### Scenario: Binary present, daemon unreachable
-
-- **WHEN** `docker` is installed but `docker info` fails
-- **THEN** the report marks the binary OK and the daemon not ready, including the error detail (e.g. permission or service down)
+## ADDED Requirements
 
 ### Requirement: Supported host release detection
 

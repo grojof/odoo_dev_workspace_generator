@@ -11,32 +11,47 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from . import planners, system
+from .models import (
+    ODOO_SUPPORT,
+    postgres_floor_for,
+    python_tuple,
+    supported_host,
+    supported_hosts_text,
+)
 
 
 @dataclass
 class ProvisionFacts:
-    os_family: str = ""          # "debian" when apt-family, else "" (unsupported)
+    os_id: str = ""              # /etc/os-release ID, e.g. "ubuntu"
+    os_version_id: str = ""      # /etc/os-release VERSION_ID, e.g. "24.04"
     os_codename: str = ""
+    os_pretty_name: str = ""
     build_deps_missing: list[str] = field(default_factory=list)
     postgres_installed: bool = False
     postgres_running: bool = False
     dev_role: str = "odoo"
     dev_role_exists: bool = False
+    postgres_version: int | None = None
     wkhtmltopdf: str | None = None
     node: bool = False
     rtlcss: bool = False
     uv: bool = False
+    uv_pythons: list[str] = field(default_factory=list)
+    host_python: str | None = None
+    # Odoo versions this check is scoped to, which set the PostgreSQL floor.
+    versions: list[str] = field(default_factory=list)
     docker_binary: bool = False
     docker_daemon: bool = False
     docker_daemon_detail: str = ""
     docker_images: dict[str, bool] = field(default_factory=dict)
 
 
-def gather_facts(dev_role: str = "odoo") -> ProvisionFacts:
-    """Probe the host for readiness (I/O)."""
+def gather_facts(dev_role: str = "odoo", versions: list[str] | None = None) -> ProvisionFacts:
+    """Probe the host for readiness (I/O). ``versions`` scopes the PostgreSQL
+    floor to the Odoo versions in play; empty means every supported version."""
     release = system.detect_os_release()
-    family = system.apt_family()
-    role_exists = system.db_role_exists(dev_role) if system.postgres_running() else False
+    running = system.postgres_running()
+    role_exists = system.db_role_exists(dev_role) if running else False
     docker_binary = system.has_tool("docker")
     daemon_ready, daemon_detail = (
         system.docker_daemon_ready() if docker_binary else (False, "")
@@ -46,18 +61,25 @@ def gather_facts(dev_role: str = "odoo") -> ProvisionFacts:
         if daemon_ready
         else {}
     )
+    uv_present = system.has_tool("uv")
     return ProvisionFacts(
-        os_family=family,
+        os_id=release.get("ID", ""),
+        os_version_id=release.get("VERSION_ID", ""),
         os_codename=release.get("VERSION_CODENAME", ""),
+        os_pretty_name=release.get("PRETTY_NAME", ""),
         build_deps_missing=[p for p in planners.BUILD_DEPS if not system.package_installed(p)],
         postgres_installed=system.postgres_installed(),
-        postgres_running=system.postgres_running(),
+        postgres_running=running,
+        postgres_version=system.detect_postgres_version() if running else None,
         dev_role=dev_role,
         dev_role_exists=role_exists,
         wkhtmltopdf=system.wkhtmltopdf_version(),
         node=system.has_tool("node") or system.has_tool("nodejs"),
         rtlcss=system.has_tool("rtlcss"),
-        uv=system.has_tool("uv"),
+        uv=uv_present,
+        uv_pythons=system.uv_python_minors() if uv_present else [],
+        host_python=system.detect_python_version(),
+        versions=list(versions or []),
         docker_binary=docker_binary,
         docker_daemon=daemon_ready,
         docker_daemon_detail=daemon_detail,
@@ -65,14 +87,45 @@ def gather_facts(dev_role: str = "odoo") -> ProvisionFacts:
     )
 
 
+def _postgres_version_rows(facts: ProvisionFacts) -> list[tuple[str, str, str]]:
+    """The installed server version against the floor the matrix declares for the
+    versions in play. Pure; no row at all when there is nothing to compare."""
+    if facts.postgres_version is None:
+        return []
+    scoped = facts.versions or [ODOO_SUPPORT[major].version for major in sorted(ODOO_SUPPORT)]
+    floor = postgres_floor_for(scoped)
+    installed = str(facts.postgres_version)
+    if floor is None:
+        return [("INFO", "PostgreSQL version", f"{installed} (no version declares a floor)")]
+    required, version = floor
+    if python_tuple(installed) < python_tuple(required):
+        return [
+            (
+                "WARN",
+                "PostgreSQL version",
+                f"{installed} is below the {required} Odoo {version} requires",
+            )
+        ]
+    return [("OK", "PostgreSQL version", f"{installed} (Odoo {version} requires {required})")]
+
+
 def provision_rows(facts: ProvisionFacts) -> list[tuple[str, str, str]]:
     """Pure: map facts to (state, capability, detail) rows (state ∈ OK/WARN/MISSING/INFO)."""
     rows: list[tuple[str, str, str]] = []
 
-    if facts.os_family == "debian":
-        rows.append(("OK", "Package family", f"Debian/Ubuntu (apt){' — ' + facts.os_codename if facts.os_codename else ''}"))
+    host = supported_host(facts.os_id, facts.os_version_id)
+    if host is not None:
+        detail = host.name + (f" ({host.codename})" if host.codename else "")
+        rows.append(("OK", "Host release", detail))
     else:
-        rows.append(("WARN", "Package family", "unsupported — only the Debian/Ubuntu (apt) family is supported"))
+        detected = facts.os_pretty_name or f"{facts.os_id or 'unknown'} {facts.os_version_id}".strip()
+        rows.append(
+            (
+                "WARN",
+                "Host release",
+                f"{detected} is not supported — supported: {supported_hosts_text()}",
+            )
+        )
 
     if not facts.build_deps_missing:
         rows.append(("OK", "Odoo build dependencies", "all present"))
@@ -85,6 +138,8 @@ def provision_rows(facts: ProvisionFacts) -> list[tuple[str, str, str]]:
         rows.append(("OK", "PostgreSQL", "installed and running"))
     else:
         rows.append(("WARN", "PostgreSQL", "installed but not running"))
+
+    rows += _postgres_version_rows(facts)
 
     if facts.dev_role_exists:
         rows.append(("OK", f"Dev role ({facts.dev_role})", "present"))
@@ -101,7 +156,21 @@ def provision_rows(facts: ProvisionFacts) -> list[tuple[str, str, str]]:
     rows.append(("OK" if facts.node else "INFO", "Node.js (optional)", "present" if facts.node else "not installed (only needed for RTL/less)"))
     rows.append(("OK" if facts.rtlcss else "INFO", "rtlcss (optional)", "present" if facts.rtlcss else "not installed (only needed for RTL/less)"))
 
-    rows.append(("OK" if facts.uv else "INFO", "uv (migration)", "present" if facts.uv else "not installed (needed for migration interpreters — docs.astral.sh/uv)"))
+    if facts.uv:
+        provides = ", ".join(facts.uv_pythons) if facts.uv_pythons else "no interpreters listed"
+        rows.append(("OK", "uv (interpreters)", f"present — provides {provides}"))
+    else:
+        rows.append(
+            (
+                "INFO",
+                "uv (interpreters)",
+                "not installed (needed for migration steps and for any Odoo version "
+                "the host python3 is out of range for — docs.astral.sh/uv)",
+            )
+        )
+
+    if facts.host_python:
+        rows.append(("INFO", "Host python3", facts.host_python))
 
     if not facts.docker_binary:
         rows.append(("INFO", "Docker (migration 12/13)", "not installed (only needed for Odoo 12/13 migration steps)"))

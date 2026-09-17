@@ -148,6 +148,30 @@ def detect_postgres_version() -> int | None:
     return None
 
 
+def detect_python_version() -> str | None:
+    """The host ``python3`` minor version as ``"3.12"``, or None when absent."""
+    result = run("python3 -c 'import sys; print(\"%d.%d\" % sys.version_info[:2])'", check=False)
+    text = result.stdout.strip()
+    return text if re.fullmatch(r"\d+\.\d+", text) else None
+
+
+def uv_python_minors() -> list[str]:
+    """Minor versions ``uv`` can provide (installed or downloadable), ascending.
+
+    Empty when ``uv`` is absent, which is how callers tell "no uv" from "uv has
+    nothing suitable"."""
+    if not has_tool("uv"):
+        return []
+    result = run("uv python list 2>/dev/null", check=False)
+    if result.returncode != 0:
+        return []
+    minors = {
+        f"{match.group(1)}.{match.group(2)}"
+        for match in re.finditer(r"^cpython-(\d+)\.(\d+)", result.stdout, re.MULTILINE)
+    }
+    return sorted(minors, key=lambda text: tuple(int(part) for part in text.split(".")))
+
+
 def detect_tool_version(name: str, args: str = "--version") -> str | None:
     """First line of ``<name> <args>`` output, or None when the tool is absent."""
     if not has_tool(name):
@@ -158,17 +182,6 @@ def detect_tool_version(name: str, args: str = "--version") -> str | None:
 
 
 # --- provisioning probes ---------------------------------------------------
-
-
-def apt_family() -> str:
-    """Return ``"debian"`` when the host is in the Debian/Ubuntu (apt) family, else
-    ``""`` (unsupported by this version). Uses ``ID``/``ID_LIKE`` from os-release."""
-    release = detect_os_release()
-    ident = release.get("ID", "").lower()
-    id_like = release.get("ID_LIKE", "").lower()
-    if ident in {"debian", "ubuntu"} or "debian" in id_like or "ubuntu" in id_like:
-        return "debian"
-    return ""
 
 
 def package_installed(name: str) -> bool:

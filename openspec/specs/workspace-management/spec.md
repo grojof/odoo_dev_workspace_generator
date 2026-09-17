@@ -1,7 +1,9 @@
 # workspace-management Specification
 
 ## Purpose
-TBD - created by archiving change add-workspace-generation. Update Purpose after archive.
+
+Acts on workspaces that already exist — discovering them, repairing a virtual environment, refreshing the shared clones, adding a version — without regenerating or overwriting anything the operator has put in place.
+
 ## Requirements
 ### Requirement: Discover existing workspaces
 

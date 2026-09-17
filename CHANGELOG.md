@@ -7,6 +7,43 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Support matrix** (change `add-support-matrix`): one authoritative, evidence-tiered declaration of what
+  the tool supports — host releases, the tool's own Python floor, and per-Odoo-version Python range,
+  recommended interpreter and PostgreSQL floor — in `models.py` (`ODOO_SUPPORT`/`SUPPORTED_HOSTS`), which
+  `provision check`, workspace generation and migration all read instead of restating. Each bound carries
+  its evidence tier (`official` / `derived` / `untested`) and source, so output never presents a derived
+  bound as an Odoo requirement. New `docs/support-matrix.md` cites every fact verbatim and records the
+  retrieval procedure; new `tools/verify_support_matrix.py` (stdlib-only, outside the package and the test
+  suite) re-derives every bound from its official source and exits non-zero on drift.
+- **Per-version Python maxima**, which the tool did not model before, derived from the newest interpreter
+  bucket each Odoo branch declares in its own `requirements.txt` and the distribution its comment names
+  (Jammy/Noble/Trixie/Resolute) — a derivation that reproduces Odoo 19's declared `MAX_PY_VERSION = (3, 14)`
+  exactly. Odoo 12/13 declare no ceiling and are marked `untested` rather than assumed.
+- **Interpreter selection when building environments.** Workspace generation builds each venv with the host
+  `python3` while it is inside that version's range, and otherwise reports the range, the detected version
+  and the crossed bound's tier and offers a matching `uv`-provisioned interpreter (`uv venv --seed`, so the
+  venv still has `pip`). Migration environments take each step's interpreter from the matrix recommendation
+  and let the operator **pin any step** to a specific Python — the way to rehearse on a client's own
+  interpreter — with the step's requirements repair following the interpreter actually in use. Docker-backed
+  steps (12/13) cannot be pinned.
+- `provision check` now reports the host release against the supported list, the installed PostgreSQL server
+  version against the floor of the versions in play, the host `python3`, and which interpreters `uv` can
+  provide.
+
+### Changed
+- **BREAKING — supported hosts narrowed from the Debian/Ubuntu apt family to Ubuntu 22.04 and 24.04.**
+  `provision check` reports any other host as unsupported (it still completes and still changes nothing) and
+  `provision apply` refuses before assembling a single command. Debian was never validated, so the claim was
+  dropped rather than left implied.
+
+### Fixed
+- Odoo 19's PostgreSQL floor was carried as 12; it is 13 ("Changed in version 19: Minimum requirement
+  updated from PostgreSQL 12 to PostgreSQL 13").
+- The Odoo 15/16 Python floor (3.7) was an uncited assumption and is now anchored to both the documentation
+  and `setup.py`. Odoo 14's documentation/`setup.py` divergence (3.7 vs `>=3.6`) is recorded rather than
+  silently resolved.
+- All nine capability specs carried the placeholder `## Purpose` that `openspec archive` writes, which
+  `openspec validate --specs` warned about on every run; each now states what its capability is for.
 - F0 foundation: package skeleton `odoo_dwg/` (i18n, ui, prompts, system, models, cli, workflow stubs),
   root entry point, interactive menu and argparse CLI (`workspace`/`provision`/`migrate`).
 - English-canonical UI with an optional Spanish catalog (`ODWG_LANG=en|es`).

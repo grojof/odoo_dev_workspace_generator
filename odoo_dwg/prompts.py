@@ -11,6 +11,13 @@ import os
 from pathlib import Path
 
 from .i18n import current_language, t, tf
+from .models import (
+    HOST_PYTHON,
+    UV_PYTHON,
+    InterpreterChoice,
+    resolve_interpreter,
+    version_support,
+)
 from .ui import level_text, prompt_label, style, title
 
 _last_selected_dir: Path | None = None
@@ -223,3 +230,100 @@ def confirm_with_phrase(label: str, phrase: str) -> bool:
         f"{prompt_label('to confirm')}: "
     ).strip()
     return value == phrase
+
+
+# --- interpreter selection -------------------------------------------------
+
+
+def choose_interpreter(
+    version: str,
+    host_python: str | None,
+    uv_minors: list[str],
+) -> InterpreterChoice | None:
+    """Resolve the interpreter for one Odoo version, asking only when the host's
+    own ``python3`` cannot be used.
+
+    Returns the choice to build with, or ``None`` when the operator cancels. The
+    matrix's recommendation is the default; the operator can keep the host
+    interpreter or name any other version, and an out-of-range answer is stated
+    plainly (with the evidence tier of the bound being crossed) before it is
+    accepted. Docker-backed versions have no choice to make.
+    """
+    support = version_support(version)
+    resolved = resolve_interpreter(version, host_python=host_python)
+    if resolved.source != UV_PYTHON:
+        return resolved
+
+    print(
+        level_text(
+            "WARN",
+            tf(
+                "Odoo {} supports Python {} — this host runs {}.",
+                version,
+                support.python_range_text(),
+                host_python or t("an undetected version"),
+            ),
+        )
+    )
+    recommended = resolved.python or ""
+    uv_ready = recommended in uv_minors
+    if not uv_ready:
+        print(
+            level_text(
+                "INFO",
+                tf(
+                    "uv cannot provide Python {} on this host — install uv "
+                    "(provision check reports it) to build with it.",
+                    recommended,
+                ),
+            )
+        )
+
+    keep_host = tf("Keep the host python3 ({})", host_python or "?")
+    options = [tf("Build with uv Python {} (recommended)", recommended)] if uv_ready else []
+    options += [keep_host, t("Choose another Python version"), t("Cancel")]
+    answer = choose(tf("Interpreter for Odoo {}", version), options, default_index=None)
+
+    if answer in ("", t("Cancel")):
+        return None
+    if answer == keep_host:
+        return _confirmed_choice(version, host_python, host_python, HOST_PYTHON)
+    if answer == t("Choose another Python version"):
+        chosen = ask_text(t("Python version (e.g. 3.10)"), recommended or None, required=True)
+        source = HOST_PYTHON if chosen == host_python else UV_PYTHON
+        return _confirmed_choice(version, host_python, chosen, source)
+    return resolved
+
+
+def _confirmed_choice(
+    version: str,
+    host_python: str | None,
+    chosen: str | None,
+    source: str,
+) -> InterpreterChoice | None:
+    """Build the choice for an operator-named interpreter, confirming it first
+    when it falls outside the version's declared range."""
+    if not chosen:
+        return None
+    choice = resolve_interpreter(version, host_python=host_python, operator_choice=chosen)
+    if not choice.out_of_range:
+        return choice
+    crossed = choice.crossed
+    detail = crossed.describe() if crossed else version_support(version).python_range_text()
+    print(
+        level_text(
+            "WARN",
+            tf(
+                "Python {} is outside the supported range for Odoo {} (bound: {}).",
+                chosen,
+                version,
+                detail,
+            ),
+        )
+    )
+    if not ask_bool(t("Use it anyway?"), False):
+        return None
+    # Keep the source the operator implied, not the resolver's guess.
+    return InterpreterChoice(
+        choice.version, choice.python, source, out_of_range=True, crossed=choice.crossed
+    )
