@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Generates a self-contained OpenUpgrade environment for a source → target chain: per-version clones, a virtual environment per step on an interpreter that step supports (or the official Docker image where no interpreter can be provided), per-step configs, and the driver that runs them in order.
+Generates a self-contained OpenUpgrade environment for a source → target chain: per-version clones, a virtual environment per step on an interpreter that step supports, per-step configs, and the driver that runs them in order.
 
 ## Requirements
 ### Requirement: Per-version clones from the shared cache
@@ -108,10 +108,10 @@ branch* for that version there.
 table. MISSING chain-required tools SHALL NOT hard-block generation (the plan itself may be unaffected) but
 SHALL require an explicit confirmation to continue.
 
-#### Scenario: Missing Docker prompts before generating a 12-chain
+#### Scenario: A missing tool prompts before generating
 
-- **WHEN** the operator generates a 12 → 18 environment on a host without Docker
-- **THEN** the preflight table shows Docker MISSING and generation continues only after the operator confirms
+- **WHEN** the operator generates a 12 → 18 environment on a host without `uv`
+- **THEN** the preflight table shows it MISSING and generation continues only after the operator confirms
 
 ### Requirement: Native interpreter per chain step
 

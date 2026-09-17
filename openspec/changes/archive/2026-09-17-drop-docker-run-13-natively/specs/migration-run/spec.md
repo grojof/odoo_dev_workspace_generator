@@ -35,3 +35,32 @@ migration script while the step still reports success.
 - **WHEN** the Odoo 13 step migrates a database with the `iap` module installed
 - **THEN** that add-on's `migrations/13.0.1.0` scripts run, so `company_id` is renamed to its legacy name and
   its data moved into `company_ids`, rather than the column surviving unmigrated
+
+### Requirement: Driver preflight before touching the database
+
+`run_migration.sh` SHALL run the host-scope preflight (chain tools, PostgreSQL, dump integrity) before
+restoring anything, and the database-scope preflight (source-version match from `ir_module_module`,
+installed modules, per-step addons coverage) immediately after the initial restore and before step 1. Any
+failed check SHALL abort the driver with a non-zero exit and a message naming the failed check; coverage
+findings SHALL name the directory the operator must fill.
+
+#### Scenario: Host failure aborts before restore
+
+- **WHEN** the driver starts on a host where `uv` is missing
+- **THEN** it exits non-zero naming the failed check, without creating or restoring the working database
+
+#### Scenario: Version mismatch aborts after restore, before step 1
+
+- **WHEN** the restored database's `base` version does not match the environment's declared source
+- **THEN** the driver aborts non-zero naming the mismatch, before running any upgrade step
+
+## REMOVED Requirements
+
+### Requirement: Docker fallback for the Python-3.6 step
+
+**Reason**: That step runs natively now. The requirement described emitting a `docker run` recipe for the
+Odoo 13 step, which is exactly what under-migrated: the image's own `addons_path` meant the recipe ran the
+image's add-ons instead of the fork's.
+
+**Migration**: Covered by "Per-branch odoo-bin command shape", which defines the ≤ 13 shape natively and
+requires the add-ons path to be explicit.

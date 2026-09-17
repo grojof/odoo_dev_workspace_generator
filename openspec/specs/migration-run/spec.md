@@ -70,18 +70,6 @@ leave the last good checkpoint intact so a re-run resumes from it rather than re
 - **WHEN** step 5 of a chain fails after steps 1–4 succeeded
 - **THEN** checkpoints for steps 1–4 remain and re-running the driver resumes at step 5, not at the source
 
-### Requirement: Docker fallback for the Python-3.6 step
-
-For the step that runs Odoo 13 (Python 3.6) — i.e. a 12 → 13 migration — the system SHALL emit a Docker-based
-recipe (using the official `odoo:13.0` image) that runs the equivalent OpenUpgrade command against the shared
-PostgreSQL, so the native chain can resume from the resulting checkpoint. The generator emits the recipe only;
-it never runs Docker itself.
-
-#### Scenario: The Odoo-13 step is emitted as a Docker recipe
-
-- **WHEN** a chain includes the 12 → 13 step
-- **THEN** that step is emitted as a `docker run` recipe against the shared database, and the remaining native steps consume its checkpoint
-
 ### Requirement: Driver preflight before touching the database
 
 `run_migration.sh` SHALL run the host-scope preflight (chain tools, PostgreSQL, dump integrity) before
@@ -92,8 +80,8 @@ findings SHALL name the directory the operator must fill.
 
 #### Scenario: Host failure aborts before restore
 
-- **WHEN** the driver starts on a chain that needs Docker and the daemon is not responding
-- **THEN** it exits non-zero naming the Docker check, without creating or restoring the working database
+- **WHEN** the driver starts on a host where `uv` is missing
+- **THEN** it exits non-zero naming the failed check, without creating or restoring the working database
 
 #### Scenario: Version mismatch aborts after restore, before step 1
 
