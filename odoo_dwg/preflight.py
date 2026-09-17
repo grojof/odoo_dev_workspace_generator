@@ -18,6 +18,7 @@ pattern. The same implementation backs the menu action, the generate flow, and
 
 from __future__ import annotations
 
+import ast
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -52,6 +53,22 @@ class DbFacts:
     declared_source: str
     base_version: str | None = None
     installed_modules: list[str] = field(default_factory=list)
+    # ``{module: author}`` as recorded in ir_module_module. An installed module
+    # with no row here is treated as having no author, which is blocking.
+    module_authors: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class Coverage:
+    """Per-step coverage split by what the operator can actually act on."""
+
+    # ``{version: [module]}`` — code the step needs and nobody provides.
+    blocking: dict[str, list[str]] = field(default_factory=dict)
+    # ``{version: [module]}`` — Odoo's own modules, dropped upstream, which the
+    # upgrade removes by itself.
+    warnings: dict[str, list[str]] = field(default_factory=dict)
+    # Modules resolved from the operator's own per-version custom directory.
+    customs: set[str] = field(default_factory=set)
 
 
 def gather_host_facts(env: MigrationEnv, dump_path: str | None = None) -> HostFacts:
@@ -98,8 +115,79 @@ def gather_db_facts(env: MigrationEnv, db: str) -> DbFacts:
         db, env.db_host, env.db_port, env.db_user,
     )
     modules = [m for m in (modules_raw or "").split(",") if m]
+    # Name and author together, so coverage can tell Odoo's own churn from code
+    # the operator owes the migration. Tab-separated: an author may contain a
+    # comma ("Odoo Community Association (OCA), Tecnativa").
+    authors_raw = system.psql_scalar(
+        "SELECT string_agg(name || E'\\t' || coalesce(author, ''), E'\\n' ORDER BY name) "
+        "FROM ir_module_module WHERE state='installed'",
+        db, env.db_host, env.db_port, env.db_user,
+    )
+    authors: dict[str, str] = {}
+    for line in (authors_raw or "").splitlines():
+        name, _, author = line.partition("\t")
+        if name:
+            authors[name] = author
     return DbFacts(declared_source=env.source, base_version=base_version or None,
-                   installed_modules=modules)
+                   installed_modules=modules, module_authors=authors)
+
+
+# Spellings Odoo uses for itself in ``ir_module_module.author``. The test is
+# EQUALITY, never a substring: OCA modules are authored "Odoo Community
+# Association (OCA)", which contains "Odoo", and treating those as Odoo's own
+# would wave through exactly the modules whose absence breaks a migration.
+ODOO_AUTHORS: frozenset[str] = frozenset(
+    {"odoo s.a.", "odoo sa", "openerp s.a.", "openerp sa", "odoo"}
+)
+
+
+def is_odoo_authored(author: str | None) -> bool:
+    """True when a module is Odoo's own, so its disappearance is Odoo's churn
+    rather than something the operator must supply."""
+    return (author or "").strip().lower() in ODOO_AUTHORS
+
+
+_APRIORI_CACHE: dict[str, dict[str, str]] = {}
+
+
+def read_apriori(path: Path) -> dict[str, str]:
+    """``{old module: new module}`` from an OpenUpgrade ``apriori.py``, merging
+    ``renamed_modules`` and ``merged_modules``.
+
+    Parsed with ``ast``, never executed: the file is literal by construction and
+    there is no reason to run a checkout's code to read two dicts. A missing or
+    unreadable file yields an empty mapping — the caller reports that, so it does
+    not read as "nothing was renamed"."""
+    key = str(path)
+    if key in _APRIORI_CACHE:
+        return _APRIORI_CACHE[key]
+    mapping: dict[str, str] = {}
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        _APRIORI_CACHE[key] = mapping
+        return mapping
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        names = {t.id for t in node.targets if isinstance(t, ast.Name)}
+        if not names & {"renamed_modules", "merged_modules"}:
+            continue
+        try:
+            value = ast.literal_eval(node.value)
+        except ValueError:
+            continue
+        if isinstance(value, dict):
+            mapping.update(
+                {str(k): str(v) for k, v in value.items() if isinstance(v, str)}
+            )
+    _APRIORI_CACHE[key] = mapping
+    return mapping
+
+
+def apriori_path(env: MigrationEnv, version: str) -> Path:
+    """Where a step's OpenUpgrade checkout declares its module renames/merges."""
+    return env.openupgrade_clone_dir(version) / "openupgrade_scripts" / "apriori.py"
 
 
 def coverage_sources(env: MigrationEnv, version: str) -> list[Path]:
@@ -115,35 +203,55 @@ def coverage_sources(env: MigrationEnv, version: str) -> list[Path]:
 
 
 def gather_coverage(
-    env: MigrationEnv, modules: list[str], exists: Exists = Path.exists
-) -> tuple[dict[str, list[str]], set[str]]:
-    """Per **native** step: installed modules found in none of that step's addons
-    sources; plus the set of modules classified *custom* (resolved from the custom
-    dir, or found nowhere). Docker steps (12/13) are skipped — the official image
-    provides core, and their coverage is reported as not verifiable."""
-    missing: dict[str, list[str]] = {}
-    customs: set[str] = set()
+    env: MigrationEnv,
+    modules: list[str],
+    exists: Exists = Path.exists,
+    authors: dict[str, str] | None = None,
+) -> Coverage:
+    """Per **native** step, work out which installed modules that step cannot
+    resolve, and split them by who has to do something about it.
+
+    A module counts as covered when it resolves directly, or when the successor
+    OpenUpgrade declares for it (renamed or merged) resolves — a 12 → 19 chain is
+    full of core modules Odoo renamed, and asking the operator to supply those is
+    asking for the impossible. What is left is Odoo's own dropped code (a warning;
+    the upgrade removes it) or somebody else's (blocking; the step needs it).
+
+    Docker steps (12/13) are skipped — the official image provides core, and their
+    coverage is reported as not verifiable."""
+    coverage = Coverage()
+    authors = authors or {}
     for version in env.chain():
         if not env.is_native(version):
             continue
         sources = coverage_sources(env, version)
-        step_missing: list[str] = []
+        renames = read_apriori(apriori_path(env, version))
+        blocking: list[str] = []
+        warnings: list[str] = []
         for module in modules:
             found = next((src for src in sources if exists(src / module)), None)
             if found is None:
-                step_missing.append(module)
-                customs.add(module)
+                # One hop through what OpenUpgrade declares, then give up.
+                successor = renames.get(module)
+                if successor and any(exists(src / successor) for src in sources):
+                    continue
+                if is_odoo_authored(authors.get(module)):
+                    warnings.append(module)
+                else:
+                    blocking.append(module)
             elif found == sources[0]:
-                customs.add(module)
-        if step_missing:
-            missing[version] = step_missing
-    return missing, customs
+                coverage.customs.add(module)
+        if blocking:
+            coverage.blocking[version] = blocking
+        if warnings:
+            coverage.warnings[version] = warnings
+    return coverage
 
 
 def preflight_rows(
     host: HostFacts,
     db: DbFacts | None = None,
-    coverage: dict[str, list[str]] | None = None,
+    coverage: Coverage | None = None,
     customs: set[str] | None = None,
     custom_dir_for: Callable[[str], Path] | None = None,
 ) -> list[tuple[str, str, str]]:
@@ -206,11 +314,18 @@ def preflight_rows(
 
     rows.append(("OK", "Installed modules", f"{len(db.installed_modules)} installed"))
 
-    for version, missing_modules in sorted((coverage or {}).items()):
+    for version, missing_modules in sorted((coverage.blocking if coverage else {}).items()):
         target = str(custom_dir_for(version)) if custom_dir_for else f"addons/odoo{odoo_major(version)}/custom"
         listing = ", ".join(missing_modules[:8]) + ("…" if len(missing_modules) > 8 else "")
         rows.append(("MISSING", f"Coverage ({version})",
                      f"{listing} — place each module's {version} branch in {target}"))
+
+    # Odoo's own modules, dropped upstream: named, but never a reason to refuse —
+    # the upgrade uninstalls them and there is nothing for the operator to supply.
+    for version, dropped in sorted((coverage.warnings if coverage else {}).items()):
+        listing = ", ".join(dropped[:8]) + ("…" if len(dropped) > 8 else "")
+        rows.append(("WARN", f"Dropped by Odoo ({version})",
+                     f"{listing} — not in {version} and not renamed; OpenUpgrade removes them"))
 
     for module in sorted(customs or ()):
         rows.append(("WARN", f"Custom module {module}",

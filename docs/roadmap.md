@@ -90,17 +90,21 @@ items are host-dependent.
   `--overrides` lift to `gevent==22.10.2`/`greenlet==2.0.2` (validated by real `uv pip install` on WSL).
 - **12/13 OpenUpgrade command shape** — the recipe now runs the ≤ 13 *fork's* own `odoo-bin` from the
   mounted clone with `openupgradelib` installed on the fly (verified on WSL against `odoo:13.0`: container
-  reaches OpenUpgrade code against the shared PostgreSQL). Remaining: semantic validation with a real
-  legacy database (a synthetic dump cannot migrate).
-- **Full 12 → 19 data migration** — run the checkpointing driver end to end on WSL. No longer blocked on a
-  client dump: build the source database with **Odoo 12's own demo data** (create a database from the
-  `odoo:12.0` image with demo data enabled, then dump it). That is a real Odoo 12 database rather than a
-  synthetic one, so it can actually migrate, and it makes the run reproducible for anyone. The same run
-  answers two open questions at once: whether the 12/13 steps can run natively on `uv`'s 3.8 floor instead
-  of the Docker fallback (their requirements buckets reach `>= '3.8'` but name no distribution, so the
-  matrix marks that ceiling `untested`), and whether each step's recommended interpreter holds against real
-  data. Docker Engine is installed *in the Linux host itself* by `provision apply` (`docker.io`) — no Docker
-  Desktop dependency; `odoo:12.0`/`odoo:13.0` tags verified still pullable (2026-07-18).
+  reaches OpenUpgrade code against the shared PostgreSQL). **Semantic validation done** (2026-09-17): the
+  step migrated a real Odoo 12 demo database to 13.0 and checkpointed, as part of the full 12 → 19 run.
+- ~~Full 12 → 19 data migration~~ — **done** (2026-09-17). The source database was built with **Odoo 12's own
+  demo data** (a `odoo:12.0` container creating `demo12` against the host PostgreSQL, then `pg_dump -Fc`),
+  which is a real Odoo database rather than a synthetic dump and makes the run reproducible for anyone. The
+  chain completed on WSL Ubuntu 24.04: eight checkpoints, `[done]`, working database at `base 19.0.1.3` with
+  its data intact, `html_editor` installed in place of `web_editor` and the modules Odoo dropped gone. It
+  exposed two blocking defects, both fixed in `fix-preflight-coverage-classification`: coverage treating
+  Odoo's own renamed/dropped modules as the operator's, and Odoo ≤ 16 needing `setuptools<81` for
+  `pkg_resources`. Docker Engine (`docker.io`) is installed in the Linux host itself by `provision apply` —
+  no Docker Desktop dependency — and the 12/13 fallback images were pulled by the same plan.
+- **Still open from that run**: whether the 12/13 steps could run natively on `uv`'s 3.8 floor instead of the
+  Docker fallback. The run used Docker for step 13 as designed and did not test the native path; their
+  requirements buckets reach `>= '3.8'` but name no distribution, so the support matrix still marks that
+  ceiling `untested`.
 - **Confirm the Ubuntu 22.04 column of the support matrix** — its system Python (3.10) and PostgreSQL (14)
   are read from `packages.ubuntu.com`, not from a running jammy host. Needs a 22.04 host or container, which
   the CI item above would also provide.

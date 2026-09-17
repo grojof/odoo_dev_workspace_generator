@@ -37,6 +37,21 @@ All notable changes to this project are documented here. The format is based on
   dropped rather than left implied.
 
 ### Fixed
+- **A real 12 → 19 migration could not run at all** (change `fix-preflight-coverage-classification`), which
+  the first end-to-end run against an Odoo 12 database built from Odoo's own demo data exposed:
+  - The per-step addons coverage check treated every installed module as the operator's code, so core
+    modules Odoo renamed (`web_editor` → `html_editor`), merged (`web_kanban_gauge` → `web`) or deleted
+    (`web_settings_dashboard`, `web_diagram`) each aborted the driver with "place it in
+    `addons/odoo<major>/custom`". They are `auto_install` dependencies of `base`, so every Odoo 12 database
+    hit it. Coverage now resolves the renames and merges OpenUpgrade declares in its own `apriori.py`, and
+    classifies what is left by author: Odoo's own dropped code warns, anyone else's blocks. The driver
+    refuses only on the blocking class.
+  - Steps running Odoo ≤ 16 died at import with `ModuleNotFoundError: No module named 'pkg_resources'`.
+    Nothing declares `setuptools`, so it arrived transitively and its version followed the step's
+    interpreter — the 3.8 steps resolved 75.x and worked, the 3.10 steps resolved 84.x and failed.
+    Those venvs now pin `setuptools<81`.
+  - Accepted on WSL Ubuntu 24.04: 12 → 19 completed with eight checkpoints and the database at
+    `base 19.0.1.3`, data intact, `html_editor` installed and the dropped modules gone.
 - Odoo 19's PostgreSQL floor was carried as 12; it is 13 ("Changed in version 19: Minimum requirement
   updated from PostgreSQL 12 to PostgreSQL 13").
 - The Odoo 15/16 Python floor (3.7) was an uncited assumption and is now anchored to both the documentation

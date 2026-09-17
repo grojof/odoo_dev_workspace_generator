@@ -321,6 +321,21 @@ def plan_migration_clones(env: MigrationEnv, exists: Exists = _never) -> list[Co
     return commands
 
 
+# Odoo <= 16 imports ``pkg_resources`` at startup (odoo/modules/module.py), which
+# setuptools removed in 81. Which setuptools a venv ends up with is decided by
+# transitive resolution and therefore by the interpreter: a Python 3.8 step
+# resolves 75.x and works by luck, while a 3.10 step resolves 84.x and the step
+# dies with ModuleNotFoundError before OpenUpgrade runs. Pin it where it matters
+# — setuptools itself recommends "pin to Setuptools<81" for pkg_resources users.
+PKG_RESOURCES_LAST_MAJOR = 16
+SETUPTOOLS_PIN = "setuptools<81"
+
+
+def _setuptools_pin(version: str) -> str:
+    """The extra install argument a step needs, or an empty string."""
+    return f" '{SETUPTOOLS_PIN}'" if odoo_major(version) <= PKG_RESOURCES_LAST_MAJOR else ""
+
+
 def plan_migration_venvs(env: MigrationEnv, exists: Exists = _never) -> list[Command]:
     """For each natively-run version: write the overrides file, build a uv venv with
     the matched interpreter, and install requirements (with ``--overrides`` repairs)
@@ -362,7 +377,8 @@ def plan_migration_venvs(env: MigrationEnv, exists: Exists = _never) -> list[Com
             ),
             Command(
                 tf("Install psycopg2-binary and openupgradelib for Odoo {}", version),
-                f"uv pip install --python {shlex.quote(str(venv))} psycopg2-binary openupgradelib",
+                f"uv pip install --python {shlex.quote(str(venv))} psycopg2-binary "
+                f"openupgradelib{_setuptools_pin(version)}",
             ),
             Command(
                 tf("Mark Odoo {} venv as ready", version),

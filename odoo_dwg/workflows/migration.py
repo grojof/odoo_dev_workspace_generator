@@ -140,10 +140,13 @@ def _preflight_check() -> None:
 
     host = preflight.gather_host_facts(env, dump or None)
     db_facts = preflight.gather_db_facts(env, db) if db else None
-    coverage: dict[str, list[str]] | None = None
+    coverage: preflight.Coverage | None = None
     customs: set[str] | None = None
     if db_facts is not None and db_facts.installed_modules:
-        coverage, customs = preflight.gather_coverage(env, db_facts.installed_modules)
+        coverage = preflight.gather_coverage(
+            env, db_facts.installed_modules, authors=db_facts.module_authors
+        )
+        customs = coverage.customs
 
     rows = preflight.preflight_rows(
         host, db_facts, coverage, customs, custom_dir_for=env.addons_custom_dir

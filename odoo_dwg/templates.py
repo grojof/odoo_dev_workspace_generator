@@ -428,17 +428,92 @@ def _render_preflight_host(env: MigrationEnv) -> str:
     return "\n".join(lines)
 
 
+def _render_coverage_helper() -> str:
+    """The bash+python helper the driver uses to judge one step's coverage.
+
+    It applies the same rule as ``preflight.gather_coverage``: resolve what
+    OpenUpgrade declares renamed or merged before calling anything missing, then
+    split what is left by author — Odoo's own dropped code is a warning the
+    upgrade handles, anybody else's is the operator's to supply. It reads
+    ``apriori.py`` with ``ast`` at run time (never executing it), which is why
+    nothing here needs the checkout at render time.
+
+    Exits non-zero only when the blocking class is non-empty.
+    """
+    return "\n".join(
+        [
+            "coverage_step() {",
+            '  local version="$1" apriori="$2" customdir="$3"; shift 3',
+            "  python3 - \"$version\" \"$apriori\" \"$customdir\" \"$@\" <<'PYCOV'",
+            "import ast, os, sys",
+            "version, apriori, customdir, *sources = sys.argv[1:]",
+            '# Exact spellings only: OCA authors contain "Odoo" and must not pass.',
+            'ODOO_AUTHORS = {"odoo s.a.", "odoo sa", "openerp s.a.", "openerp sa", "odoo"}',
+            "renames = {}",
+            "try:",
+            '    tree = ast.parse(open(apriori, encoding="utf-8").read())',
+            "except (OSError, SyntaxError):",
+            '    print("[coverage] %s: no readable apriori.py — renames unknown" % version,',
+            "          file=sys.stderr)",
+            "    tree = None",
+            "if tree is not None:",
+            "    for node in tree.body:",
+            "        if not isinstance(node, ast.Assign):",
+            "            continue",
+            "        names = {t.id for t in node.targets if isinstance(t, ast.Name)}",
+            '        if not names & {"renamed_modules", "merged_modules"}:',
+            "            continue",
+            "        try:",
+            "            value = ast.literal_eval(node.value)",
+            "        except ValueError:",
+            "            continue",
+            "        if isinstance(value, dict):",
+            "            renames.update({str(k): str(v) for k, v in value.items()",
+            "                            if isinstance(v, str)})",
+            "def resolves(name):",
+            "    return any(os.path.isdir(os.path.join(src, name)) for src in sources)",
+            "blocking, dropped = [], []",
+            "for line in sys.stdin.read().splitlines():",
+            '    name, _, author = line.strip().partition("\\t")',
+            "    if not name or resolves(name):",
+            "        continue",
+            "    successor = renames.get(name)",
+            "    if successor and resolves(successor):",
+            "        continue",
+            "    if author.strip().lower() in ODOO_AUTHORS:",
+            "        dropped.append(name)",
+            "    else:",
+            "        blocking.append(name)",
+            "for name in dropped:",
+            '    print("[coverage] %s is not in %s and is not renamed — Odoo dropped it; '
+            'OpenUpgrade removes it" % (name, version), file=sys.stderr)',
+            "for name in blocking:",
+            '    print("[coverage] %s missing for %s — place it in %s" % (name, version, customdir),',
+            "          file=sys.stderr)",
+            "sys.exit(1 if blocking else 0)",
+            "PYCOV",
+            "}",
+        ]
+    )
+
+
 def _render_preflight_db(env: MigrationEnv) -> str:
     """Bash database-scope preflight, run right after the fresh 00_source restore
     (a resumed database is mid-chain, so the version check only holds there):
-    declared-source match from ir_module_module, then per-step addons coverage."""
+    declared-source match from ir_module_module, then per-step addons coverage.
+
+    Coverage asks for each module's author as well as its name, because that is
+    what separates a core module Odoo dropped (the upgrade removes it) from code
+    the step genuinely needs."""
     source_major = odoo_major(env.source)
     lines = [
+        _render_coverage_helper(),
+        "",
         "preflight_db() {",
-        '  local base_ver missing=0',
+        "  local base_ver blocking=0",
         '  base_ver=$(psql -d "$DB" -tAc "SELECT latest_version FROM ir_module_module WHERE name=\'base\'")',
         f'  case "$base_ver" in {source_major}.*) ;; *) fail "database base version \'$base_ver\' does not match declared source {env.source}";; esac',
-        '  modules=$(psql -d "$DB" -tAc "SELECT name FROM ir_module_module WHERE state=\'installed\'")',
+        '  modules_tsv=$(psql -d "$DB" -tAc "SELECT name || E\'\\t\' || coalesce(author, \'\') FROM ir_module_module WHERE state=\'installed\' ORDER BY name")',
     ]
     for version in env.chain():
         if not env.is_native(version):
@@ -456,18 +531,14 @@ def _render_preflight_db(env: MigrationEnv) -> str:
                 env.odoo_clone_dir(version) / "odoo" / "addons",
             )
         )
+        apriori = env.openupgrade_clone_dir(version) / "openupgrade_scripts" / "apriori.py"
         lines += [
             f"  # coverage: step {version}",
-            '  for m in $modules; do',
-            "    found=0",
-            f"    for src in {sources}; do",
-            '      [ -d "$src/$m" ] && found=1 && break',
-            "    done",
-            f'    [ "$found" = 1 ] || {{ echo "[coverage] $m missing for {version} — place it in {env.addons_custom_dir(version)}" >&2; missing=1; }}',
-            "  done",
+            f'  echo "$modules_tsv" | coverage_step "{version}" "{apriori}" '
+            f'"{env.addons_custom_dir(version)}" {sources} || blocking=1',
         ]
     lines += [
-        '  [ "$missing" = 0 ] || fail "addons coverage incomplete (see [coverage] lines above)"',
+        '  [ "$blocking" = 0 ] || fail "addons coverage incomplete (see [coverage] lines above)"',
         '  echo "[preflight] database checks passed"',
         "}",
     ]
