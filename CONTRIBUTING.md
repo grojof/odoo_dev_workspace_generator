@@ -32,7 +32,11 @@ an Odoo branch may have changed what it supports, or before trusting a bound in 
 python tools/verify_support_matrix.py            # re-derive every bound from its official source
 python tools/verify_support_matrix.py 18.0 19.0  # only these versions
 python tools/verify_odools_config.py             # the editor config vs the latest OdooLS release
+python tools/verify_workspace_versions.py        # build every version's venv, start Odoo on each (host)
 ```
+
+The last one changes the host: it previews a plan, asks before applying, and removes what it created. See
+[`docs/workspace-layout.md`](docs/workspace-layout.md#re-verifying-every-version) for when to run it.
 
 It exits non-zero on drift and never edits the declared matrix: fixing drift means editing
 `odoo_dwg/models.py` and `docs/support-matrix.md` together. The editor check has its own procedure for

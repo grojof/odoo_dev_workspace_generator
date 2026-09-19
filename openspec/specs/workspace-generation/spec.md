@@ -5,6 +5,7 @@
 Creates a workspace on disk from its profile: a shared read-only clone cache, the per-client tree, one virtual environment per Odoo version built with an interpreter that version supports, the per-version config and editor files, and a README that documents the result. Create-only and previewed, so it never clobbers work already there.
 
 ## Requirements
+
 ### Requirement: Shared read-only repo cache
 
 The system SHALL maintain a shared repository cache under `<base>/.repos`, cloning each configured Odoo
@@ -64,9 +65,11 @@ dependencies from the cloned repo's `requirements.txt`. The venv creation and in
 part of an applied plan, never during file generation.
 
 The interpreter each venv is built with SHALL be resolved against the support matrix before the plan is
-assembled. When the host `python3` is inside that version's declared Python range it SHALL be the default.
-When it is outside the range, the flow SHALL state the range, the detected host version and the evidence tier
-of the bound being crossed, and offer to build that venv with a matching `uv`-provisioned interpreter
+assembled. When the host `python3` is inside that version's declared Python range it SHALL be the default,
+except that when the version states no Python maximum the host SHALL be the default only if it is no newer
+than the matrix's recommended interpreter. When the host is not the default, the flow SHALL state why — the
+range, the detected host version and the evidence tier of the bound being crossed, or that no maximum is
+stated and the host is unproven — and offer to build that venv with a matching `uv`-provisioned interpreter
 instead; the operator may also keep the host interpreter, and the resolved interpreter SHALL be visible in
 the preview for every instance.
 
@@ -88,6 +91,13 @@ the preview for every instance.
   — for example an Odoo 14 instance on a host whose `python3` is 3.12
 - **THEN** the flow reports the version's range, the detected host version and the bound's evidence tier, and
   offers to build that instance's venv with a matching `uv`-provisioned interpreter
+
+#### Scenario: An unstated maximum does not make a newer host the default
+
+- **WHEN** a workspace is generated for Odoo 12 or 13, which state no Python maximum, on a host whose
+  `python3` is 3.12
+- **THEN** the default is the recommended `uv` interpreter (3.8), the flow says the host is unproven for that
+  version rather than out of range, and the operator may still keep the host
 
 #### Scenario: The generated helper script rebuilds with the same interpreter
 
@@ -210,3 +220,33 @@ SHALL be documented.
 
 - **WHEN** the latest stable release is newer than the one the configuration was last reviewed against
 - **THEN** the check prints the changelog entries in between, so the reviewer reads what changed
+
+### Requirement: Workspace venvs install the build tooling their Odoo version needs
+
+Each per-instance venv SHALL install a `setuptools` release its Odoo version can run and build with:
+`setuptools<58` for Odoo 13 and earlier (whose `vatnumber==1.2` still uses `use_2to3`), `setuptools<81` for
+Odoo 14 to 16 (which import `pkg_resources` at startup), and an unpinned `setuptools` from Odoo 17. Where a
+branch pins a deprecated project that no longer builds, the venv SHALL install its declared successor instead:
+for Odoo 12, `python-ldap==3.1.0` in place of `pyldap`. The generated venv-setup script SHALL apply the same
+requirements as the generation plan.
+
+#### Scenario: A pkg_resources-era workspace starts
+
+- **WHEN** a workspace with `15.0` is generated on a host whose `python3` is 3.12
+- **THEN** its venv installs `setuptools<81`, and `odoo-bin` starts without `ModuleNotFoundError: pkg_resources`
+
+#### Scenario: A use_2to3-era workspace builds
+
+- **WHEN** a workspace with `13.0` is generated
+- **THEN** its venv installs `setuptools<58` before the requirements, and `vatnumber` builds
+
+#### Scenario: Odoo 12 replaces the deprecated pyldap
+
+- **WHEN** a workspace with `12.0` is generated
+- **THEN** its venv installs the branch's requirements without `pyldap` plus `python-ldap==3.1.0`, in the plan
+  and in the generated venv-setup script alike, and the shared clone is not modified
+
+#### Scenario: Current versions are not pinned
+
+- **WHEN** a workspace with `18.0` is generated
+- **THEN** its venv installs an unpinned `setuptools`

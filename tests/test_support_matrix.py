@@ -176,6 +176,20 @@ def test_host_above_the_maximum_falls_back_to_the_recommendation():
     assert not choice.out_of_range
 
 
+def test_an_unstated_maximum_does_not_make_a_newer_host_the_default():
+    # Odoo 12/13 declare no ceiling, but their gevent does not build on 3.12:
+    # the recommendation is the default, and the host still counts as in range.
+    for version in ("12.0", "13.0"):
+        choice = resolve_interpreter(version, host_python="3.12")
+        assert (choice.python, choice.source) == ("3.8", UV_PYTHON)
+        assert not choice.out_of_range
+    # A host at or below the recommendation is still used as-is.
+    assert resolve_interpreter("13.0", host_python="3.8").source == HOST_PYTHON
+    # And the operator can still choose the host explicitly.
+    pinned = resolve_interpreter("13.0", host_python="3.12", operator_choice="3.12")
+    assert (pinned.python, pinned.source) == ("3.12", HOST_PYTHON)
+
+
 def test_host_below_the_minimum_falls_back_to_the_recommendation():
     # A host interpreter below Odoo 19's 3.10 floor falls back to the recommendation.
     choice = resolve_interpreter("19.0", host_python="3.9")
