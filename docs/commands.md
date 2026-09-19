@@ -40,9 +40,10 @@ Every menu shows a numbered list; `0` (or `Back`/`Cancel`) always returns withou
 |---|---|---|
 | Create a workspace → New (quick) | Interactive minimal profile, then full generation plan | Create-only: refuses to clobber an existing workspace |
 | Create a workspace → From a profile file | Same, loading a JSON profile (see [configuration-reference](configuration-reference.md)) | idem |
+| Manage → Refresh generated files | Rewrites the generated configs, scripts, `.vscode/*`, `odools.toml`, README and profile from `workspace.json`. Only files that change are written, and each changed file is first kept as `<file>.bak`. Each venv's interpreter is read from its `pyvenv.cfg`. Addons, venvs, clones and databases are never touched. | Preview + confirm |
 | Manage → Regenerate a venv | Removes and rebuilds one instance venv | Phrase `REBUILD` |
 | Manage → Refresh shared repos | `git pull --ff-only` on present clones in the shared cache | Preview + confirm |
-| Manage → Add a version | Extends an existing workspace with a new Odoo version | Preview + confirm |
+| Manage → Add a version | Extends an existing workspace with a new Odoo version. It writes files like **Refresh generated files**, and the other versions keep their interpreters. | Preview + confirm |
 
 ### System provisioning (optional; the Ubuntu releases in the [support matrix](support-matrix.md))
 

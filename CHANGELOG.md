@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- **Manage → Refresh generated files** (change `refresh-generated-files`) brings an existing workspace's
+  generated files up to date with the tool.
+  - It writes only the files whose content changed, and keeps each previous version as `<file>.bak`.
+  - It reads each venv's interpreter from its `pyvenv.cfg`.
+  - It never touches addons, venvs, clones or databases.
+- The Spanish UI is complete, and a test now fails if an operator-facing string has no Spanish entry.
+
+### Fixed
+- **Add a version** rewrote every generated file without the interpreters, so `setup_venv.sh` and the README
+  of a workspace with a `uv` venv claimed the host `python3`. It also overwrote hand edits. It now keeps each
+  venv's interpreter and backs up what it changes.
+- Generated files carried an extra blank line at the end. They now hold exactly the rendered content.
+
 ## [0.1.0] - 2026-09-19
 
 First release.

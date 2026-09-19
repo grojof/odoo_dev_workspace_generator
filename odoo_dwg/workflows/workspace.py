@@ -12,7 +12,13 @@ from pathlib import Path
 
 from .. import planners
 from ..i18n import t, tf
-from ..models import InterpreterChoice, WorkspaceConfig, odoo_major
+from ..models import (
+    InterpreterChoice,
+    WorkspaceConfig,
+    interpreter_from_pyvenv,
+    odoo_major,
+    resolve_interpreter,
+)
 from ..prompts import (
     ask_bool,
     ask_text,
@@ -138,6 +144,40 @@ def _load_existing(name: str) -> WorkspaceConfig | None:
     return WorkspaceConfig.load(marker)
 
 
+def _read(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+
+
+def _existing_interpreters(cfg: WorkspaceConfig) -> dict[str, InterpreterChoice]:
+    """The interpreter each present venv was built with (from its ``pyvenv.cfg``),
+    so regenerated files describe and rebuild what is really there. A version
+    without a venv gets the default the tool would pick for this host."""
+    host_python = detect_python_version()
+    resolved: dict[str, InterpreterChoice] = {}
+    for version in cfg.versions:
+        pyvenv = _read(cfg.venv_dir(version) / "pyvenv.cfg")
+        choice = interpreter_from_pyvenv(version, pyvenv) if pyvenv else None
+        resolved[version] = choice or resolve_interpreter(version, host_python=host_python)
+    return resolved
+
+
+def _refresh_files(cfg: WorkspaceConfig) -> None:
+    commands = planners.plan_refresh_files(cfg, _existing_interpreters(cfg), _read)
+    if not commands:
+        print(level_text("OK", t("Every generated file is already up to date.")))
+        return
+    print(
+        level_text(
+            "INFO",
+            t("Only files that change are written; each existing one is kept as <file>.bak first."),
+        )
+    )
+    _apply_if_confirmed(commands)
+
+
 def _regenerate_venv(cfg: WorkspaceConfig) -> None:
     version = choose("Which version", list(cfg.versions) + ["Cancel"], default_index=None)
     if version in ("", "Cancel"):
@@ -177,13 +217,19 @@ def _add_version(cfg: WorkspaceConfig) -> None:
     except ValueError as error:
         print(level_text("ERROR", str(error)))
         return
-    # Clone if needed, regenerate the tree (new conf/scripts + updated profile),
-    # and build the new version's venv if absent.
-    commands = planners.plan_repo_cache(cfg, exists=_exists) + planners.plan_workspace_tree(cfg)
+    # Clone if needed, link and refresh the generated files (new conf/scripts,
+    # updated profile; hand-edited files kept as .bak), and build the new
+    # version's venv if absent — every other version keeps the interpreter its
+    # venv was really built with.
+    interpreters = _existing_interpreters(cfg)
     if not cfg.venv_dir(version).exists():
-        interpreters = _resolve_interpreters([version])
-        if interpreters is None:
+        chosen = _resolve_interpreters([version])
+        if chosen is None:
             return
+        interpreters.update(chosen)
+    commands = planners.plan_repo_cache(cfg, exists=_exists) + planners.plan_workspace_links(cfg)
+    commands += planners.plan_refresh_files(cfg, interpreters, _read)
+    if not cfg.venv_dir(version).exists():
         commands += planners.plan_build_venv(cfg, version, interpreter=interpreters[version])
     _apply_if_confirmed(commands)
 
@@ -203,12 +249,20 @@ def _manage_workspace() -> None:
     while True:
         action = choose(
             tf("Manage {}", cfg.name),
-            ["Regenerate a venv", "Refresh shared repos", "Add a version", "Back"],
+            [
+                "Refresh generated files",
+                "Regenerate a venv",
+                "Refresh shared repos",
+                "Add a version",
+                "Back",
+            ],
             default_index=None,
         )
         if action in ("", "Back"):
             return
-        if action == "Regenerate a venv":
+        if action == "Refresh generated files":
+            _refresh_files(cfg)
+        elif action == "Regenerate a venv":
             _regenerate_venv(cfg)
         elif action == "Refresh shared repos":
             _refresh_repos(cfg)

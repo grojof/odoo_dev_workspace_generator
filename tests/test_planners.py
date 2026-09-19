@@ -38,7 +38,7 @@ def test_write_text_file_command_contains_hostile_content():
     # The heredoc ends only at its final line, so every content line is data.
     assert body_lines[-1] == delimiter
     assert delimiter not in body_lines[:-1]
-    assert "\n".join(body_lines[:-1]) == content
+    assert "\n".join(body_lines[:-1]) + "\n" == content  # exactly the content, no extra line
 
 
 def test_repo_cache_clones_each_version_and_oca():
@@ -236,3 +236,57 @@ def test_odoo_12_installs_python_ldap_instead_of_the_deprecated_pyldap():
     # Other versions install their requirements untouched.
     other = planners.plan_build_venv(_cfg(versions=["13.0"]), "13.0")[2].command
     assert "grep" not in other and other.endswith("/odoo-13.0/requirements.txt")
+
+
+# --- refreshing an existing workspace ---------------------------------------
+
+
+def _generated(cfg, interpreters=None) -> dict:
+    return {path: content for path, content, _mode in planners.generated_files(cfg, interpreters)}
+
+
+def test_tree_writes_exactly_the_generated_files():
+    cfg = _cfg(versions=["18.0"])
+    written = [c.command for c in planners.plan_workspace_tree(cfg) if c.command.startswith("cat > ")]
+    assert len(written) == len(planners.generated_files(cfg))
+
+
+def test_refresh_is_empty_when_everything_is_current():
+    cfg = _cfg(versions=["18.0"])
+    current = _generated(cfg)
+    assert planners.plan_refresh_files(cfg, None, current.get) == []
+
+
+def test_refresh_backs_up_and_rewrites_only_what_changed():
+    cfg = _cfg(versions=["18.0"])
+    current = _generated(cfg)
+    launch = cfg.vscode_dir / "launch.json"
+    current[launch] = '{"configurations": []}\n'  # an older generator's file
+    cmds = [c.command for c in planners.plan_refresh_files(cfg, None, current.get)]
+    assert cmds[0] == f"cp -p {launch} {launch}.bak"
+    assert cmds[1].startswith(f"cat > {launch} <<")
+    assert cmds[2].startswith("chmod 644 ")
+    assert len(cmds) == 3  # nothing else is touched
+
+
+def test_refresh_creates_a_missing_file_without_a_backup():
+    cfg = _cfg(versions=["18.0"])
+    current = _generated(cfg)
+    del current[cfg.odools_file]
+    cmds = [c.command for c in planners.plan_refresh_files(cfg, None, current.get)]
+    assert cmds[0] == f"mkdir -p {cfg.odools_file.parent}"
+    assert not any(c.startswith("cp -p") for c in cmds)
+
+
+def test_refresh_never_touches_addons_venvs_or_clones():
+    cfg = _cfg(versions=["18.0"], oca_repos=["web"])
+    cmds = planners.plan_refresh_files(cfg, None, lambda _path: None)
+    # Only these verbs run; file contents (which mention git, pip, rm) are data.
+    for c in cmds:
+        assert c.command.split()[0] in {"mkdir", "cp", "cat", "chmod"}
+
+
+def test_refresh_ignores_a_trailing_blank_line_from_older_writes():
+    cfg = _cfg(versions=["18.0"])
+    current = {path: text + "\n" for path, text in _generated(cfg).items()}
+    assert planners.plan_refresh_files(cfg, None, current.get) == []

@@ -269,3 +269,38 @@ def test_support_doc_states_the_tool_python_floor():
     for host in SUPPORTED_HOSTS:
         assert host.name in text
         assert host.codename in text
+
+
+# --- reading back an existing venv ------------------------------------------
+
+from odoo_dwg.models import interpreter_from_pyvenv  # noqa: E402
+
+UV_PYVENV = """home = /home/u/.local/share/uv/python/cpython-3.8-linux-x86_64-gnu/bin
+implementation = CPython
+uv = 0.12.15
+version_info = 3.8
+include-system-site-packages = false
+seed = true
+"""
+STDLIB_PYVENV = """home = /usr/bin
+include-system-site-packages = false
+version = 3.12.3
+executable = /usr/bin/python3.12
+"""
+
+
+def test_pyvenv_of_a_uv_venv():
+    choice = interpreter_from_pyvenv("14.0", UV_PYVENV)
+    assert (choice.python, choice.source) == ("3.8", UV_PYTHON)
+    assert not choice.out_of_range
+
+
+def test_pyvenv_of_a_stdlib_venv():
+    choice = interpreter_from_pyvenv("15.0", STDLIB_PYVENV)
+    assert (choice.python, choice.source) == ("3.12", HOST_PYTHON)
+    # Read back as it is, even when it is outside the range: it is what exists.
+    assert interpreter_from_pyvenv("14.0", STDLIB_PYVENV).out_of_range
+
+
+def test_unreadable_pyvenv():
+    assert interpreter_from_pyvenv("18.0", "home = /usr/bin\n") is None
