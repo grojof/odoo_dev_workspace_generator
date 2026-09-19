@@ -28,6 +28,8 @@ from .models import (
 from .system import Command
 
 Exists = Callable[[Path], bool]
+# Current text of a file, or None when it is absent (injected, like Exists).
+Read = Callable[[Path], str | None]
 
 
 def _never(_path: Path) -> bool:
@@ -53,8 +55,11 @@ def write_text_file_command(path: Path | str, content: str, mode: str = "644") -
     """Emit a file via a quoted heredoc plus a ``chmod`` — mirrors the sibling app."""
     target = str(path)
     end = heredoc_delimiter(content)
+    # The heredoc body ends with a newline of its own, so content that already
+    # ends in one must not get a second: the file then holds exactly ``content``.
+    body = content if content.endswith("\n") else f"{content}\n"
     return [
-        Command(tf("Write {}", target), f"cat > {shlex.quote(target)} <<'{end}'\n{content}\n{end}"),
+        Command(tf("Write {}", target), f"cat > {shlex.quote(target)} <<'{end}'\n{body}{end}"),
         Command(tf("Set mode {} on {}", mode, target), f"chmod {mode} {shlex.quote(target)}"),
     ]
 
@@ -111,6 +116,15 @@ def plan_workspace_tree(
     ``interpreters`` is passed through to the generated ``setup_venv.sh`` so the
     script rebuilds each venv with the interpreter the plan chose.
     """
+    commands = plan_workspace_links(cfg)
+    for path, content, mode in generated_files(cfg, interpreters):
+        commands += write_text_file_command(path, content, mode)
+    return commands
+
+
+def plan_workspace_links(cfg: WorkspaceConfig) -> list[Command]:
+    """The workspace directories and the per-version OCA symlinks. Idempotent
+    (``mkdir -p``, ``ln -sfn``), so it is safe on an existing workspace."""
     commands: list[Command] = [
         Command(
             tf("Create workspace directories for {}", cfg.name),
@@ -140,46 +154,80 @@ def plan_workspace_tree(
                     f"ln -sfn {shlex.quote(str(target))} {shlex.quote(str(link))}",
                 )
             )
+    return commands
 
+
+def generated_files(
+    cfg: WorkspaceConfig,
+    interpreters: dict[str, InterpreterChoice] | None = None,
+) -> list[tuple[Path, str, str]]:
+    """Every file the tool generates in a workspace, as ``(path, content, mode)``.
+
+    One list for creating a workspace and for refreshing an existing one, so the
+    two can never disagree about what a workspace contains."""
+    files: list[tuple[Path, str, str]] = []
     # Per-version odoo.conf and run scripts.
     for version in cfg.versions:
         major = odoo_major(version)
-        commands += write_text_file_command(
-            cfg.config_file(version), templates.render_odoo_conf(cfg, version), "644"
+        files.append((cfg.config_file(version), templates.render_odoo_conf(cfg, version), "644"))
+        files.append(
+            (cfg.scripts_dir / f"run-odoo{major}.sh", templates.render_run_sh(cfg, version), "755")
         )
-        commands += write_text_file_command(
-            cfg.scripts_dir / f"run-odoo{major}.sh",
-            templates.render_run_sh(cfg, version),
-            "755",
-        )
-
     # Workspace-wide scripts and editor files.
-    commands += write_text_file_command(
-        cfg.scripts_dir / "setup_venv.sh",
-        templates.render_setup_venv_sh(cfg, interpreters),
-        "755",
-    )
-    commands += write_text_file_command(
-        cfg.vscode_dir / "settings.json", templates.render_vscode_settings(cfg)
-    )
-    commands += write_text_file_command(
-        cfg.vscode_dir / "extensions.json", templates.render_vscode_extensions()
-    )
-    commands += write_text_file_command(
-        cfg.vscode_dir / "tasks.json", templates.render_vscode_tasks(cfg)
-    )
-    commands += write_text_file_command(
-        cfg.vscode_dir / "launch.json", templates.render_vscode_launch(cfg)
-    )
-    commands += write_text_file_command(
-        cfg.code_workspace_file, templates.render_code_workspace(cfg)
-    )
+    files += [
+        (cfg.scripts_dir / "setup_venv.sh", templates.render_setup_venv_sh(cfg, interpreters), "755"),
+        (cfg.vscode_dir / "settings.json", templates.render_vscode_settings(cfg), "644"),
+        (cfg.vscode_dir / "extensions.json", templates.render_vscode_extensions(), "644"),
+        (cfg.vscode_dir / "tasks.json", templates.render_vscode_tasks(cfg), "644"),
+        (cfg.vscode_dir / "launch.json", templates.render_vscode_launch(cfg), "644"),
+        (cfg.code_workspace_file, templates.render_code_workspace(cfg), "644"),
+    ]
     # Only when the language server can open at least one version (it refuses < 14).
     if templates.odools_versions(cfg):
-        commands += write_text_file_command(cfg.odools_file, templates.render_odools_toml(cfg))
-    commands += write_text_file_command(cfg.readme_file, templates.render_workspace_readme(cfg, interpreters))
-    # Save the profile marker so the workspace can be re-loaded for management.
-    commands += write_text_file_command(cfg.profile_file, cfg.to_json())
+        files.append((cfg.odools_file, templates.render_odools_toml(cfg), "644"))
+    files.append((cfg.readme_file, templates.render_workspace_readme(cfg, interpreters), "644"))
+    # The profile marker, so the workspace can be re-loaded for management.
+    files.append((cfg.profile_file, cfg.to_json(), "644"))
+    return files
+
+
+
+def plan_refresh_files(
+    cfg: WorkspaceConfig,
+    interpreters: dict[str, InterpreterChoice] | None,
+    read: Read,
+) -> list[Command]:
+    """Bring an existing workspace's generated files up to date with the tool.
+
+    Only files whose content would change are written. A file that exists and
+    changes is first copied to ``<file>.bak``, since it may carry hand edits (a
+    tuned ``odoo.conf``, an extra launch configuration). ``read`` returns a file's
+    current text, or None when it is absent; the workflow passes a real reader.
+    Nothing outside the generated files is touched: addons, venvs, clones and
+    databases are left as they are."""
+    commands: list[Command] = []
+    for path, content, mode in generated_files(cfg, interpreters):
+        current = read(path)
+        # Files written before the heredoc stopped adding a trailing blank line
+        # differ only in that; they are current, not worth a backup.
+        if current is not None and current.rstrip("\n") == content.rstrip("\n"):
+            continue
+        if current is not None:
+            backup = Path(f"{path}.bak")
+            commands.append(
+                Command(
+                    tf("Back up {} to {}", str(path), backup.name),
+                    f"cp -p {shlex.quote(str(path))} {shlex.quote(str(backup))}",
+                )
+            )
+        else:
+            commands.append(
+                Command(
+                    tf("Create directory for {}", str(path)),
+                    f"mkdir -p {shlex.quote(str(path.parent))}",
+                )
+            )
+        commands += write_text_file_command(path, content, mode)
     return commands
 
 

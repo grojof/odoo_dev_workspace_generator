@@ -98,6 +98,14 @@ A venv built before this rule (Odoo ≤ 16 on Python 3.12 got setuptools 81+) fa
 `ModuleNotFoundError: No module named 'pkg_resources'`; fix it with
 `.venv/odoo<major>/bin/pip install 'setuptools<81'`, or rebuild the venv.
 
+### Updating an existing workspace
+
+When the tool generates better files than it did when a workspace was created (new debug configurations, a
+fuller README), run **Manage → Refresh generated files**. It rewrites only the generated files whose content
+changed, keeping each previous version as `<file>.bak`, so hand edits are never lost; copy back what you still
+want. Each venv's interpreter is read from its `pyvenv.cfg`, so a version built on `uv` stays on `uv`. Addons,
+venvs, clones and databases are not touched. A later refresh replaces the previous `.bak`.
+
 ### Re-verifying every version
 
 Unit tests prove the plan; only a real host proves that each venv builds and Odoo starts. The pins above were

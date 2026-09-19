@@ -472,6 +472,31 @@ def resolve_interpreter(
     )
 
 
+def interpreter_from_pyvenv(version: str, pyvenv_cfg: str) -> InterpreterChoice | None:
+    """The interpreter an existing venv was built with, read from its
+    ``pyvenv.cfg``: ``uv`` writes a ``uv = <version>`` key and ``version_info``,
+    the stdlib ``venv`` writes ``version``. ``None`` when it cannot be told."""
+    keys: dict[str, str] = {}
+    for line in pyvenv_cfg.splitlines():
+        key, sep, value = line.partition("=")
+        if sep:
+            keys[key.strip()] = value.strip()
+    match = re.match(r"(\d+\.\d+)", keys.get("version_info") or keys.get("version", ""))
+    if not match:
+        return None
+    python = match.group(1)
+    source = UV_PYTHON if "uv" in keys else HOST_PYTHON
+    support = version_support(version)
+    in_range = support.python_in_range(python)
+    return InterpreterChoice(
+        support.version,
+        python,
+        source,
+        out_of_range=not in_range,
+        crossed=None if in_range else _crossed_bound(support, python),
+    )
+
+
 def _host_is_a_safe_default(support: VersionSupport, host_python: str) -> bool:
     """In range, and — when no maximum is stated — no newer than the recommendation."""
     if not support.python_in_range(host_python):
