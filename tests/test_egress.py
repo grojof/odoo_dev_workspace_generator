@@ -251,17 +251,22 @@ def test_loopback_trust_covers_only_the_development_role():
     hba = next(c.command for c in planners.plan_postgresql("odoo") if "PGHBA=" in c.command)
     assert "host    all             odoo" in hba and "trust" in hba
     # Any blanket trust this tool wrote before is put back to a password method.
-    # Every spelling of loopback pg_hba accepts, not only the CIDR one.
-    assert r"s#^(host\s+all\s+all\s+(127\.0\.0\.1/32|::1/128|localhost|samehost|samenet)" in hba
+    # Every shape pg_hba accepts for "every role over loopback": indented,
+    # hostnossl, CIDR or address+netmask, and the named forms.
+    for shape in ("[[:space:]]*host(nossl)?", "255\\.255\\.255\\.255", "localhost|samehost|samenet"):
+        assert shape in hba, shape
     assert r"trust#\1scram-sha-256#" in hba
+    # The role's line is inserted before any such rule, never after one that
+    # would match the same connection first.
+    assert planners.ANY_LOOPBACK_RULE in hba and planners.ANY_HOST_RULE in hba
     # And the role line is added only when it is not already there.
     assert "if ! grep -qE " in hba
     # Whatever the file looks like, the step either ends with the role's trust line
     # in place or fails: a silent no-op would leave the role unable to connect.
     assert hba.rstrip().endswith('exit 1; }')
     assert "could not add the loopback trust line" in hba
-    # Three insertion points: the usual anchor, any host rule, or the end of file.
-    assert hba.count("sed -ri \"0,/^host") == 2
+    # Three insertion points: any loopback rule, any host rule, or the end of file.
+    assert hba.count('sed -ri "0,/^[[:space:]]*host') == 2
     assert 'printf "%s\\n%s\\n"' in hba
 
 

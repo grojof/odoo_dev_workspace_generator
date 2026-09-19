@@ -599,6 +599,29 @@ def render_migration_conf(env: MigrationEnv, version: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _render_step_preconditions(env: MigrationEnv, version: str) -> str:
+    """The step's own code must be on disk before it claims to migrate anything.
+
+    Odoo neither fails nor says anything when ``--upgrade-path`` points at a
+    directory that is not there: it simply finds no scripts, and the step would
+    be checkpointed as migrated. A clone interrupted mid-way is enough, since
+    generation skips a checkout directory that merely exists."""
+    if env.uses_legacy_layout(version):
+        # The fork *is* Odoo here, so a missing checkout already fails loudly on
+        # its own addons_path; its scripts live inside each add-on.
+        needed = [(env.openupgrade_clone_dir(version) / "addons", "the OpenUpgrade fork's add-ons")]
+    else:
+        needed = [
+            (env.upgrade_scripts_dir(version), "the OpenUpgrade scripts"),
+            (env.openupgrade_clone_dir(version) / "openupgrade_framework", "openupgrade_framework"),
+        ]
+    return "".join(
+        f'  [ -d {shlex.quote(str(path))} ] || '
+        f'die "{version}: {what} not found at {path} — regenerate the environment"\n'
+        for path, what in needed
+    )
+
+
 def _native_step_command(env: MigrationEnv, version: str) -> str:
     """The command that upgrades the working database to one version.
 
@@ -872,7 +895,8 @@ if have_ck "{version}"; then
   echo "[skip] {version} already migrated"
 else
   echo "[step] upgrading to {version} ({layout})"
-  {_native_step_command(env, version)}
+{_render_step_preconditions(env, version)}  {_native_step_command(env, version)} \\
+    || die "step {version} failed — see {env.logs_dir}/{version}.log"
   checkpoint "{version}"
 fi"""
         )

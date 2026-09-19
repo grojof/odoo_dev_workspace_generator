@@ -63,17 +63,39 @@ host    all             odoo             ::1/128                 trust
 host    all             all             127.0.0.1/32            scram-sha-256
 """
 
+# pg_hba skips leading blanks, accepts hostnossl, and takes `address netmask`
+# as well as CIDR. Each of these is a live blanket trust.
+INDENTED = """\
+local   all             postgres                                peer
+  host    all             all             127.0.0.1/32            trust
+"""
+
+LEGACY_NETMASK = """\
+local   all             postgres                                peer
+host all all 127.0.0.1 255.255.255.255 trust
+"""
+
+HOSTNOSSL = """\
+local   all             postgres                                peer
+hostnossl all all 127.0.0.1/32 trust
+"""
+
 CASES = [
     ("the Ubuntu default", UBUNTU_DEFAULT),
     ("a blanket loopback trust (CIDR)", BLANKET_CIDR),
     ("a blanket loopback trust (localhost/samehost)", BLANKET_NAMED),
     ("a file with no host rules at all", NO_HOST_RULES),
     ("a file this tool already narrowed", ALREADY_NARROW),
+    ("an indented blanket trust", INDENTED),
+    ("a blanket trust in address/netmask form", LEGACY_NETMASK),
+    ("a hostnossl blanket trust", HOSTNOSSL),
 ]
 
 ROLE_LINE = re.compile(rf"^host\s+all\s+{ROLE}\s+127\.0\.0\.1/32\s+trust\b", re.MULTILINE)
 BLANKET_TRUST = re.compile(
-    r"^host\s+all\s+all\s+(127\.0\.0\.1/32|::1/128|localhost|samehost|samenet)\s+trust\b",
+    r"^\s*host(nossl)?\s+all\s+all\s+"
+    r"(127\.0\.0\.1(/32|\s+255\.255\.255\.255)|::1(/128|\s+ffff(:ffff){7})"
+    r"|localhost|samehost|samenet)\s+trust\b",
     re.MULTILINE,
 )
 
@@ -194,7 +216,11 @@ def _role_rule_wins(text: str) -> bool:
     for line in text.splitlines():
         if ROLE_LINE.match(line):
             return True
-        if re.match(r"^host\s+all\s+all\s+(127\.0\.0\.1/32|localhost|samehost|samenet|0\.0\.0\.0/0)", line):
+        if re.match(
+            r"^\s*host(nossl)?\s+all\s+all\s+"
+            r"(127\.0\.0\.1|::1|localhost|samehost|samenet|0\.0\.0\.0/0)",
+            line,
+        ):
             return False
     return False
 

@@ -61,6 +61,27 @@ migration script while the step still reports success.
 - **THEN** that add-on's `migrations/13.0.1.0` scripts run, so `company_id` is renamed to its legacy name and
   its data moved into `company_ids`, rather than the column surviving unmigrated
 
+### Requirement: A step verifies its own code is on disk
+
+Before running a step the driver SHALL check that the OpenUpgrade code that step needs is present — the
+scripts directory and `openupgrade_framework` for 14.0 and later, the fork's `addons` for 13.0 and earlier —
+and SHALL abort naming the missing directory. Odoo neither fails nor warns when `--upgrade-path` names a
+directory that is not there: it finds no scripts, and the step would be checkpointed as migrated.
+
+A step that fails SHALL abort naming the step and the log file holding the reason, rather than ending the
+run with no explanation.
+
+#### Scenario: A missing OpenUpgrade checkout stops the step
+
+- **WHEN** the OpenUpgrade scripts for a step are absent from the shared cache
+- **THEN** the driver exits non-zero naming that directory, writes no checkpoint for the step, and does not
+  report the migration complete
+
+#### Scenario: A failing step says where to look
+
+- **WHEN** a step's `odoo-bin` exits non-zero
+- **THEN** the driver exits non-zero naming the step and its log file
+
 ### Requirement: Checkpoint after each step and resume on failure
 
 The driver SHALL `pg_dump` the working database after each successful step and, on a failed step, stop and

@@ -290,6 +290,19 @@ The database, the modules and the test module SHALL be asked when a configuratio
 - **WHEN** the Odoo 18 test module configuration is started and `sale` is entered as the module
 - **THEN** it upgrades `sale`, runs only the tests tagged `/sale` and stops
 
+### Requirement: A venv is skipped only once its build finished
+
+A per-version virtualenv SHALL be stamped with a ready marker once every install in it has finished, and
+generation — including **Add a version** — SHALL skip a venv on that marker, never on the presence of its
+directory. A build interrupted after the venv was created but before its requirements installed SHALL
+therefore be redone, rather than leaving a workspace that lists a version whose venv has no Odoo in it.
+
+#### Scenario: A half-built venv is rebuilt
+
+- **WHEN** a previous build created the venv directory but its requirements install failed, and the operator
+  adds that version again
+- **THEN** the venv is built again instead of being skipped as present
+
 ### Requirement: Development posture in the generated odoo.conf
 
 Each generated workspace `odoo.conf` SHALL be a development configuration:

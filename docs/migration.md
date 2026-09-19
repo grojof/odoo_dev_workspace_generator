@@ -165,8 +165,9 @@ It preflights the host, restores the dump into a working database on the shared 
 database (version match, addons coverage) before step 1, then runs each step with
 `--update all --stop-after-init` (Odoo ≥ 14: `--load=base,web,openupgrade_framework`), and **`pg_dump`s a
 checkpoint after each successful step**. Any preflight failure exits non-zero with a `[preflight-fail]` line
-naming the check, and a checkpoint that cannot be written exits non-zero with a `[fail]` line naming the
-step — the chain never continues without a recovery point.
+naming the check. A `[fail]` line is the driver's own abort: a checkpoint that cannot be written, a step
+whose `odoo-bin` failed (it names the step's log file), or a step whose OpenUpgrade code is not on disk —
+Odoo would migrate nothing and say nothing in that case, so the driver checks before running it.
 
 **The working database.** Every environment upgrades a database called `migration` on the shared PostgreSQL,
 which a fresh run drops and recreates from the dump. Two environments therefore cannot run at the same time,

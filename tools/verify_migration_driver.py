@@ -16,6 +16,7 @@ directory. Exits non-zero on the first case that does not behave as documented.
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -35,7 +36,9 @@ def _stub(path: Path, body: str) -> None:
     path.chmod(0o755)
 
 
-def _build(root: Path, *, failing_pg_dump: bool = False) -> tuple[Path, MigrationEnv]:
+def _build(
+    root: Path, *, failing_pg_dump: bool = False, failing_step: str | None = None
+) -> tuple[Path, MigrationEnv]:
     """Render the driver and the stub host it runs against."""
     MigrationEnv.base_dir = str(root / "envs")
     env = MigrationEnv(source=SOURCE, target=TARGET)
@@ -51,14 +54,32 @@ def _build(root: Path, *, failing_pg_dump: bool = False) -> tuple[Path, Migratio
         _stub(stubs / name, "exit 0")
     _stub(stubs / "pg_dump", "exit 1" if failing_pg_dump else 'echo "dump of $*"')
     for version in env.chain():
-        _stub(env.venv_dir(version) / "bin" / "python", "exit 0")
+        # A step's interpreter, and one that fails after writing to its log.
+        if version == failing_step:
+            _stub(
+                env.venv_dir(version) / "bin" / "python",
+                f'echo "traceback" >> {env.logs_dir}/{version}.log; exit 1',
+            )
+        else:
+            _stub(env.venv_dir(version) / "bin" / "python", "exit 0")
         odoo_bin = Path(env.odoo_bin(version))
         odoo_bin.parent.mkdir(parents=True, exist_ok=True)
         odoo_bin.write_text("", encoding="utf-8")
+        # The step's own OpenUpgrade code, which the driver requires on disk.
+        for directory in _openupgrade_dirs(env, version):
+            directory.mkdir(parents=True, exist_ok=True)
     for directory in (env.conf_dir, env.logs_dir, env.checkpoints_dir):
         Path(directory).mkdir(parents=True, exist_ok=True)
     (root / "source.dump").write_text("source", encoding="utf-8")
     return script, env
+
+
+def _openupgrade_dirs(env: MigrationEnv, version: str) -> list[Path]:
+    """What the step needs on disk, per OpenUpgrade layout."""
+    checkout = Path(env.openupgrade_clone_dir(version))
+    if env.uses_legacy_layout(version):
+        return [checkout / "addons"]
+    return [Path(env.upgrade_scripts_dir(version)), checkout / "openupgrade_framework"]
 
 
 def _run(root: Path, script: Path, dump: str = "source.dump") -> subprocess.CompletedProcess[str]:
@@ -136,6 +157,38 @@ def main() -> int:
               not any(name.endswith(".tmp") or name.endswith(".dump")
                       for name in _checkpoints(env)),
               str(_checkpoints(env)))
+
+    # A step whose OpenUpgrade code is not on disk must not be checkpointed:
+    # Odoo finds no scripts and says nothing, so the driver has to look itself.
+    with tempfile.TemporaryDirectory(prefix="odwg-driver-") as tmp:
+        root = Path(tmp)
+        script, env = _build(root)
+        shutil.rmtree(_openupgrade_dirs(env, TARGET)[0])
+        missing = _run(root, script)
+        check(
+            "a missing OpenUpgrade checkout stops the step",
+            missing.returncode != 0 and f"[fail] {TARGET}" in missing.stderr,
+            missing.stdout + missing.stderr,
+        )
+        check(
+            f"the chain does not claim to be complete without {TARGET}",
+            "[done]" not in missing.stdout
+            and not (Path(env.checkpoints_dir) / f"{TARGET}.dump").exists(),
+            missing.stdout,
+        )
+
+    # A failing step must name itself and its log, not die silently on set -e.
+    with tempfile.TemporaryDirectory(prefix="odwg-driver-") as tmp:
+        root = Path(tmp)
+        script, env = _build(root, failing_step=TARGET)
+        failed_step = _run(root, script)
+        check(
+            "a failing step names itself and its log",
+            failed_step.returncode != 0
+            and f"step {TARGET} failed" in failed_step.stderr
+            and f"{TARGET}.log" in failed_step.stderr,
+            failed_step.stdout + failed_step.stderr,
+        )
 
     if failures:
         print("\n".join(["", "FAILED:"] + failures))

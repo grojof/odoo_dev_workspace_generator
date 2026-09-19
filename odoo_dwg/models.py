@@ -701,6 +701,12 @@ class WorkspaceConfig:
     def venv_dir(self, version: str) -> Path:
         return self.root / ".venv" / f"odoo{odoo_major(version)}"
 
+    def venv_ready_marker(self, version: str) -> Path:
+        """Written once a venv's installs finish. Its absence means the venv is
+        missing *or* half-built, so a failed build is redone rather than skipped
+        the next time the version is added."""
+        return self.venv_dir(version) / ".odwg-ready"
+
     def config_file(self, version: str) -> Path:
         return self.config_dir / f"odoo{odoo_major(version)}.conf"
 

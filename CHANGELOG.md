@@ -62,6 +62,24 @@ All notable changes to this project are documented here. The format is based on
   first run: dead variables in `setup_venv.sh`, and a failure path written as `a && b || c`).
 
 ### Fixed
+- **A migration step ran even when its OpenUpgrade code was not on disk.** Odoo says nothing when
+  `--upgrade-path` names a directory that is not there — it finds no scripts — so a chain whose checkout was
+  interrupted or partially deleted migrated nothing and still reported `[done] migration complete`, with a
+  checkpoint per step. Each step now checks its own code first and aborts naming the missing directory.
+- **A failing migration step died without a word.** It relied on `set -e`, while the reason sat in
+  `logs/<version>.log`. It now aborts naming the step and that file.
+- **A blanket loopback `trust` survived the narrowing when written indented, as `hostnossl`, or in the
+  `address netmask` form** — and, as before, the check then reported `trust for odoo only`. The connection
+  check added earlier cannot catch this one, because a surviving blanket trust is exactly what lets the role
+  in. All three shapes are recognised now, by the rewriter and the check alike, and the role's own line is
+  inserted before any rule that would match the same connection first.
+- **Adding a version whose venv build failed reported success on the retry.** The second attempt saw the
+  venv directory and skipped the build, so the workspace listed a version whose venv had no Odoo
+  dependencies. Workspace venvs now carry the same ready marker migration venvs have had: written last, so
+  it can only mean every install finished.
+- The `pg_hba` connection check retries the connection it is actually proving, and tells "PostgreSQL is not
+  running" apart from "a rule above yours matches first".
+
 - **`provision apply` reported "Host already provisioned — nothing to do" on a host with PostgreSQL stopped
   and no development role.** A probe that could not answer (a stopped server hides both the role and
   `pg_hba.conf`) was read as "nothing to do" instead of "do the work". Unknown now means act, and every step

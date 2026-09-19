@@ -59,8 +59,10 @@ as the `postgres` superuser.
 
 This SHALL be planned whenever the rules are not already in that shape, **including on a host that already
 has PostgreSQL and the role**, since those hosts are exactly the ones a previous version left with a blanket
-trust. A blanket trust SHALL be recognised in every spelling `pg_hba.conf` accepts for loopback
-(`127.0.0.1/32`, `::1/128`, `localhost`, `samehost`, `samenet`).
+trust. A blanket trust SHALL be recognised in every shape `pg_hba.conf` accepts for it: any address spelling
+(`127.0.0.1/32`, `127.0.0.1 255.255.255.255`, `::1/128`, `localhost`, `samehost`, `samenet`), the
+`hostnossl` connection type, and a line indented by leading blanks. The role's own line SHALL be inserted
+*before* any rule that would match the same connection, since the first matching rule wins.
 
 The step SHALL fail rather than report success when it cannot place the line, whatever shape the file has,
 and SHALL end by connecting as the role over loopback — `pg_hba.conf` is first-match-wins, so a line that is

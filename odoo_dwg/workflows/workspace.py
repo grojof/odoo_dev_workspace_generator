@@ -255,10 +255,10 @@ def _add_version(cfg: WorkspaceConfig) -> None:
 def _plan_added_version(cfg: WorkspaceConfig, version: str) -> bool:
     # Clone if needed, link and refresh the generated files (new conf/scripts,
     # updated profile; hand-edited files kept as .bak), and build the new
-    # version's venv if absent — every other version keeps the interpreter its
-    # venv was really built with.
+    # version's venv unless a previous build finished (its ready marker) — every
+    # other version keeps the interpreter its venv was really built with.
     interpreters = _existing_interpreters(cfg)
-    if not cfg.venv_dir(version).exists():
+    if not cfg.venv_ready_marker(version).exists():
         chosen = _resolve_interpreters([version])
         if chosen is None:
             return False
@@ -266,7 +266,7 @@ def _plan_added_version(cfg: WorkspaceConfig, version: str) -> bool:
     commands = planners.plan_repo_cache(cfg, exists=_exists) + planners.plan_workspace_links(cfg)
     # The venv is built before the files are refreshed, so a failed build leaves
     # the workspace's profile listing only the versions it really has.
-    if not cfg.venv_dir(version).exists():
+    if not cfg.venv_ready_marker(version).exists():
         commands += planners.plan_build_venv(cfg, version, interpreter=interpreters[version])
     commands += planners.plan_refresh_files(cfg, interpreters, _read, _stamp())
     return _apply_if_confirmed(commands)

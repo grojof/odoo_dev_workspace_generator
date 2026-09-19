@@ -309,6 +309,15 @@ def plan_postgresql(role: str) -> list[Command]:
     ] + plan_pg_hba_trust(role)
 
 
+# Any rule for every role over loopback, however pg_hba spells it, and any host
+# rule at all: the two anchors the role's own line is inserted before.
+ANY_LOOPBACK_RULE = (
+    "^[[:space:]]*host(nossl)?[[:space:]]+all[[:space:]]+all[[:space:]]+"
+    "(127\\.0\\.0\\.1|::1|localhost|samehost|samenet)"
+)
+ANY_HOST_RULE = "^[[:space:]]*host(nossl)?[[:space:]]"
+
+
 def plan_pg_hba_trust(role: str) -> list[Command]:
     """Give the development role a loopback trust line and take away any blanket
     one. Separate from ``plan_postgresql`` so a host that already has PostgreSQL
@@ -326,13 +335,17 @@ def plan_pg_hba_trust(role: str) -> list[Command]:
         'set -e',
         'PGHBA=$(sudo -u postgres psql -tAc "SHOW hba_file;")',
         '[ -f "$PGHBA" ] || { echo "pg_hba.conf not found: $PGHBA" >&2; exit 1; }',
-        r'sed -ri "s#^(host\s+all\s+all\s+(127\.0\.0\.1/32|::1/128|localhost|samehost|samenet)'
-        r'\s+)trust#\1scram-sha-256#" "$PGHBA"',
+        r'sed -ri "s#^([[:space:]]*host(nossl)?[[:space:]]+all[[:space:]]+all[[:space:]]+'
+        r'(127\.0\.0\.1(/32|[[:space:]]+255\.255\.255\.255)|::1(/128|[[:space:]]+ffff(:ffff){7})'
+        r'|localhost|samehost|samenet)[[:space:]]+)trust#\1scram-sha-256#" "$PGHBA"',
         f'if ! grep -qE {shlex.quote(want)} "$PGHBA"; then',
-        r'  if grep -qE "^host\s+all\s+all\s+127\.0\.0\.1/32" "$PGHBA"; then',
-        f'    sed -ri "0,/^host\\s+all\\s+all\\s+127\\.0\\.0\\.1\\/32/s##{v4}\\n{v6}\\n&#" "$PGHBA"',
-        r'  elif grep -qE "^host\s" "$PGHBA"; then',
-        f'    sed -ri "0,/^host\\s/s##{v4}\\n{v6}\\n&#" "$PGHBA"',
+        # The insertion must be at least as permissive as the downgrade above, or
+        # the role's line lands *after* a rule that matches the same connection
+        # first — pg_hba is first-match-wins, and the line would never be read.
+        f'  if grep -qE {shlex.quote(ANY_LOOPBACK_RULE)} "$PGHBA"; then',
+        f'    sed -ri "0,/{ANY_LOOPBACK_RULE}/s##{v4}\\n{v6}\\n&#" "$PGHBA"',
+        f'  elif grep -qE {shlex.quote(ANY_HOST_RULE)} "$PGHBA"; then',
+        f'    sed -ri "0,/{ANY_HOST_RULE}/s##{v4}\\n{v6}\\n&#" "$PGHBA"',
         '  else',
         f'    printf "%s\\n%s\\n" {shlex.quote(v4)} {shlex.quote(v6)} >> "$PGHBA"',
         '  fi',
@@ -343,13 +356,17 @@ def plan_pg_hba_trust(role: str) -> list[Command]:
     # The grep proves the line exists, not that it is reached: an earlier rule
     # matching the same connection wins, and pg_hba is first-match-wins. Only a
     # connection proves the narrowing did what it says.
-    probe = (
-        f"for attempt in 1 2 3 4 5; do "
-        f"sudo -u postgres psql -p 5432 -tAc 'SELECT 1' >/dev/null 2>&1 && break; sleep 1; done; "
-        f"psql -w -h 127.0.0.1 -U {shlex.quote(role)} -d postgres -tAc 'SELECT 1' >/dev/null || "
-        f'{{ echo "{role} still cannot connect over loopback — check the rules above the ones this '
-        f'step added in $(sudo -u postgres psql -tAc \"SHOW hba_file;\")" >&2; exit 1; }}'
+    connect = (
+        f"psql -w -h 127.0.0.1 -U {shlex.quote(role)} -d postgres -tAc 'SELECT 1' >/dev/null 2>&1"
     )
+    probe = "\n".join([
+        # The retry is on the connection itself — the reload is asynchronous, and
+        # retrying anything else proves nothing about it.
+        f"for attempt in 1 2 3 4 5; do {connect} && ok=1 && break; sleep 1; done",
+        f'[ "${{ok:-}}" = 1 ] || {{ echo "{role} cannot connect over loopback after the reload — '
+        f"check that PostgreSQL is running, and the rules above the ones this step added in "
+        f'$(sudo -u postgres psql -tAc \"SHOW hba_file;\")" >&2; exit 1; }}',
+    ])
     return [
         Command(
             tf("Trust loopback connections of {} for local development (pg_hba)", role),
@@ -855,7 +872,7 @@ def plan_generate_workspace(
     commands = plan_repo_cache(cfg, exists)
     commands += plan_workspace_tree(cfg, interpreters)
     for version in cfg.versions:
-        if not exists(cfg.venv_dir(version)):
+        if not exists(cfg.venv_ready_marker(version)):
             commands += plan_build_venv(
                 cfg, version, interpreter=(interpreters or {}).get(version)
             )
@@ -909,6 +926,11 @@ def plan_build_venv(
             templates.requirements_install_command(
                 str(venv / "bin" / "pip"), str(odoo / "requirements.txt"), version
             ),
+        ),
+        # Last, so the marker means "every install above finished".
+        Command(
+            tf("Mark the venv {} ready", str(venv)),
+            f"touch {shlex.quote(str(cfg.venv_ready_marker(version)))}",
         ),
     ]
     return commands

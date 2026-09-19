@@ -215,6 +215,7 @@ _ES_TO_EN: dict[str, str] = {
     "Crear el venv uv (Python {}) para Odoo {}": "Create uv venv (Python {}) for Odoo {}",
     "Instalar psycopg2-binary y openupgradelib para Odoo {}": "Install psycopg2-binary and openupgradelib for Odoo {}",
     "Marcar el venv de Odoo {} como listo": "Mark Odoo {} venv as ready",
+    "Marcar el venv {} como listo": "Mark the venv {} ready",
     "Crear los directorios de migración": "Create migration directories",
     "Crear el venv de la herramienta de staging": "Create the staging tool venv",
     "Instalar odoo-module-migrator": "Install odoo-module-migrator",

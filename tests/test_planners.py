@@ -142,12 +142,25 @@ def test_generate_workspace_composes_clone_tree_and_venvs():
     assert len(_venv_builds(cmds)) == 2  # a venv build for each version
 
 
-def test_generate_workspace_skips_present_venv():
+def test_generate_workspace_skips_a_venv_whose_build_finished():
     cfg = _cfg(versions=["17.0", "18.0"])
-    present_venv = cfg.venv_dir("18.0")
-    cmds = planners.plan_generate_workspace(cfg, exists=lambda p: p == present_venv)
-    # 18.0 venv already present → only the 17.0 venv is built.
+    ready = cfg.venv_ready_marker("18.0")
+    cmds = planners.plan_generate_workspace(cfg, exists=lambda p: p == ready)
+    # 18.0 finished a build before → only the 17.0 venv is built.
     assert len(_venv_builds(cmds)) == 1
+
+
+def test_a_half_built_venv_is_rebuilt_not_skipped():
+    """The directory exists because `uv venv` ran; the installs after it failed.
+    Skipping on the directory would leave a workspace advertising a version whose
+    venv has no Odoo dependencies."""
+    cfg = _cfg(versions=["18.0"])
+    half_built = cfg.venv_dir("18.0")
+    cmds = planners.plan_generate_workspace(cfg, exists=lambda p: p == half_built)
+    assert len(_venv_builds(cmds)) == 1
+    # And the marker is written last, so it can only mean "every install finished".
+    build = [c for c in cmds if "venv" in c.description.lower() or "requirements" in c.description]
+    assert ".odwg-ready" in build[-1].command
 
 
 def test_refresh_repos_pulls_present_clones_only():

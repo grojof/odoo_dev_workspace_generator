@@ -37,6 +37,8 @@ read-only repo cache** reused across workspaces, and one **per-client workspace*
   (e.g. base 8069 → 8069 / 8079 / 8089). The live-chat/bus port is `http_port + 1000`.
 - **Composed `addons_path`** (precedence): `addons-custom` → each OCA repo (via its per-version symlink) →
   the shared `odoo/addons`.
+- **Venv ready marker**: `.venv/odoo<major>/.odwg-ready`, written once every install in that venv finished.
+  A build is skipped on the marker, never on the directory, so an interrupted build is redone.
 - **Development posture in every generated `odoo.conf`**: `http_interface = 127.0.0.1` (the instance is not
   reachable from outside the host), `workers = 0` and `max_cron_threads = 1` (threaded, so the debugger
   attaches), `dev_mode = qweb,xml` (never `reload`, which would re-execute the process and detach the
