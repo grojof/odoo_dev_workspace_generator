@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-19
+
+First release.
+
 ### Added
 - **Debug configurations for the shell, module upgrades and tests** (change `add-odoo-shell-launch`). Each
   version's `launch.json` now has four debugpy configurations:
@@ -219,3 +223,6 @@ All notable changes to this project are documented here. The format is based on
 - Interrupted venv builds now resume correctly: each finished venv is stamped with a `.odwg-ready`
   marker and the venvs planner skips on the marker (not the venv directory), rebuilding half-built
   venvs with `uv venv --clear` instead of silently skipping them.
+
+[Unreleased]: https://github.com/grojof/odoo_dev_workspace_generator/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/grojof/odoo_dev_workspace_generator/releases/tag/v0.1.0
