@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-19
+
+First release.
+
 ### Added
 - **Manage → Refresh generated files** (change `refresh-generated-files`) brings an existing workspace's
   generated files up to date with the tool.
@@ -13,18 +17,6 @@ All notable changes to this project are documented here. The format is based on
   - It reads each venv's interpreter from its `pyvenv.cfg`.
   - It never touches addons, venvs, clones or databases.
 - The Spanish UI is complete, and a test now fails if an operator-facing string has no Spanish entry.
-
-### Fixed
-- **Add a version** rewrote every generated file without the interpreters, so `setup_venv.sh` and the README
-  of a workspace with a `uv` venv claimed the host `python3`. It also overwrote hand edits. It now keeps each
-  venv's interpreter and backs up what it changes.
-- Generated files carried an extra blank line at the end. They now hold exactly the rendered content.
-
-## [0.1.0] - 2026-09-19
-
-First release.
-
-### Added
 - **Debug configurations for the shell, module upgrades and tests** (change `add-odoo-shell-launch`). Each
   version's `launch.json` now has four debugpy configurations:
   - the server;
@@ -101,6 +93,10 @@ First release.
   `db_user`. Odoo's database selector now lists every development database on the host.
 
 ### Fixed
+- **Add a version** rewrote every generated file without the interpreters, so `setup_venv.sh` and the README
+  of a workspace with a `uv` venv claimed the host `python3`. It also overwrote hand edits. It now keeps each
+  venv's interpreter and backs up what it changes.
+- Generated files carried an extra blank line at the end. They now hold exactly the rendered content.
 - **PostgreSQL role names are validated.** The role typed into `provision apply` was interpolated unquoted
   into SQL run as `postgres`, and a profile's `db_user` was written through a shell heredoc; both now must
   be a plain PostgreSQL identifier (`^[a-z_][a-z0-9_]{0,62}$`) and are rejected before any plan is built.
@@ -216,8 +212,6 @@ First release.
   `docs/commands.md` (full command/menu/phrase reference), README reshaped as a product map (Mermaid
   plan→preview→apply flowchart, real invocations, surface-organized index), new `SECURITY.md` (private
   reporting via GitHub Security Advisories) and `CONTRIBUTING.md`; `docs-check` green.
-
-### Fixed
 - Migration step configs now put the OpenUpgrade checkout **root** on `addons_path` (previously the
   `openupgrade_scripts` module directory itself), so `openupgrade_framework` resolves as the official
   OpenUpgrade run instructions require.
