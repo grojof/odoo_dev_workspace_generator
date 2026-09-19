@@ -8,6 +8,8 @@ updated: 2026-09-19
 
 # Roadmap
 
+**Released: v0.1.0 (2026-09-19).** F0–F3 are complete; see [`CHANGELOG.md`](../CHANGELOG.md).
+
 Delivery is phased so each phase is independently useful and verifiable. Non-trivial work is proposed and
 tracked through OpenSpec (`/opsx:*`); every phase below was accepted end-to-end on WSL Ubuntu 24.04.
 
@@ -121,9 +123,9 @@ items are host-dependent.
   overrides** (unlike the migration path, which needs them at 3.10), and `odoo-bin --version` runs in each
   venv. The role mismatch this exposed (`db_user` defaulted to the workspace name, a role nobody created) was
   fixed by `default-shared-db-role`: workspaces now default to the shared `odoo` role.
-- **One manual VSCode check** — open a generated workspace in VSCode once and confirm two things the CLI
-  cannot: the official extension's status-bar switcher lists one profile per version, and **F5** attaches the
-  debugger with the generated `launch.json` (debugpy + `odoo-bin`; `odoo.conf` already runs threaded,
-  `workers = 0`, so the debugger can attach). Two minutes, not tracked work.
+- ~~Manual VSCode check~~ — **done** (2026-09-19) on an Odoo 15 workspace, with the recommended extensions.
+  The official extension works and **F5** attaches the debugger in all four generated configurations: server,
+  shell, upgrade modules and test module. The first try exposed the `pkg_resources` failure fixed by
+  `fix-workspace-venvs`.
 - **When OdooLS 1.5 reaches the stable channel** — run `python tools/verify_odools_config.py` and decide whether
   any 1.5 key is worth emitting, following [`editor-integration.md`](editor-integration.md).
