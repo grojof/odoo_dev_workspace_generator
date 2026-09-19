@@ -5,6 +5,7 @@
 Reports, read-only, whether a host can build and run Odoo: its release against the supported list, the build dependencies, PostgreSQL and its version against the matrix floor, wkhtmltopdf, the optional web toolchain, and the interpreters and container images the migration paths need. It reports; it never changes the host.
 
 ## Requirements
+
 ### Requirement: Read-only host readiness report
 
 The system SHALL provide a `provision check` that inspects the host and renders a capability table of
@@ -74,3 +75,17 @@ SHALL still complete without error.
   apt-family host such as Debian
 - **THEN** the host row reports it as unsupported, names the detected release and the supported ones, and the
   check still completes without error
+
+### Requirement: Egress control and mail capture readiness
+
+`provision check` SHALL report, without changing anything:
+- whether OpenSnitch is installed and its service is running, with its configured default action and
+  process-monitor method, flagging any value that differs from the hardened configuration;
+- whether Mailpit is installed and listening on `127.0.0.1:1025`.
+
+Both SHALL be reported as optional.
+
+#### Scenario: Softened configuration is flagged
+
+- **WHEN** OpenSnitch runs with `DefaultAction` set to `allow`
+- **THEN** the check reports the setting and that it differs from the hardened `deny`
