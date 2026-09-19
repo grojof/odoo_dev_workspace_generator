@@ -69,14 +69,11 @@ _ES_TO_EN: dict[str, str] = {
     "Comando terminó con código {}.": "Command finished with code {}.",
     # prompt primitives
     "Valor obligatorio.": "Value is required.",
-    "Debe ser un número entero.": "Must be an integer.",
-    "Valor fuera de rango ({}-{}).": "Value out of range ({}-{}).",
     "Responde 'sí'/'s' o 'no'/'n' (Enter = opción por defecto).": "Answer 'yes'/'y' or 'no'/'n' (Enter = default).",
     "Escribe exactamente": "Type exactly",
     "para confirmar": "to confirm",
     # apply / safety
     "Para aplicar cambios en el sistema ejecuta con privilegios (sudo).": "To apply system changes, run with privileges (sudo).",
-    "Fallo ejecutando: ": "Failed running: ",
     # migration
     "Generar un entorno de migración": "Generate a migration environment",
     "Limpiar un entorno de migración": "Clean a migration environment",

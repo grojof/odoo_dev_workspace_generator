@@ -25,9 +25,10 @@ python -m odoo_dwg --help           # CLI smoke test
 Real end-to-end validation happens on a Linux host (WSL Ubuntu 24.04 is the reference box).
 
 The checks above need no network and change nothing. The tools below are **not** part of the suite. Each
-re-checks an external fact: the support matrix, the editor configuration, the build and start of every Odoo
-version, and the pinned firewall and mail-capture releases. Run them when that fact may have moved, and before
-a release:
+checks something the suite cannot: an external fact that may have moved (the support matrix, the editor
+configuration, the pinned firewall and mail-capture releases), or the behaviour of generated shell on a real
+host (the migration driver, every generated script, the `pg_hba.conf` rewriter). Run the first kind when the
+fact may have changed, the second when you touch what renders it, and all of them before a release:
 
 ```bash
 python tools/verify_support_matrix.py            # re-derive every bound from its official source

@@ -11,7 +11,9 @@ context: |
 
   Two user-facing sections + one mode:
     - provision  — optional, host-agnostic Linux prep (PostgreSQL+role,
-                   wkhtmltopdf, node+rtlcss, per-version Python interpreters).
+                   wkhtmltopdf, optional node+rtlcss, optional outbound firewall
+                   and mail capture). `uv` is a prerequisite it reports, not
+                   something it installs.
     - workspace  — the core: per-client workspaces (shared repo cache,
                    per-instance venv, addons-custom/addons-oca, per-version
                    odoo.conf, VSCode files, a robust per-workspace README).

@@ -126,8 +126,9 @@ python tools/verify_support_matrix.py 18.0 19.0  # only these versions
 The script re-derives every bound from the sources below and exits non-zero on drift, naming the version,
 the fact, both values and the source URL. It never edits the declared matrix: fixing drift means editing
 `odoo_dwg/models.py` **and** this page together. It is stdlib-only, lives outside the package
-(`odoo_dwg` never imports it) and outside the unit suite. Like the other `tools/verify_*.py` checks, it is
-the only kind of code in the repository that reaches the network.
+(`odoo_dwg` never imports it) and outside the unit suite. Together with the other network-facing
+`tools/verify_*.py` checks — the editor configuration and the firewall/mail-capture pins — it is the only
+kind of code in the repository that reaches the network; the rest of the verifiers are host-only.
 
 ### Source precedence, per fact
 

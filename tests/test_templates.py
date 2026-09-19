@@ -165,3 +165,16 @@ def test_generated_scripts_quote_paths_so_they_can_never_run(monkeypatch):
                 words = _shlex.split(line, comments=True)
                 assert any("$(touch pwned)" in word for word in words), line
                 assert '"' + "/tmp/ws $(touch pwned)" not in line, line
+
+
+def test_the_generated_config_never_asks_odoo_to_reload_itself():
+    """`reload` re-executes the process on a file change, detaching the debugger
+    every launch configuration attaches (docs/editor-integration.md)."""
+    cfg = WorkspaceConfig(name="acme", versions=["18.0"])
+    conf = templates.render_odoo_conf(cfg, "18.0")
+    assert "dev_mode = qweb,xml" in conf
+    assert "reload" not in conf
+    # Development posture: loopback only, threaded so a debugger can attach.
+    assert "http_interface = 127.0.0.1" in conf
+    assert "workers = 0" in conf
+    assert "max_cron_threads = 1" in conf

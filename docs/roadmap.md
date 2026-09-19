@@ -11,7 +11,7 @@ updated: 2026-09-19
 **Released: v0.1.0 (2026-09-19).** F0–F3 are complete; see [`CHANGELOG.md`](../CHANGELOG.md).
 
 **Next release (0.2.0), on `main`:** the outbound firewall and mail capture (change `add-egress-control`),
-and `harden-for-0-2-0`, which closed what six pre-release audits found (three rounds, docs and code):
+and `harden-for-0-2-0`, which closed what ten pre-release audits found (five rounds, docs and code):
 - injection through versions and profiles, now validated at every entry point;
 - a migration driver that skipped its coverage check entirely and trusted checkpoints from another attempt;
 - coverage and `apriori.py` looked up in the wrong place for the ≤ 13 steps;
@@ -21,11 +21,16 @@ and `harden-for-0-2-0`, which closed what six pre-release audits found (three ro
 - a checkpoint that reported success after `pg_dump` failed, so a whole chain could run with no recovery
   point; plan steps that inherited the operator's stdin (and `apt` dialogs that could hang behind captured
   output); `pg_hba.conf` never narrowed on a host that was already provisioned; and the firewall's
-  `odoo-bin` rejection sorting after two allow rules.
+  `odoo-bin` rejection sorting after two allow rules;
+- a host with PostgreSQL stopped reported as fully provisioned, because a probe that could not answer was
+  read as "nothing to do"; a blanket loopback `trust` spelled `localhost` surviving the narrowing while the
+  check called it narrowed; and Odoo 12's requirements installing only the `python-ldap` substitute while
+  reporting success, because a pipeline hid `grep`'s failure.
 
-Two verifiers came out of those rounds, both outside the unit suite because it may not shell out:
-`tools/verify_migration_driver.py` executes the generated migration driver against stub binaries, and
-`tools/verify_generated_shell.py` runs ShellCheck over every generated script.
+Three verifiers came out of those rounds, all outside the unit suite because it may not shell out:
+`tools/verify_migration_driver.py` executes the generated migration driver against stub binaries,
+`tools/verify_generated_shell.py` runs ShellCheck over every generated script, and
+`tools/verify_pg_hba_trust.py` runs the `pg_hba.conf` rewriter over five shapes of that file.
 
 Delivery is phased so each phase is independently useful and verifiable. Non-trivial work is proposed and
 tracked through OpenSpec (`/opsx:*`); every phase below was accepted end-to-end on WSL Ubuntu 24.04.

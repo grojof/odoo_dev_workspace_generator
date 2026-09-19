@@ -31,7 +31,7 @@ def test_missing_string_falls_back_to_english():
 def test_tf_translates_template_then_fills():
     i18n.set_language("es")
     # The English template is the catalog key, so interpolation still translates.
-    assert i18n.tf("Value out of range ({}-{}).", 1, 5) == "Valor fuera de rango (1-5)."
+    assert i18n.tf("Invalid PostgreSQL role: {}", "x;y") == "Rol PostgreSQL no válido: x;y"
 
 
 def test_set_language_normalizes_prefix():

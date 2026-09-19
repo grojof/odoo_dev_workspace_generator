@@ -290,6 +290,26 @@ The database, the modules and the test module SHALL be asked when a configuratio
 - **WHEN** the Odoo 18 test module configuration is started and `sale` is entered as the module
 - **THEN** it upgrades `sale`, runs only the tests tagged `/sale` and stops
 
+### Requirement: Development posture in the generated odoo.conf
+
+Each generated workspace `odoo.conf` SHALL be a development configuration:
+- `http_interface = 127.0.0.1`, so an instance is reachable from the host only;
+- `workers = 0` and `max_cron_threads = 1`, so Odoo runs threaded and a debugger can attach;
+- `dev_mode = qweb,xml`, and never `reload`: reload re-executes the process on a file change, which detaches
+  the debugger every generated launch configuration attaches;
+- `admin_passwd = admin`, Odoo's database-manager password — a development default, documented as such.
+
+#### Scenario: The debugger is never detached by a reload
+
+- **WHEN** `config/odoo18.conf` is rendered
+- **THEN** its `dev_mode` is `qweb,xml` and contains no `reload`, so installing `watchdog` cannot start
+  re-executing the process
+
+#### Scenario: Instances listen on loopback only
+
+- **WHEN** any version's config is rendered
+- **THEN** it sets `http_interface = 127.0.0.1`, `workers = 0` and `max_cron_threads = 1`
+
 ### Requirement: Workspace mail goes to the local capture
 
 Each generated workspace `odoo.conf` SHALL set `smtp_server = 127.0.0.1` and `smtp_port = 1025`, so that mail
