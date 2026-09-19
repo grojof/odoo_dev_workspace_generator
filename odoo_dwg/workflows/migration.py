@@ -15,16 +15,23 @@ from pathlib import Path
 
 from .. import analysis, planners, preflight, templates
 from ..i18n import t, tf
-from ..models import MigrationEnv
+from ..models import Command, MigrationEnv
 from ..planners import write_text_file_command
 from ..prompts import ask_bool, ask_text, choose, confirm_with_phrase
-from ..system import Command, apply_commands, list_dirs, preview_commands
+from ..system import apply_commands, list_dirs, preview_commands
 from ..ui import level_text, render_table
-from .workspace import redirect_mail
+from .common import redirect_mail
 
 
 def _exists(path) -> bool:
     return path.exists()
+
+
+def _read_text(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
 
 
 def _ask_env() -> MigrationEnv | None:
@@ -115,7 +122,7 @@ def _generate_environment() -> None:
             print(level_text("INFO", t("Cancelled.")))
             return
 
-    commands = planners.plan_generate_migration(env, exists=_exists)
+    commands = planners.plan_generate_migration(env, exists=_exists, read=_read_text)
     preview_commands(commands)
     if ask_bool("Apply this plan now?", False):
         apply_commands(commands)

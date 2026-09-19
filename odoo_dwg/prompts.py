@@ -6,7 +6,6 @@ numbered menu with a consistent ``0)`` cancel entry. Standard-library only.
 
 from __future__ import annotations
 
-import getpass
 import os
 from pathlib import Path
 
@@ -15,6 +14,7 @@ from .models import (
     HOST_PYTHON,
     UV_PYTHON,
     InterpreterChoice,
+    python_version_error,
     resolve_interpreter,
     version_support,
 )
@@ -44,32 +44,10 @@ def ask_text(label: str, default: str | None = None, required: bool = False) -> 
         print(level_text("ERROR", "Value is required."))
 
 
-def ask_int(label: str, default: int, min_value: int = 1, max_value: int = 65535) -> int:
-    while True:
-        raw = ask_text(label, str(default), required=True)
-        try:
-            value = int(raw)
-        except ValueError:
-            print(level_text("ERROR", "Must be an integer."))
-            continue
-        if min_value <= value <= max_value:
-            return value
-        print(level_text("ERROR", tf("Value out of range ({}-{}).", min_value, max_value)))
 
 
-def ask_port(label: str, default: int) -> int:
-    return ask_int(label, default, min_value=1, max_value=65535)
 
 
-def ask_secret(label: str, required: bool = True) -> str:
-    """Prompt for a secret without echoing it to the screen (via getpass)."""
-    while True:
-        value = getpass.getpass(f"{prompt_label(label)}: ").strip()
-        if value:
-            return value
-        if not required:
-            return ""
-        print(level_text("ERROR", "Value is required."))
 
 
 def ask_bool(label: str, default: bool = True) -> bool:
@@ -295,7 +273,12 @@ def choose_interpreter(
     if answer == keep_host:
         return _confirmed_choice(version, host_python, host_python, HOST_PYTHON)
     if answer == t("Choose another Python version"):
-        chosen = ask_text(t("Python version (e.g. 3.10)"), recommended or None, required=True)
+        while True:
+            chosen = ask_text(t("Python version (e.g. 3.10)"), recommended or None, required=True)
+            error = python_version_error(chosen)
+            if error is None:
+                break
+            print(level_text("ERROR", error))
         source = HOST_PYTHON if chosen == host_python else UV_PYTHON
         return _confirmed_choice(version, host_python, chosen, source)
     return resolved

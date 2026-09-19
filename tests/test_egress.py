@@ -53,10 +53,11 @@ def test_infrastructure_hosts_match_what_they_should_and_nothing_else():
     pattern = re.compile(rules["00-odwg-020-allow-dev-infrastructure"]["operator"]["data"])
     for host in ("github.com", "cli.github.com", "objects.githubusercontent.com", "pypi.org",
                  "files.pythonhosted.org", "releases.astral.sh", "archive.ubuntu.com",
+                 "es.archive.ubuntu.com", "de.archive.ubuntu.com",
                  "registry.npmjs.org"):
         assert pattern.fullmatch(host), host
     for host in ("evilgithub.com", "github.com.evil.io", "smtp.gmail.com", "api.stripe.com",
-                 "example.com"):
+                 "example.com", "evil.es.archive.ubuntu.com", "archive.ubuntu.com.evil.io"):
         assert not pattern.fullmatch(host), host
 
 
@@ -114,8 +115,9 @@ def test_opensnitch_plan_verifies_then_installs_stopped_then_configures():
     assert max(verifies) < install < harden < start
     # policy-rc.d keeps the service stopped, refuses to clobber an existing one,
     # and is removed even when the install fails.
-    assert "if [ -e /usr/sbin/policy-rc.d ]; then" in cmds[install]
-    assert cmds[install].endswith("status=$?; rm -f /usr/sbin/policy-rc.d; exit $status")
+    assert "if [ -e /usr/sbin/policy-rc.d ] && ! grep -q 'odoo_dwg:" in cmds[install]
+    assert "trap 'rm -f /usr/sbin/policy-rc.d' EXIT INT TERM HUP;" in cmds[install]
+    assert cmds[install].index("trap ") < cmds[install].index("printf ")
     # Only the tool's own rules are replaced.
     assert f"rm -f /etc/opensnitchd/rules/{egress.RULE_PREFIX}*.json" in cmds
     rule_writes = [c for c in cmds if c.startswith("cat > /etc/opensnitchd/rules/")]

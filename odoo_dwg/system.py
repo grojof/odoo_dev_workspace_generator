@@ -14,17 +14,10 @@ import re
 import shlex
 import shutil
 import subprocess
-from dataclasses import dataclass
 
 from .i18n import t, tf
-from .models import DEFAULT_DB_ROLE
+from .models import DB_ROLE_RE, DEFAULT_DB_ROLE, Command  # noqa: F401 (re-exported)
 from .ui import level_text, style, title, wrap_plain_block
-
-
-@dataclass
-class Command:
-    description: str
-    command: str
 
 
 def run(command: str, check: bool = False) -> subprocess.CompletedProcess[str]:
@@ -82,8 +75,6 @@ def has_tool(name: str) -> bool:
     return command_ok(f"command -v {name} >/dev/null 2>&1")
 
 
-def path_exists(path: str) -> bool:
-    return command_ok(f"test -e '{path}'")
 
 
 def preview_commands(commands: list[Command]) -> None:
@@ -137,10 +128,15 @@ def detect_os_release() -> dict[str, str]:
     return values
 
 
-def detect_postgres_version() -> int | None:
-    """Local PostgreSQL server major version via ``SHOW server_version``, or None."""
+def detect_postgres_version(port: int = 5432) -> int | None:
+    """Major version of the local server on ``port``, or None. From
+    ``pg_lsclusters`` (no authentication), else ``SHOW server_version`` through
+    ``sudo -n``, which fails rather than prompting."""
+    for major, cluster_port in _online_clusters() or []:
+        if cluster_port == port:
+            return major
     result = run(
-        'sudo -u postgres psql -tAc "SHOW server_version" 2>/dev/null',
+        f'sudo -n -u postgres psql -p {int(port)} -tAc "SHOW server_version" 2>/dev/null',
         check=False,
     )
     match = re.search(r"(\d+)", result.stdout.strip())
@@ -173,13 +169,6 @@ def uv_python_minors() -> list[str]:
     return sorted(minors, key=lambda text: tuple(int(part) for part in text.split(".")))
 
 
-def detect_tool_version(name: str, args: str = "--version") -> str | None:
-    """First line of ``<name> <args>`` output, or None when the tool is absent."""
-    if not has_tool(name):
-        return None
-    result = run(f"{name} {args} 2>&1", check=False)
-    text = (result.stdout or result.stderr).strip().splitlines()
-    return text[0].strip() if text else None
 
 
 # --- provisioning probes ---------------------------------------------------
@@ -230,19 +219,59 @@ def mailpit_version(binary: str) -> str | None:
     return match.group(1) if match else None
 
 
+def apt_purge_removals(packages: tuple[str, ...] | list[str]) -> list[str]:
+    """What ``apt-get purge --autoremove <packages>`` would remove, simulated
+    (``-s``: read-only, no root needed)."""
+    names = " ".join(shlex.quote(p) for p in packages)
+    simulated = run(f"apt-get -s purge --autoremove {names}", check=False).stdout
+    return sorted({line.split()[1] for line in simulated.splitlines() if line.startswith("Purg ")})
+
+
 def postgres_installed() -> bool:
     return has_tool("psql") or package_installed("postgresql")
 
 
-def postgres_running() -> bool:
-    """True when the local PostgreSQL server accepts a superuser connection."""
-    return command_ok("sudo -u postgres psql -tAc 'SELECT 1' >/dev/null 2>&1")
+def _online_clusters() -> list[tuple[int, int]] | None:
+    """``[(major, port), …]`` of online clusters from ``pg_lsclusters``, which
+    reads the cluster layout without authenticating; None when it is absent."""
+    if not has_tool("pg_lsclusters"):
+        return None
+    result = run("pg_lsclusters --no-header", check=False)
+    clusters = []
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 4 and parts[3].startswith("online") and parts[0].isdigit() \
+                and parts[2].isdigit():
+            clusters.append((int(parts[0]), int(parts[2])))
+    return clusters
 
 
-def db_role_exists(role: str) -> bool:
-    query = f"sudo -u postgres psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='{role}'\""
-    result = run(query, check=False)
-    return result.returncode == 0 and "1" in result.stdout
+def postgres_running(port: int = 5432) -> bool:
+    """True when a local server is up on ``port``. Never authenticates and never
+    prompts: ``pg_lsclusters``, else ``pg_isready`` on loopback."""
+    clusters = _online_clusters()
+    if clusters is not None:
+        return any(cluster_port == port for _major, cluster_port in clusters)
+    return command_ok(f"pg_isready -q -h 127.0.0.1 -p {int(port)}")
+
+
+def db_role_exists(role: str, port: int = 5432) -> bool | None:
+    """Whether a PostgreSQL role exists; None when that cannot be told without a
+    password prompt. Tries the role itself over loopback (the development trust
+    rule), then ``sudo -n`` as postgres, which fails instead of prompting."""
+    if not DB_ROLE_RE.fullmatch(role):
+        return False
+    login = (
+        f"psql -h 127.0.0.1 -p {int(port)} -U {shlex.quote(role)} -d postgres "
+        "-w -tAc 'SELECT 1' >/dev/null 2>&1"
+    )
+    if command_ok(login):
+        return True
+    query = shlex.quote(f"SELECT 1 FROM pg_roles WHERE rolname='{role}'")
+    result = run(f"sudo -n -u postgres psql -p {int(port)} -tAc {query} 2>/dev/null", check=False)
+    if result.returncode != 0:
+        return None
+    return "1" in result.stdout
 
 
 # --- migration preflight probes --------------------------------------------

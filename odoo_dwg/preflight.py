@@ -33,7 +33,8 @@ class HostFacts:
     uv: bool = False
     postgres_running: bool = False
     dev_role: str = DEFAULT_DB_ROLE
-    dev_role_exists: bool = False
+    # None: it could not be told without a password prompt.
+    dev_role_exists: bool | None = False
     dump_path: str | None = None
     dump_readable: bool = False
     dump_listable: bool = False
@@ -146,7 +147,7 @@ def read_apriori(path: Path) -> dict[str, str]:
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"))
     except (OSError, SyntaxError):
-        _APRIORI_CACHE[key] = mapping
+        # Not cached: the clone may appear later in the same session.
         return mapping
     for node in tree.body:
         if not isinstance(node, ast.Assign):
@@ -168,19 +169,13 @@ def read_apriori(path: Path) -> dict[str, str]:
 
 def apriori_path(env: MigrationEnv, version: str) -> Path:
     """Where a step's OpenUpgrade checkout declares its module renames/merges."""
-    return env.openupgrade_clone_dir(version) / "openupgrade_scripts" / "apriori.py"
+    return env.apriori_file(version)
 
 
 def coverage_sources(env: MigrationEnv, version: str) -> list[Path]:
-    """The directories a step's addons_path resolves modules from, custom first."""
-    odoo = env.odoo_clone_dir(version)
-    return [
-        env.addons_custom_dir(version),
-        env.addons_oca_dir(version),
-        env.openupgrade_clone_dir(version),
-        odoo / "addons",
-        odoo / "odoo" / "addons",
-    ]
+    """The directories a step resolves modules from, custom first — the same ones
+    the generated driver checks, for either OpenUpgrade layout."""
+    return env.coverage_dirs(version)
 
 
 def gather_coverage(
@@ -202,8 +197,6 @@ def gather_coverage(
     coverage = Coverage()
     authors = authors or {}
     for version in env.chain():
-        if not env.is_native(version):
-            continue
         sources = coverage_sources(env, version)
         renames = read_apriori(apriori_path(env, version))
         blocking: list[str] = []
@@ -247,9 +240,12 @@ def preflight_rows(
         rows.append(("MISSING", "PostgreSQL", "not reachable"))
     else:
         rows.append(("OK", "PostgreSQL", "reachable"))
-        rows.append(("OK" if host.dev_role_exists else "MISSING",
-                     f"DB role ({host.dev_role})",
-                     "present" if host.dev_role_exists else "not found (see provision)"))
+        if host.dev_role_exists is None:
+            rows.append(("WARN", f"DB role ({host.dev_role})", "could not check without sudo — run it with sudo, or connect as the role once"))
+        else:
+            rows.append(("OK" if host.dev_role_exists else "MISSING",
+                         f"DB role ({host.dev_role})",
+                         "present" if host.dev_role_exists else "not found (see provision)"))
 
     if host.dump_path is None:
         rows.append(("INFO", "Source dump", "skipped (no dump given)"))

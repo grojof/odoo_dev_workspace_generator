@@ -170,3 +170,35 @@ def test_apply_rejects_an_unsafe_role_before_probing_or_planning(monkeypatch, ca
     monkeypatch.setattr(provision.planners, "plan_postgresql", _unexpected)
     provision._apply()
     assert "Invalid PostgreSQL role" in capsys.readouterr().out
+
+
+def test_an_unknown_role_is_a_warning_not_missing():
+    facts = ProvisionFacts(os_id="ubuntu", os_version_id="24.04", postgres_installed=True,
+                           postgres_running=True, dev_role="odoo", dev_role_exists=None)
+    state = {check: (st, detail) for st, check, detail in provision_rows(facts)}["Dev role (odoo)"]
+    assert state[0] == "WARN" and "without sudo" in state[1]
+
+
+def test_postgres_probes_never_prompt(monkeypatch):
+    """Every probe command either needs no authentication or uses `sudo -n`."""
+    from odoo_dwg import system
+
+    seen: list[str] = []
+
+    class _Done:
+        def __init__(self, code=1, out=""):
+            self.returncode, self.stdout, self.stderr = code, out, ""
+
+    monkeypatch.setattr(system, "run", lambda cmd, check=False: seen.append(cmd) or _Done())
+    monkeypatch.setattr(system, "command_ok", lambda cmd: seen.append(cmd) or False)
+    monkeypatch.setattr(system, "has_tool", lambda name: False)
+    system.postgres_running()
+    system.detect_postgres_version()
+    assert system.db_role_exists("odoo") is None
+    assert system.db_role_exists("bad role; x") is False
+    for cmd in seen:
+        assert "sudo -u" not in cmd, cmd
+        if "sudo" in cmd:
+            assert "sudo -n " in cmd, cmd
+    assert any("pg_isready" in cmd for cmd in seen)
+    assert any("-U odoo" in cmd and "-w" in cmd for cmd in seen)

@@ -89,7 +89,7 @@ _ES_TO_EN: dict[str, str] = {
     "La base de datos PostgreSQL de migración (si existe) no se toca — bórrala con dropdb cuando quieras una ejecución totalmente limpia.": "The PostgreSQL migration database (if any) is untouched — drop it with dropdb when you want a fully clean run.",
     "Rol PostgreSQL de desarrollo": "Development PostgreSQL role",
     "Todos los ficheros generados ya están al día.": "Every generated file is already up to date.",
-    "Solo se escriben los ficheros que cambian; antes se guarda cada uno existente como <fichero>.bak.": "Only files that change are written; each existing one is kept as <file>.bak first.",
+    "Solo se escriben los ficheros que cambian; antes se guarda cada uno existente como <fichero>.bak-<fecha>.": "Only files that change are written; each existing one is kept as <file>.bak-<date> first.",
     "Odoo {} no declara un Python máximo y no se sabe que compile en {}; se recomienda Python {}.": "Odoo {} states no Python maximum and is not known to build on {}; Python {} is recommended.",
     "Rol PostgreSQL no válido: {}": "Invalid PostgreSQL role: {}",
     "Elimina el entorno de migración {}": "Remove migration environment {}",
@@ -280,6 +280,9 @@ _ES_TO_EN: dict[str, str] = {
     'Encender la captura de correo': 'Turn the mail capture on',
     'Desinstalar la captura de correo': 'Uninstall the mail capture',
     "Descargar los módulos del kernel que usaba": "Unload the kernel modules it used",
+    'No hay ningún wkhtmltopdf parcheado y verificado fijado para {} — instálalo a mano (github.com/wkhtmltopdf/packaging) o los informes PDF saldrán degradados.': 'No verified patched wkhtmltopdf is pinned for {} — install it by hand (github.com/wkhtmltopdf/packaging) or PDF reports will be degraded.',
+    'No se puede usar el perfil {}: {}': 'Cannot use the profile {}: {}',
+    '{} corresponde a otro workspace ({}).': '{} names another workspace ({}).',
 }
 
 # Runtime lookup: English (the in-code source) → Spanish.

@@ -95,7 +95,8 @@ DEV_INFRASTRUCTURE_HOSTS: tuple[str, ...] = (
     r"pypi\.org",
     r"files\.pythonhosted\.org",
     r"([a-z0-9-]+\.)*astral\.sh",
-    r"archive\.ubuntu\.com",
+    # The archive and its country mirrors (es.archive.ubuntu.com, …).
+    r"([a-z]{2}\.)?archive\.ubuntu\.com",
     r"security\.ubuntu\.com",
     r"registry\.npmjs\.org",
 )
@@ -192,7 +193,11 @@ def hardening_script() -> str:
         "    for parent in parents:\n"
         "        node = node.setdefault(parent, {})\n"
         "    node[key] = value\n"
-        "json.dump(config, open(path, 'w'), indent=4)\n"
+        "import os\n"
+        "tmp = path + '.odwg-tmp'\n"
+        "with open(tmp, 'w') as handle:\n"
+        "    json.dump(config, handle, indent=4)\n"
+        "os.replace(tmp, path)  # atomic: never a truncated config\n"
     )
 
 

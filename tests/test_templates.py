@@ -102,7 +102,7 @@ def test_setup_venv_script_uses_the_same_interpreter_as_the_plan():
         version: resolve_interpreter(version, host_python="3.12") for version in cfg.versions
     }
     script = templates.render_setup_venv_sh(cfg, interpreters)
-    assert 'uv venv --seed --no-project --python 3.8 "' in script
+    assert "uv venv --seed --no-project --python 3.8 /" in script
     # Only the in-range version falls back to the host interpreter.
     assert script.count("python3 -m venv") == 1
     assert "odoo18" in script.split("python3 -m venv")[1]
@@ -122,9 +122,9 @@ def test_setup_venv_script_pins_setuptools_like_the_plan():
     cfg = WorkspaceConfig(name="acme", versions=["13.0", "15.0", "18.0"])
     cfg.normalize_defaults()
     script = templates.render_setup_venv_sh(cfg)
-    assert "/.venv/odoo13/bin/pip\" install --upgrade pip wheel 'setuptools<58'" in script
-    assert "/.venv/odoo15/bin/pip\" install --upgrade pip wheel 'setuptools<81'" in script
-    assert "/.venv/odoo18/bin/pip\" install --upgrade pip wheel 'setuptools'" in script
+    assert "/.venv/odoo13/bin/pip install --upgrade pip wheel 'setuptools<58'" in script
+    assert "/.venv/odoo15/bin/pip install --upgrade pip wheel 'setuptools<81'" in script
+    assert "/.venv/odoo18/bin/pip install --upgrade pip wheel setuptools" in script
 
 
 def test_setup_venv_script_applies_the_same_requirement_substitute():
@@ -145,3 +145,23 @@ def test_readme_states_what_each_venv_installs():
     assert "| 12.0 | 3.8 (`uv`) | `setuptools<58` | `python-ldap==3.1.0` instead of `pyldap` |" in readme
     assert "| 15.0 | 3.12 (host) | `setuptools<81` | — |" in readme
     assert "| 18.0 | 3.12 (host) | `setuptools` | — |" in readme
+
+
+
+def test_generated_scripts_quote_paths_so_they_can_never_run(monkeypatch):
+    """Validation refuses unsafe names, and the scripts still quote every path:
+    a base directory with shell syntax stays inert text."""
+    import shlex as _shlex
+
+    monkeypatch.setattr(WorkspaceConfig, "base_dir", "/tmp/ws $(touch pwned)")
+    cfg = WorkspaceConfig(name="acme", versions=["14.0", "18.0"])
+    cfg.normalize_defaults()
+    from odoo_dwg.models import resolve_interpreter
+    choices = {v: resolve_interpreter(v, host_python="3.12") for v in cfg.versions}
+    for script in (templates.render_setup_venv_sh(cfg, choices), templates.render_run_sh(cfg, "18.0")):
+        for line in script.splitlines():
+            if "$(touch pwned)" in line:
+                # Every occurrence sits inside single quotes, where bash expands nothing.
+                words = _shlex.split(line, comments=True)
+                assert any("$(touch pwned)" in word for word in words), line
+                assert '"' + "/tmp/ws $(touch pwned)" not in line, line

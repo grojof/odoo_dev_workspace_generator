@@ -19,13 +19,14 @@ from .models import (
     PKG_RESOURCES_LAST_MAJOR,
     SETUPTOOLS_PIN,
     UV_PYTHON,
+    Command,
     InterpreterChoice,
     MigrationEnv,
     WorkspaceConfig,
+    interpreter_from_pyvenv,
     odoo_major,
     setuptools_requirement,
 )
-from .system import Command
 
 Exists = Callable[[Path], bool]
 # Current text of a file, or None when it is absent (injected, like Exists).
@@ -196,11 +197,12 @@ def plan_refresh_files(
     cfg: WorkspaceConfig,
     interpreters: dict[str, InterpreterChoice] | None,
     read: Read,
+    stamp: str = "",
 ) -> list[Command]:
     """Bring an existing workspace's generated files up to date with the tool.
 
     Only files whose content would change are written. A file that exists and
-    changes is first copied to ``<file>.bak``, since it may carry hand edits (a
+    changes is first copied to ``<file>.bak-<stamp>``, since it may carry hand edits (a
     tuned ``odoo.conf``, an extra launch configuration). ``read`` returns a file's
     current text, or None when it is absent; the workflow passes a real reader.
     Nothing outside the generated files is touched: addons, venvs, clones and
@@ -213,7 +215,8 @@ def plan_refresh_files(
         if current is not None and current.rstrip("\n") == content.rstrip("\n"):
             continue
         if current is not None:
-            backup = Path(f"{path}.bak")
+            # ``stamp`` (the workflow's clock) keeps every earlier backup.
+            backup = Path(f"{path}.bak-{stamp}" if stamp else f"{path}.bak")
             commands.append(
                 Command(
                     tf("Back up {} to {}", str(path), backup.name),
@@ -377,12 +380,15 @@ def plan_opensnitch(resolvers: list[str], installed_version: str | None = None) 
         commands += [
             Command(
                 tf("Install OpenSnitch {} without starting it", egress.OPENSNITCH_VERSION),
-                # Refuse to replace an existing policy-rc.d; always remove ours,
-                # even when the install fails.
-                f"if [ -e {_POLICY_RC} ]; then echo '{_POLICY_RC} already exists' >&2; exit 1; fi; "
+                # Never replace someone else's policy-rc.d (one left by an
+                # interrupted earlier run carries our mark and is reused). Ours is
+                # removed on every exit, including Ctrl-C and a failed install.
+                f"if [ -e {_POLICY_RC} ] && ! grep -q '{_POLICY_MARK}' {_POLICY_RC}; then "
+                f"echo '{_POLICY_RC} already exists and is not ours' >&2; exit 1; fi; "
+                f"trap 'rm -f {_POLICY_RC}' EXIT INT TERM HUP; "
                 f"printf '#!/bin/sh\\n# {_POLICY_MARK}\\nexit 101\\n' > {_POLICY_RC} && "
-                f"chmod 755 {_POLICY_RC}; "
-                f"apt-get -y install {install}; status=$?; rm -f {_POLICY_RC}; exit $status",
+                f"chmod 755 {_POLICY_RC} && "
+                f"apt-get -y install {install}",
             ),
             Command(tf("Remove downloaded packages"), f"rm -rf {shlex.quote(workdir)}"),
         ]
@@ -531,19 +537,30 @@ def _setuptools_pin(version: str) -> str:
     return f" '{SETUPTOOLS_PIN}'" if odoo_major(version) <= PKG_RESOURCES_LAST_MAJOR else ""
 
 
-def plan_migration_venvs(env: MigrationEnv, exists: Exists = _never) -> list[Command]:
+def _never_read(_path: Path) -> str | None:
+    return None
+
+
+def plan_migration_venvs(
+    env: MigrationEnv, exists: Exists = _never, read: Read = _never_read
+) -> list[Command]:
     """For each natively-run version: write the overrides file, build a uv venv with
     the matched interpreter, and install requirements (with ``--overrides`` repairs)
     + psycopg2-binary + openupgradelib. Every step in the chain gets one.
 
     Skips on the ready *marker*, not the venv directory: a venv whose installs
-    failed midway has no marker and is rebuilt (``uv venv`` recreates in place)."""
+    failed midway has no marker and is rebuilt (``uv venv`` recreates in place).
+    A ready venv is also rebuilt when its ``pyvenv.cfg`` (read through ``read``)
+    names another interpreter than the step now resolves to — that is how a
+    newly pinned Python takes effect."""
     commands: list[Command] = []
     for version in env.chain():
         python, _method = env.interpreter(version)
         if python is None:  # pragma: no cover - every version declares one
             continue
-        if exists(env.venv_ready_marker(version)):
+        if exists(env.venv_ready_marker(version)) and _venv_python(env, version, read) in (
+            None, python
+        ):
             continue
         if not commands:
             commands.append(
@@ -618,11 +635,21 @@ def plan_migration_configs(env: MigrationEnv) -> list[Command]:
     return commands
 
 
-def plan_generate_migration(env: MigrationEnv, exists: Exists = _never) -> list[Command]:
+def _venv_python(env: MigrationEnv, version: str, read: Read) -> str | None:
+    """The ``3.N`` a step's venv was built with, from its ``pyvenv.cfg``; None when
+    it cannot be read (a ready venv is then kept, as before this check existed)."""
+    text = read(env.venv_dir(version) / "pyvenv.cfg")
+    choice = interpreter_from_pyvenv(version, text) if text else None
+    return choice.python if choice else None
+
+
+def plan_generate_migration(
+    env: MigrationEnv, exists: Exists = _never, read: Read = _never_read
+) -> list[Command]:
     """Full migration-environment plan: clones + uv venvs + configs + driver."""
     return (
         plan_migration_clones(env, exists)
-        + plan_migration_venvs(env, exists)
+        + plan_migration_venvs(env, exists, read)
         + plan_migration_configs(env)
     )
 
@@ -686,7 +713,7 @@ def plan_stage_module(env: MigrationEnv, module: str, source_dir: Path) -> list[
                 f"git -C {shlex.quote(str(target_parent))} add -A && "
                 f"git -C {shlex.quote(str(target_parent))} "
                 f"-c user.name=odoo-dwg -c user.email=odoo-dwg@localhost "
-                f"commit -qm {shlex.quote(f'stage {module} {version} input')} || true",
+                f"commit -qm {shlex.quote(f'stage {module} {version} input')} --allow-empty",
             ),
             Command(
                 tf("Migrate {} code {} -> {}", module, previous_version, version),

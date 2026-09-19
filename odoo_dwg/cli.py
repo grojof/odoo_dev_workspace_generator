@@ -83,9 +83,10 @@ def interactive_menu() -> int:
         except EOFError:
             print(t("\nInput closed. Exiting."))
             return 0
-        except RuntimeError as error:
-            # A command in a plan failed (already reported by apply_commands):
-            # surface it and return to the menu instead of crashing the CLI.
+        except (RuntimeError, ValueError, TypeError, OSError) as error:
+            # A failed plan command (already reported by apply_commands), or
+            # input the flows could not use — a malformed profile, an unreadable
+            # file: report it and return to the menu instead of a traceback.
             print(tf("\n[ERROR] The operation did not complete: {}", error))
             continue
 
@@ -137,7 +138,7 @@ def main(argv: list[str] | None = None) -> int:
     except (KeyboardInterrupt, EOFError):
         print(t("\nExiting."))
         return 0
-    except RuntimeError as error:
+    except (RuntimeError, ValueError, TypeError, OSError) as error:
         print(tf("\n[ERROR] The operation did not complete: {}", error))
         return 1
     return 0

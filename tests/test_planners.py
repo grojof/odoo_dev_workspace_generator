@@ -291,3 +291,24 @@ def test_refresh_ignores_a_trailing_blank_line_from_older_writes():
     cfg = _cfg(versions=["18.0"])
     current = {path: text + "\n" for path, text in _generated(cfg).items()}
     assert planners.plan_refresh_files(cfg, None, current.get) == []
+
+
+def test_refresh_backups_are_stamped_so_none_is_overwritten():
+    cfg = _cfg(versions=["18.0"])
+    current = _generated(cfg)
+    launch = cfg.vscode_dir / "launch.json"
+    current[launch] = "{}\n"
+    cmds = [c.command for c in planners.plan_refresh_files(cfg, None, current.get, "20260919-221500")]
+    assert cmds[0] == f"cp -p {launch} {launch}.bak-20260919-221500"
+
+
+def test_staging_commit_no_longer_hides_git_failures():
+    from pathlib import Path
+
+    from odoo_dwg.models import MigrationEnv
+
+    cmds = planners.plan_stage_module(MigrationEnv(source="16.0", target="17.0"), "m", Path("/src"))
+    worktree = [c.command for c in cmds if " init -q && " in c.command]
+    assert worktree, "the stage still prepares a git worktree"
+    for command in worktree:
+        assert "|| true" not in command and command.endswith("--allow-empty")

@@ -32,7 +32,8 @@ class ProvisionFacts:
     postgres_installed: bool = False
     postgres_running: bool = False
     dev_role: str = DEFAULT_DB_ROLE
-    dev_role_exists: bool = False
+    # None: it could not be told without a password prompt.
+    dev_role_exists: bool | None = False
     postgres_version: int | None = None
     wkhtmltopdf: str | None = None
     node: bool = False
@@ -176,6 +177,8 @@ def provision_rows(facts: ProvisionFacts) -> list[tuple[str, str, str]]:
 
     if facts.dev_role_exists:
         rows.append(("OK", f"Dev role ({facts.dev_role})", "present"))
+    elif facts.dev_role_exists is None:
+        rows.append(("WARN", f"Dev role ({facts.dev_role})", "could not check without sudo — run it with sudo, or connect as the role once"))
     else:
         rows.append(("MISSING", f"Dev role ({facts.dev_role})", "not found"))
 

@@ -33,13 +33,12 @@ def test_interpreter_matrix_matches_wsl_measurements():
 def test_every_step_of_every_chain_is_native():
     for source, target in (("12.0", "19.0"), ("13.0", "18.0"), ("12.0", "13.0")):
         env = MigrationEnv(source=source, target=target)
-        assert all(env.is_native(v) for v in env.chain()), (source, target)
+        assert all(migration_interpreter(v)[1] == "uv" for v in env.chain()), (source, target)
 
 
 def test_env_derived_paths():
     env = MigrationEnv(source="13.0", target="18.0")
     assert env.chain() == ["14.0", "15.0", "16.0", "17.0", "18.0"]
-    assert env.is_native("14.0") is True
     assert env.odoo_clone_dir("16.0").name == "odoo-16.0"
     assert env.openupgrade_clone_dir("16.0").name == "openupgrade-16.0"
     assert env.venv_dir("14.0").name == "odoo14"
@@ -84,7 +83,7 @@ def test_run_migration_sh_runs_the_13_step_natively_with_an_explicit_addons_path
     sh = templates.render_run_migration_sh(env)
     assert "docker" not in sh
     # The <= 13 step runs the fork's own odoo-bin from its venv...
-    assert f'"{env.venv_dir("13.0")}/bin/python" "{env.odoo_bin("13.0")}"' in sh
+    assert f'{env.venv_dir("13.0")}/bin/python {env.odoo_bin("13.0")}' in sh
     # ...and neither of the >= 14 flags, which do not exist on that branch.
     step13 = sh.split("upgrade to 13.0")[1].split("upgrade to 14.0")[0]
     assert "--upgrade-path" not in step13 and "--load=" not in step13
@@ -281,9 +280,40 @@ def test_venv_plan_pins_setuptools_only_where_pkg_resources_is_imported():
             if "psycopg2-binary" in c.command and f"odoo{version.split('.')[0]}" in c.command
         )
         for version in env.chain()
-        if env.is_native(version)
     }
     for version in ("14.0", "15.0", "16.0"):
         assert "setuptools<81" in installs[version], version
     for version in ("17.0", "18.0", "19.0"):
         assert "setuptools" not in installs[version], version
+
+
+def test_a_ready_venv_is_rebuilt_when_its_step_is_pinned_to_another_python():
+    env = MigrationEnv(source="16.0", target="17.0")
+    marker = env.venv_ready_marker("17.0")
+    built_on = {env.venv_dir("17.0") / "pyvenv.cfg": "home = /x\nuv = 0.12\nversion_info = 3.10\n"}
+    # Built on the recommended 3.10 and still wanted there: kept.
+    same = planners.plan_migration_venvs(env, exists=lambda p: p == marker, read=built_on.get)
+    assert not any("odoo17" in c.command for c in same)
+    # Pinned to 3.12 now: rebuilt with it.
+    env.set_interpreter_override("17.0", "3.12")
+    rebuilt = planners.plan_migration_venvs(env, exists=lambda p: p == marker, read=built_on.get)
+    assert any("--python 3.12" in c.command and "odoo17" in c.command for c in rebuilt)
+    # Unreadable pyvenv.cfg: a ready venv is kept, as before.
+    kept = planners.plan_migration_venvs(env, exists=lambda p: p == marker)
+    assert not any("odoo17" in c.command for c in kept)
+
+
+def test_operator_pins_must_be_plain_python_versions():
+    env = MigrationEnv(source="16.0", target="17.0")
+    for bad in ("3.x", "3.10; rm -rf ~", "python3", "3", ""):
+        with pytest.raises(ValueError, match="invalid Python version"):
+            env.set_interpreter_override("17.0", bad)
+
+
+def test_gevent_repair_matches_any_310_patch_level():
+    def repairs(python):
+        text = templates.render_migration_overrides("17.0", python)
+        return [line for line in text.splitlines() if not line.startswith("# Generated")]
+    assert repairs("3.10.14") == repairs("3.10")
+    assert "gevent==22.10.2" in repairs("3.10")
+    assert repairs("3.12") == []

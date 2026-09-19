@@ -34,8 +34,11 @@ DB_ROLE_RE = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 # addons/web/controllers/main.py on 14, database.py on 19).
 DB_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]+$")
 
-# First-class development versions (see the plan: dev on current majors).
-SUPPORTED_DEV_VERSIONS: tuple[str, ...] = ("17.0", "18.0", "19.0")
+# An OCA repository name as it appears in github.com/OCA/<repo>: never a path.
+OCA_REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
+# A PostgreSQL host: a DNS name or an IPv4/IPv6 literal, nothing a shell or an
+# odoo.conf line could misread.
+DB_HOST_RE = re.compile(r"^([A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?|[0-9A-Fa-f:.]{2,45})$")
 
 # OpenUpgrade changed layout at 14: up to 13 the checkout is a full Odoo fork
 # whose migration scripts live inside each add-on; from 14 it is an add-on
@@ -46,6 +49,23 @@ LEGACY_LAYOUT_MAX_MAJOR = 13
 MIGRATION_CHAIN: tuple[str, ...] = (
     "12.0", "13.0", "14.0", "15.0", "16.0", "17.0", "18.0", "19.0",
 )
+
+
+def version_error(version: object) -> str | None:
+    """Why ``version`` is not a supported Odoo version string, or None.
+
+    Exactly one of the chain's ``NN.0`` strings: a version ends up in paths,
+    generated scripts and ``odoo.conf``, so anything looser (``18``,
+    ``18.0$(…)``) is refused here rather than quoted everywhere downstream."""
+    if isinstance(version, str) and version in MIGRATION_CHAIN:
+        return None
+    return f"invalid Odoo version: {version!r} (supported: {', '.join(MIGRATION_CHAIN)})."
+
+
+def _port_error(label: str, value: object, highest: int = 65535) -> str | None:
+    if isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= highest:
+        return None
+    return f"invalid {label}: {value!r} (a whole number from 1 to {highest})."
 
 def odoo_major(version: str) -> int:
     """Parse the major from an Odoo version string (``18.0`` → ``18``)."""
@@ -94,6 +114,17 @@ REQUIREMENT_SUBSTITUTES: dict[int, tuple[str, str]] = {
 def requirement_substitute(version: str) -> tuple[str, str] | None:
     """``(dropped project, replacement)`` for a version's requirements, if any."""
     return REQUIREMENT_SUBSTITUTES.get(odoo_major(version))
+
+
+# An interpreter an operator may name: CPython 3.N, as uv and the venv tools take it.
+PYTHON_VERSION_RE = re.compile(r"^3\.[0-9]{1,2}$")
+
+
+def python_version_error(python: object) -> str | None:
+    """Why ``python`` is not a ``3.N`` interpreter version, or None."""
+    if isinstance(python, str) and PYTHON_VERSION_RE.fullmatch(python):
+        return None
+    return f"invalid Python version: {python!r} (expected e.g. 3.10)."
 
 
 def python_tuple(python: str) -> tuple[int, ...]:
@@ -530,12 +561,25 @@ def migration_interpreter(version: str) -> tuple[str | None, str]:
 def migration_chain(source: str, target: str) -> list[str]:
     """Ascending list of target versions from just-after ``source`` up to
     ``target`` (sequential, no skips), e.g. ``13.0``→``18.0`` ⇒ 14,15,16,17,18."""
+    for version in (source, target):
+        error = version_error(version)
+        if error:
+            raise ValueError(error)
     lo, hi = odoo_major(source), odoo_major(target)
     if lo >= hi:
         raise ValueError(f"source ({source}) must be older than target ({target}).")
     if lo < 12 or hi > 19:
         raise ValueError("migration is supported within the 12.0–19.0 range.")
     return [f"{major}.0" for major in range(lo + 1, hi + 1)]
+
+
+@dataclass
+class Command:
+    """One step of a plan: what it does, and the shell command that does it.
+    Planners build these (pure); only ``system`` runs them."""
+
+    description: str
+    command: str
 
 
 @dataclass
@@ -581,7 +625,6 @@ class WorkspaceConfig:
 
     name: str
     versions: list[str] = field(default_factory=lambda: ["18.0"])
-    addon_prefix: str = ""
     http_port_base: int = 8069
     db_host: str = "127.0.0.1"
     db_port: int = 5432
@@ -697,30 +740,42 @@ class WorkspaceConfig:
     def normalize_defaults(self) -> None:
         if not self.db_user:
             self.db_user = DEFAULT_DB_ROLE
-        if not self.addon_prefix:
-            self.addon_prefix = self.name
-        # De-duplicate and order versions for stable port assignment.
-        self.versions = sorted(set(self.versions), key=odoo_major)
+        # De-duplicate and order versions for stable port assignment. Malformed
+        # values are left for validate() to report, not raised here.
+        if isinstance(self.versions, list) and all(
+            version_error(v) is None for v in self.versions
+        ):
+            self.versions = sorted(set(self.versions), key=odoo_major)
 
     def validate(self) -> None:
         errors: list[str] = []
-        if not WORKSPACE_NAME_RE.fullmatch(self.name):
+        if not (isinstance(self.name, str) and WORKSPACE_NAME_RE.fullmatch(self.name)):
             errors.append(
                 "invalid workspace name: start with a lowercase letter, "
                 "only [a-z0-9_], max 32 chars."
             )
-        if not DB_ROLE_RE.fullmatch(self.db_user):
+        if not (isinstance(self.db_user, str) and DB_ROLE_RE.fullmatch(self.db_user)):
             errors.append(
                 f"invalid db_user: {self.db_user!r} (a PostgreSQL role: lowercase letters, "
                 "digits and underscores, max 63 chars)."
             )
-        if not self.versions:
+        if not isinstance(self.versions, list) or not self.versions:
             errors.append("at least one Odoo version is required.")
-        for version in self.versions:
-            try:
-                odoo_major(version)
-            except ValueError:
-                errors.append(f"invalid Odoo version: {version!r} (expected e.g. 18.0).")
+        else:
+            errors += [e for e in map(version_error, self.versions) if e]
+        if not isinstance(self.oca_repos, list):
+            errors.append("oca_repos must be a list of OCA repository names.")
+        else:
+            errors += [
+                f"invalid OCA repository name: {repo!r}."
+                for repo in self.oca_repos
+                if not (isinstance(repo, str) and OCA_REPO_RE.fullmatch(repo) and ".." not in repo)
+            ]
+        if not (isinstance(self.db_host, str) and DB_HOST_RE.fullmatch(self.db_host)):
+            errors.append(f"invalid db_host: {self.db_host!r} (a host name or IP address).")
+        # The highest instance port plus the bus offset (+1000) must stay valid.
+        errors += [e for e in (_port_error("db_port", self.db_port),
+                               _port_error("http_port_base", self.http_port_base, 64000)) if e]
         if errors:
             raise ValueError(" ".join(errors))
 
@@ -816,15 +871,15 @@ class MigrationEnv:
         chain = self.chain()
         if version not in chain:
             raise ValueError(f"{version} is not a step in this chain ({', '.join(chain)}).")
+        error = python_version_error(python)
+        if error:
+            raise ValueError(error)
         choice = resolve_interpreter(version, operator_choice=python)
         self.interpreter_overrides[version] = python
         return choice
 
     def clear_interpreter_override(self, version: str) -> None:
         self.interpreter_overrides.pop(version, None)
-
-    def is_native(self, version: str) -> bool:
-        return self.interpreter(version)[1] == "uv"
 
     def odoo_clone_dir(self, version: str) -> Path:
         return self.repos_dir / f"odoo-{version}"
@@ -904,6 +959,24 @@ class MigrationEnv:
                 odoo / "odoo" / "addons",
             )
         return ",".join(str(p) for p in parts)
+
+    def coverage_dirs(self, version: str) -> list[Path]:
+        """Every directory a step resolves modules from, in lookup order: its
+        ``addons_path`` plus the core add-ons ``odoo-bin`` always adds itself
+        (``<odoo>/odoo/addons``). For a <= 13 step that is the fork's own
+        ``odoo/addons``, where ``base`` lives; no separate Odoo clone exists."""
+        dirs = [Path(part) for part in self.addons_path(version).split(",")]
+        if self.uses_legacy_layout(version):
+            dirs.append(self.openupgrade_clone_dir(version) / "odoo" / "addons")
+        return dirs
+
+    def apriori_file(self, version: str) -> Path:
+        """Where a step's OpenUpgrade declares module renames and merges: inside
+        ``openupgrade_records`` in a <= 13 fork, ``openupgrade_scripts`` from 14."""
+        openupgrade = self.openupgrade_clone_dir(version)
+        if self.uses_legacy_layout(version):
+            return openupgrade / "odoo" / "addons" / "openupgrade_records" / "lib" / "apriori.py"
+        return openupgrade / "openupgrade_scripts" / "apriori.py"
 
     def uses_legacy_layout(self, version: str) -> bool:
         """True where OpenUpgrade keeps migrations inside each add-on (<= 13),

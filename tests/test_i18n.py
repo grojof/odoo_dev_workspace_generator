@@ -49,7 +49,7 @@ from pathlib import Path  # noqa: E402
 PACKAGE = Path(__file__).resolve().parent.parent / "odoo_dwg"
 # Calls whose first argument is shown to the operator (translated at a chokepoint).
 _FIRST_ARG = {
-    "t", "tf", "ask_text", "ask_bool", "ask_int", "ask_port", "ask_secret",
+    "t", "tf", "ask_text", "ask_bool",
     "prompt_label", "title", "confirm_with_phrase", "choose", "Command",
 }
 

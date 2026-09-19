@@ -69,7 +69,14 @@ def _apply() -> None:
     if not facts.postgres_installed or not facts.dev_role_exists:
         commands += planners.plan_postgresql(role)
     if not facts.wkhtmltopdf or "with patched qt" not in facts.wkhtmltopdf.lower():
-        commands += planners.plan_wkhtmltopdf(_DEV_WKHTMLTOPDF_MAJOR, facts.os_codename)
+        wkhtmltopdf = planners.plan_wkhtmltopdf(_DEV_WKHTMLTOPDF_MAJOR, facts.os_codename)
+        if not wkhtmltopdf:
+            print(level_text("WARN", tf(
+                "No verified patched wkhtmltopdf is pinned for {} — install it by hand "
+                "(github.com/wkhtmltopdf/packaging) or PDF reports will be degraded.",
+                facts.os_codename or "this host",
+            )))
+        commands += wkhtmltopdf
     if ask_bool(
         "Install rtlcss (with Node.js)? Only needed if users work in a right-to-left language (Arabic, Hebrew, Persian…)",
         False,
@@ -119,9 +126,7 @@ def _egress_status() -> tuple[str | None, bool, str | None, bool]:
 
 
 def _uninstall_opensnitch() -> None:
-    packages = " ".join(planners.OPENSNITCH_PACKAGE_NAMES)
-    simulated = system.run(f"apt-get -s purge --autoremove {packages}", check=False).stdout
-    removed = sorted({line.split()[1] for line in simulated.splitlines() if line.startswith("Purg ")})
+    removed = system.apt_purge_removals(planners.OPENSNITCH_PACKAGE_NAMES)
     print(level_text("INFO", tf("apt would remove {} package(s): {}", len(removed), ", ".join(removed))))
     print(level_text("INFO", tf("Your own rules in {} are kept.", egress.OPENSNITCH_RULES_DIR)))
     if not confirm_with_phrase(t("This removes the outbound firewall."), "UNINSTALL"):
