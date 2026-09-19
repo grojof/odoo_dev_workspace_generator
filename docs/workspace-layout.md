@@ -64,3 +64,16 @@ The workspace is set up for the **official** Odoo extension (`Odoo.odoo`) and it
 `odools.toml` with one profile per version (switch it from the status bar), Pylance turned off so Python is
 analysed once, and no `jsconfig.json`. What is emitted, what is deliberately not, and how to keep up with the
 extension's releases: [`editor-integration.md`](editor-integration.md).
+
+## Shared clones are shallow
+
+The Odoo and OCA clones in `<base>/.repos` are made with `--depth 1`: a development workspace never reads the
+branch history, and it is most of a clone's size (an Odoo branch is about 5 GB with history, about 1 GB without).
+**Refresh shared repos** keeps working on them. If you need `git log` or `git blame` on the Odoo source, fetch
+the history once:
+
+```bash
+git -C ~/odoo-workspaces/.repos/odoo-18.0 fetch --unshallow
+```
+
+Clones made before shallow cloning became the default are left as they are.

@@ -4,7 +4,7 @@ Thanks for your interest. This project is small and spec-driven; the bar is cons
 
 ## Ground rules
 
-- **Zero runtime dependencies** — Python 3.10+ standard library only. Adding a runtime dependency is an
+- **Zero runtime dependencies** — Python 3.12+ standard library only. Adding a runtime dependency is an
   architectural decision, not a convenience.
 - **Spec-first for non-trivial changes**: behavior lives in `openspec/specs/`; changes go through the
   OpenSpec flow (`openspec/changes/`). Trivial fixes may go straight to a PR.
@@ -20,15 +20,6 @@ python -m pytest -q                 # unit tests (no network, no real filesystem
 python -m ruff check .              # lint
 openspec validate --specs           # capability specs well-formed
 python -m odoo_dwg --help           # CLI smoke test
-```
-
-The reference box runs Python 3.12, but the [support matrix](docs/support-matrix.md) declares **3.10** as the
-floor (Ubuntu 22.04's system Python). Nothing else exercises it, so run the suite on it too — `uv` provides
-the interpreter, it costs a fraction of a second, and it is what catches a 3.11+ construct slipping in
-(`tomllib`, for instance, does not exist at 3.10):
-
-```bash
-PYTHONPATH=. uv run --python 3.10 --with pytest --no-project pytest -q
 ```
 
 Real end-to-end validation happens on a Linux host (WSL Ubuntu 24.04 is the reference box).

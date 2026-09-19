@@ -329,6 +329,9 @@ bash scripts/run-odoo{cfg.instances()[0].major}.sh          # launch the {cfg.ve
 
 Each instance's `addons_path` is composed of `addons-custom`, the OCA repos, then the shared Odoo `addons`.
 Open `{cfg.name}.code-workspace` in VSCode for tasks and debug launch configs.{editor_hint}
+
+The shared Odoo clones are shallow (no history). For `git log`/`git blame` on the Odoo source, run
+`git -C {cfg.repos_dir}/odoo-<version> fetch --unshallow` once.
 """
 
 

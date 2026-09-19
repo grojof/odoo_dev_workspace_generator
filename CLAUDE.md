@@ -44,7 +44,7 @@ unless they are `system.py`.
 
 ## Non-negotiable principles
 
-- **Zero runtime dependencies.** Python 3.10+, `from __future__ import annotations`, stdlib only. System
+- **Zero runtime dependencies.** Python 3.12+, `from __future__ import annotations`, stdlib only. System
   tools (`git`, `uv`, `psql`…) are host prerequisites detected by `provision check`, never Python
   deps. Adding a runtime dependency requires a documented design decision.
 - **Plan → preview → confirm → apply is inviolable.** No code path mutates the host without a previewed
@@ -55,8 +55,8 @@ unless they are `system.py`.
   `docs/support-matrix.md` and declared once in `models.py`; never assume them, and never restate a
   bound elsewhere. Each bound carries its evidence tier (`official`/`derived`/`untested`).
 - **Host-agnostic.** Target "a Linux host"; never assume WSL. The environment is the user's choice.
-- **No AI/MCP coupling.** Install nothing AI-related; the generated per-workspace README is the context
-  source. AI emitters are an opt-in future item (see roadmap).
+- **No AI/MCP coupling.** Install nothing AI-related and emit nothing assistant-specific; the generated
+  per-workspace README is the context source for any assistant.
 - **Quote and validate** every operator-supplied value reaching a shell or SQL string (`shlex.quote`,
   validators in `models.py`).
 
@@ -82,8 +82,6 @@ python -m odoo_dwg --help           # CLI smoke test
 ```
 
 ```bash
-# The declared floor (3.10) — the reference box runs 3.12, so nothing else exercises it:
-PYTHONPATH=. uv run --python 3.10 --with pytest --no-project pytest -q
 python tools/verify_support_matrix.py   # re-derive the support matrix from its sources (network; not in the suite)
 python tools/verify_odools_config.py    # editor config vs the latest official OdooLS release (network)
 ```

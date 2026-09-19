@@ -56,12 +56,14 @@ items are host-dependent.
   `MAX_PY_VERSION`); Odoo 19's PostgreSQL floor corrected to 13. Interpreter choice now exists in both the
   workspace and migration flows. Development of this repo moved into WSL (clone under `~`, not `/mnt/c`);
   [`docs/wsl-setup.md`](wsl-setup.md) covers getting the tool onto a host.
-- **F4 — Optional AI emitters** — opt-in, text-only emitters (CLAUDE.md / skills / agents for a user's
-  assistant), never installing runtimes, never a default. A parked proposal exists:
-  `openspec/changes/add-ai-emitters/` — fill it forward with `/opsx:` and apply.
-- **Workspace shallow-clone option** — an opt-in `--depth 1` for dev workspace clones. F1 acceptance showed a
-  full single-branch Odoo clone is ~394 MB; some users want history, some want speed. Add a profile flag.
-  (Migration clones already use `--depth 1`.) Candidate for a small OpenSpec change.
+- ~~F4 — Optional AI emitters~~ — **dropped** (2026-09-19, change `lighten-scope`). Emitting `CLAUDE.md`,
+  skills or other assistants' rules files would couple the tool to formats that change month to month, one per
+  assistant, while the per-workspace README already gives any assistant its context without coupling to one.
+  The parked proposal was deleted. Revisit only if one format becomes a stable, cross-assistant standard.
+- ~~Workspace shallow clones~~ — **done** (2026-09-19, change `lighten-scope`), as the default and without a
+  profile option. The earlier note here (a full clone "~394 MB") was wrong by an order of magnitude: measured
+  full single-branch clones were 4.2 GB (Odoo 14) and 5.7 GB (Odoo 18), almost all history; shallow ones are
+  0.9 and 1.3 GB. `git fetch --unshallow` restores history for whoever needs it, and refreshing still works.
 - ~~CI workflow~~ — **not planned for now** (decided 2026-09-17). The case for it was testing the declared
   Python floor, which the reference box does not run — but that costs a fraction of a second locally
   (`PYTHONPATH=. uv run --python 3.10 --with pytest --no-project pytest -q`, now in `CONTRIBUTING.md`), so
@@ -82,10 +84,10 @@ items are host-dependent.
   [`docs/editor-integration.md`](editor-integration.md) keep the emitted file in step with new releases.
   Validated by running the official OdooLS binaries (1.4.0 stable and 1.5.2 beta) against a generated
   workspace. Open: whether to adopt any 1.5 key once 1.5 reaches the stable channel.
-- **Provision password-auth mode** — instead of loopback `trust`, create the PostgreSQL role with a password
-  and write `db_password` into the workspace `odoo.conf` (needs an `odoo.conf` password field). Safer for
-  shared/remote PostgreSQL; the current trust is dev-only. (Deferred open question from F2 design.)
-
+- ~~Provision password-auth mode~~ — **dropped** (2026-09-19, change `lighten-scope`). It serves shared or
+  remote PostgreSQL, which a local development tool does not target, and it would add secret generation and
+  storage, a plaintext password in `odoo.conf` and new `pg_hba` rules — a security surface with no user.
+  Loopback `trust` is documented as intentional in `docs/provisioning.md`, with the manual steps if needed.
 ## Validation / refinement (host-dependent)
 
 - ~~Migration overrides tuning~~ — **done** (2026-07-18): 14/15 install clean on 3.8; 16/17 needed the
@@ -110,14 +112,18 @@ items are host-dependent.
   container path was worse than a workaround: the `odoo:13.0` image's `addons_path` meant the step ran the
   *image's* add-ons, skipping every add-on migration script while reporting success. **Docker is gone from
   the project** — provisioning, preflight and the driver no longer mention it.
-- **Confirm the Ubuntu 22.04 column of the support matrix** — its system Python (3.10) and PostgreSQL (14)
-  are read from `packages.ubuntu.com`, not from a running jammy host. Needs a 22.04 host or container, which
-  the CI item above would also provide.
+- ~~Confirm Ubuntu 22.04~~ — **dropped with the host** (2026-09-19, change `lighten-scope`). It was declared
+  but never run on a real host — the reason Debian was dropped — and it pinned the tool at Python 3.10. Ubuntu
+  24.04 is the only supported host and the tool's floor is 3.12.
 - ~~Workspace venv on a `uv`-provisioned interpreter~~ — **done** (2026-09-17): an `acme` workspace with
   Odoo 14 + 18 was generated and applied on WSL Ubuntu 24.04. The out-of-range version built on `uv`
   Python 3.8.20 and the in-range one on the host's 3.12.3; both requirement sets installed **without
   overrides** (unlike the migration path, which needs them at 3.10), and `odoo-bin --version` runs in each
   venv. Remaining for a full serve check: the generated profile's `db_user` defaults to the workspace name,
   so serving needs a PostgreSQL role of that name — `provision apply` creates whichever role you name.
-- **VSCode `launch.json` debug shape** — confirm the debugpy + `odoo-bin` launch config attaches against a
-  real run on WSL (F1 open question).
+- **One manual VSCode check** — open a generated workspace in VSCode once and confirm two things the CLI
+  cannot: the official extension's status-bar switcher lists one profile per version, and **F5** attaches the
+  debugger with the generated `launch.json` (debugpy + `odoo-bin`; `odoo.conf` already runs threaded,
+  `workers = 0`, so the debugger can attach). Two minutes, not tracked work.
+- **When OdooLS 1.5 reaches the stable channel** — run `python tools/verify_odools_config.py` and decide whether
+  any 1.5 key is worth emitting, following [`editor-integration.md`](editor-integration.md).

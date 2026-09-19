@@ -50,10 +50,16 @@ def test_ready_host_reports_ok():
 
 
 def test_supported_ubuntu_release_is_ok():
-    rows = provision_rows(ProvisionFacts(os_id="ubuntu", os_version_id="22.04", os_codename="jammy"))
+    rows = provision_rows(ProvisionFacts(os_id="ubuntu", os_version_id="24.04", os_codename="noble"))
     states = _states(rows)
     assert states["Host release"] == "OK"
-    assert "22.04" in next(d for _s, c, d in rows if c == "Host release")
+    assert "24.04" in next(d for _s, c, d in rows if c == "Host release")
+
+
+def test_ubuntu_22_04_is_no_longer_supported():
+    # Declared once, never validated on a real host - dropped like Debian.
+    rows = provision_rows(ProvisionFacts(os_id="ubuntu", os_version_id="22.04", os_codename="jammy"))
+    assert _states(rows)["Host release"] == "WARN"
 
 
 def test_debian_is_no_longer_reported_as_supported():

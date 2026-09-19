@@ -269,17 +269,17 @@ class HostSupport:
     reference: bool = False
 
 
-# Ubuntu only, and only these releases: Debian was dropped rather than implying
-# support that was never validated. Each row's system Python and PostgreSQL come
-# from packages.ubuntu.com for that codename.
+# One host, and only one: the release every end-to-end acceptance runs on.
+# Debian and then Ubuntu 22.04 were dropped rather than implying support that
+# was never validated. The row's system Python and PostgreSQL come from
+# packages.ubuntu.com for that codename.
 SUPPORTED_HOSTS: tuple[HostSupport, ...] = (
-    HostSupport("Ubuntu 22.04 LTS", "ubuntu", "22.04", "jammy", "3.10", "14"),
     HostSupport("Ubuntu 24.04 LTS", "ubuntu", "24.04", "noble", "3.12", "16", reference=True),
 )
 
-# The tool's own floor: Ubuntu 22.04's system Python, the oldest host it targets.
-# Kept in step with ``requires-python`` in pyproject.toml.
-TOOL_PYTHON_MINIMUM = "3.10"
+# The tool's own floor: the supported host's system Python. Kept in step with
+# ``requires-python`` in pyproject.toml.
+TOOL_PYTHON_MINIMUM = "3.12"
 
 
 def supported_host(os_id: str, version_id: str) -> HostSupport | None:

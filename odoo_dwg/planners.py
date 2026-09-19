@@ -38,8 +38,12 @@ def plan_repo_cache(cfg: WorkspaceConfig, exists: Exists = _never) -> list[Comma
     """Clone each Odoo version and each OCA repo into the shared cache, once.
 
     A clone already present (``exists`` true) is skipped, never re-cloned or
-    mutated. Uses ``--branch <version> --single-branch`` per the official source
-    install.
+    mutated, whether it is shallow or full. Clones are shallow
+    (``--depth 1 --branch <version> --single-branch``): a development workspace
+    never reads the branch history, which is most of a clone's size (an Odoo
+    branch is ~5 GB with history, ~1 GB without). ``git fetch --unshallow``
+    restores it for whoever needs ``log``/``blame``, and refreshing with
+    ``pull --ff-only`` works the same on a shallow clone.
     """
     commands: list[Command] = []
     for version in cfg.versions:
@@ -49,7 +53,7 @@ def plan_repo_cache(cfg: WorkspaceConfig, exists: Exists = _never) -> list[Comma
         commands.append(
             Command(
                 tf("Clone Odoo {} into the shared cache", version),
-                f"git clone --branch {shlex.quote(version)} --single-branch "
+                f"git clone --depth 1 --branch {shlex.quote(version)} --single-branch "
                 f"{shlex.quote(cfg.odoo_repo_url)} {shlex.quote(str(dest))}",
             )
         )
@@ -62,7 +66,7 @@ def plan_repo_cache(cfg: WorkspaceConfig, exists: Exists = _never) -> list[Comma
             commands.append(
                 Command(
                     tf("Clone OCA {} ({}) into the shared cache", repo, version),
-                    f"git clone --branch {shlex.quote(version)} --single-branch "
+                    f"git clone --depth 1 --branch {shlex.quote(version)} --single-branch "
                     f"{shlex.quote(url)} {shlex.quote(str(dest))}",
                 )
             )
@@ -172,14 +176,9 @@ BUILD_DEPS: tuple[str, ...] = (
 # package or skip — never a guessed URL.
 _WKHTMLTOPDF_BASE_URL = "https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-3"
 _WKHTMLTOPDF_ASSETS: dict[str, tuple[str, str]] = {
-    "jammy": ("wkhtmltox_0.12.6.1-3.jammy_amd64.deb",
-              "4f723b2691ad8638a9df960e0421d346d7315083e3583a334f33362280ddba15"),
+    # Upstream ships no noble build; the jammy one is what installs on 24.04.
     "noble": ("wkhtmltox_0.12.6.1-3.jammy_amd64.deb",
               "4f723b2691ad8638a9df960e0421d346d7315083e3583a334f33362280ddba15"),
-    "bookworm": ("wkhtmltox_0.12.6.1-3.bookworm_amd64.deb",
-                 "98ba0d157b50d36f23bd0dedf4c0aa28c7b0c50fcdcdc54aa5b6bbba81a3941d"),
-    "bullseye": ("wkhtmltox_0.12.6.1-3.bullseye_amd64.deb",
-                 "9c687f0c58cf50e01f2a6375d2e34372f8feeec56a84690ea113d298fccadd98"),
 }
 
 
