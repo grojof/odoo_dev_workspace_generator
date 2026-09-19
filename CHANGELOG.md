@@ -29,6 +29,10 @@ All notable changes to this project are documented here. The format is based on
   - `provision check` reports both and flags a softened firewall configuration.
   - `tools/verify_egress_pins.py` re-checks the pins, the signature and the signing key against upstream.
 
+### Fixed
+- **Node + rtlcss installed 455 packages.** `apt` added every recommended package, a GUI terminal among
+  them. It now installs `nodejs` and `npm` without recommends.
+
 ## [0.1.0] - 2026-09-19
 
 First release.

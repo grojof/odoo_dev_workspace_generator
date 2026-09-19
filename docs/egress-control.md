@@ -201,7 +201,7 @@ previewed and confirmed:
 |---|---|---|
 | Turn the outbound firewall **off** | `systemctl disable --now opensnitch` | Unrestricted network. It **stays off after a restart** until you turn it on. |
 | Turn the outbound firewall **on** | `systemctl enable --now opensnitch` | Back to deny-by-default, now and at every start. |
-| **Uninstall** the outbound firewall | turn it off, remove the tool's `00-odwg-*` rules, `apt-get purge --autoremove` of the two packages | Shows exactly which packages `apt` will remove, and asks you to type `UNINSTALL`. Your own rules in `/etc/opensnitchd/rules/` are kept. |
+| **Uninstall** the outbound firewall | turn it off, remove the tool's `00-odwg-*` rules, `apt-get purge --autoremove` of the two packages, unload the packet-queue kernel modules | Shows exactly which packages `apt` will remove, and asks you to type `UNINSTALL`. Your own rules in `/etc/opensnitchd/rules/` are kept. |
 | Turn the mail capture off / on | `systemctl disable --now mailpit` / `enable --now` | While it is off, Odoo's connection to `127.0.0.1:1025` is refused, so mail is still never delivered. Captured mail is kept. |
 | **Uninstall** the mail capture | turn it off, remove the unit, the binary and `/var/lib/mailpit` | Asks you to type `UNINSTALL`. Captured mail is deleted. |
 

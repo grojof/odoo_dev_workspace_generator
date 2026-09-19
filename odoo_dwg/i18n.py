@@ -279,6 +279,7 @@ _ES_TO_EN: dict[str, str] = {
     'Apagar la captura de correo': 'Turn the mail capture off',
     'Encender la captura de correo': 'Turn the mail capture on',
     'Desinstalar la captura de correo': 'Uninstall the mail capture',
+    "Descargar los módulos del kernel que usaba": "Unload the kernel modules it used",
 }
 
 # Runtime lookup: English (the in-code source) → Spanish.

@@ -332,7 +332,10 @@ def plan_wkhtmltopdf(major: int, codename: str) -> list[Command]:
 def plan_node_rtlcss() -> list[Command]:
     """Optional web toolchain for RTL/less asset compilation."""
     return [
-        Command(tf("Install Node.js and npm"), "apt-get update && apt-get -y install nodejs npm"),
+        # Without recommends: they pulled in 455 packages on Ubuntu 24.04, a GUI
+        # terminal among them, for what only needs node and npm.
+        Command(tf("Install Node.js and npm"),
+                "apt-get update && apt-get -y install --no-install-recommends nodejs npm"),
         Command(tf("Install rtlcss globally"), "npm install -g rtlcss"),
     ]
 
@@ -456,6 +459,9 @@ def plan_opensnitch_uninstall() -> list[Command]:
                 f"rm -f {shlex.quote(egress.OPENSNITCH_RULES_DIR)}/{egress.RULE_PREFIX}*.json"),
         Command(tf("Purge OpenSnitch and the packages it pulled in"),
                 f"apt-get -y purge --autoremove {packages}"),
+        # The packet-queue modules it loaded stay in the kernel until reboot otherwise.
+        Command(tf("Unload the kernel modules it used"),
+                "modprobe -r nft_queue nfnetlink_queue 2>/dev/null || true"),
     ]
 
 

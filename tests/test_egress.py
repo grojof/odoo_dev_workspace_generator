@@ -209,6 +209,7 @@ def test_opensnitch_uninstall_keeps_the_operators_rules():
     assert cmds[0] == "systemctl disable --now opensnitch"
     assert cmds[1] == f"rm -f /etc/opensnitchd/rules/{egress.RULE_PREFIX}*.json"
     assert cmds[2] == "apt-get -y purge --autoremove opensnitch python3-opensnitch-ui"
+    assert cmds[3] == "modprobe -r nft_queue nfnetlink_queue 2>/dev/null || true"
     assert not any("rm -rf /etc/opensnitchd" in c for c in cmds)
 
 

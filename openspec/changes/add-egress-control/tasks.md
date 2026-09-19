@@ -67,3 +67,9 @@
       - **Failure and recovery:**
         - killing the daemon blocks all traffic until systemd restarts it (≤ 30 s);
         - off, on and uninstall work from the submenu.
+- [x] 5.3 Operator acceptance on the same host. The operator installed from the menu, allowed their own tools from
+      the window, and uninstalled from the menu. It surfaced two fixes:
+      - a blank Mailpit UI from Windows, fixed by `InterceptUnknown: true`;
+      - kernel modules left loaded after uninstall, now unloaded by the uninstall plan.
+      It also surfaced one unrelated fix: the Node opt-in had pulled in 455 packages, and now installs without
+      recommends.
