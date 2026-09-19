@@ -70,6 +70,14 @@ unless they are `system.py`.
 - Conventional Commits, imperative mood, one logical change per commit, **no AI-attribution trailers**.
 - Pause and confirm before irreversible or sensitive actions (force-push, history rewrite, deleting a
   workspace/DB, secret access).
+- **Edit files one edit at a time, with a tool that fails per edit.** A script doing several substitutions
+  must report each one (applied / not found) instead of asserting, because an abort halfway leaves the rest
+  silently unapplied. Before committing, grep for the new text of every change the commit message claims:
+  twice in this repo a commit described edits that were never in the diff.
+- **Text that is executed is verified by executing it**, not by reading it: rendered shell through
+  `tools/verify_*.py`, a regex against the real inputs it must and must not match. Two bugs here (a `sed`
+  backreference left dangling by a changed capture group, a `grep` pattern eaten by shell quoting) were
+  invisible in review and immediate on the first run.
 
 ## Checks
 

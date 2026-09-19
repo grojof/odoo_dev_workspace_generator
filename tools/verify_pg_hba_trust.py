@@ -98,6 +98,23 @@ local   all             postgres                                peer
 host all all 127.0.0.0/8 trust
 """
 
+# The connection type the supported host actually uses: Ubuntu 24.04 ships
+# ssl = on, and libpq defaults to sslmode=prefer, so a hostssl record is the one
+# consulted for a loopback connection.
+HOSTSSL = """\
+local   all             postgres                                peer
+hostssl all             all             127.0.0.1/32            trust
+host    all             all             127.0.0.1/32            scram-sha-256
+"""
+
+HOSTGSSENC = """\
+local   all             postgres                                peer
+hostgssenc all all 127.0.0.1/32 trust
+"""
+
+# No trailing newline: appending must not fuse onto the last record.
+NO_FINAL_NEWLINE = "local   all             postgres                                peer"
+
 # The role's line is there, but a rule for every role above it decides the
 # connection first, so it is never read.
 SHADOWED_ROLE = """\
@@ -127,15 +144,62 @@ CASES = [
     ("a blanket trust on the loopback range", LOOPBACK_RANGE),
     ("a password rule whose comment mentions trust", NOT_A_TRUST),
     ("a role line shadowed by an earlier rule", SHADOWED_ROLE),
+    ("a hostssl blanket trust", HOSTSSL),
+    ("a hostgssenc blanket trust", HOSTGSSENC),
+    ("a file with no trailing newline", NO_FINAL_NEWLINE),
 ]
 
-ROLE_LINE = re.compile(
-    rf"^\s*host(nossl)?\s+all\s+{ROLE}\s+\S+(\s+[0-9a-fA-F.:]+)?\s+trust(\s|$)", re.MULTILINE
-)
-BLANKET_TRUST = re.compile(
-    r"^\s*host(nossl)?(\s+all){2}\s+\S+(\s+[0-9a-fA-F.:]+)?\s+trust(\s|$)",
-    re.MULTILINE,
-)
+# --- an oracle that is not the implementation ------------------------------
+#
+# This tool used to assert with a copy of `system.py`'s regex, so every shape
+# both missed passed as "no blanket trust survives" — which is how a `hostssl`
+# trust sailed through three rounds of it. These read records by *field*, the way
+# pg_hba's own parser does, so they can disagree with the code they check.
+
+_NETMASK = re.compile(r"^[0-9a-fA-F.:]+$")
+
+
+def _records(text: str) -> list[tuple[str, str, str, str]]:
+    """``(type, database, user, method)`` per rule line, fields split on blanks."""
+    out: list[tuple[str, str, str, str]] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        fields = line.split()
+        kind = fields[0]
+        if kind == "local":
+            if len(fields) >= 4:
+                out.append((kind, fields[1], fields[2], fields[3]))
+            continue
+        if not kind.startswith("host") or len(fields) < 5:
+            continue
+        # host<type> DATABASE USER ADDRESS [NETMASK] METHOD
+        #            [1]      [2]  [3]     [4]       [4 or 5]
+        method_at = 4
+        if "/" not in fields[3] and len(fields) > 5 and _NETMASK.match(fields[4]):
+            method_at = 5
+        if len(fields) > method_at:
+            out.append((kind, fields[1], fields[2], fields[method_at]))
+    return out
+
+
+def _has_blanket_trust(text: str) -> bool:
+    """Any TCP rule trusting every role, whatever address it names."""
+    return any(
+        kind.startswith("host") and db == "all" and user == "all" and method == "trust"
+        for kind, db, user, method in _records(text)
+    )
+
+
+def _role_is_reached(text: str) -> bool:
+    """First match wins: the role's own trust rule, before any rule for every role."""
+    for kind, db, user, method in _records(text):
+        if kind.startswith("host") and user == ROLE and method == "trust":
+            return True
+        if kind.startswith("host") and db == "all" and user == "all":
+            return False
+    return False
 
 
 def _script(into: Path) -> Path:
@@ -170,25 +234,24 @@ def main() -> int:
             probed = _probe(target)
             check(
                 f"{label}: the probe and the file agree on the blanket trust",
-                probed is not None and probed[0] == bool(BLANKET_TRUST.search(before)),
-                f"probe={probed} file_has_blanket={bool(BLANKET_TRUST.search(before))}",
+                probed is not None and probed[0] == _has_blanket_trust(before),
+                f"probe={probed} file_has_blanket={_has_blanket_trust(before)}",
             )
             check(
                 f"{label}: the probe and the file agree on whether the role's line is reached",
-                probed is not None and probed[1] == _role_rule_wins(before),
-                f"probe={probed} role_rule_reached={_role_rule_wins(before)}",
+                probed is not None and probed[1] == _role_is_reached(before),
+                f"probe={probed} role_rule_reached={_role_is_reached(before)}",
             )
 
             first = subprocess.run(["bash", str(script), str(target)], capture_output=True, text=True)
             after = target.read_text(encoding="utf-8")
             check(f"{label}: the step succeeds", first.returncode == 0, first.stderr)
-            check(f"{label}: the role gets its loopback trust", bool(ROLE_LINE.search(after)), after)
-            check(f"{label}: no blanket trust survives", not BLANKET_TRUST.search(after), after)
             check(
-                f"{label}: the role's rule comes before any rule for all roles",
-                _role_rule_wins(after),
+                f"{label}: the role's trust rule is the one that is reached",
+                _role_is_reached(after),
                 after,
             )
+            check(f"{label}: no blanket trust survives", not _has_blanket_trust(after), after)
 
             second = subprocess.run(["bash", str(script), str(target)], capture_output=True, text=True)
             check(
@@ -215,6 +278,32 @@ def main() -> int:
             )
         finally:
             locked.chmod(0o755)
+
+        # Rules this step cannot see one line at a time. It must refuse, not
+        # narrow what it can see and report success.
+        for label, content, word in (
+            ("a record continued onto the next line",
+             "local all postgres peer\nhost all all 127.0.0.1/32 \\\n    trust\n",
+             "continuation"),
+            ("rules pulled in from another file",
+             "local all postgres peer\ninclude_dir conf.d\n",
+             "include"),
+        ):
+            unseeable = root / "unseeable.conf"
+            unseeable.write_text(content, encoding="utf-8")
+            result = subprocess.run(
+                ["bash", str(script), str(unseeable)], capture_output=True, text=True
+            )
+            check(
+                f"{label}: the step refuses instead of narrowing what it can see",
+                result.returncode != 0 and word in result.stderr,
+                result.stdout + result.stderr,
+            )
+            check(
+                f"{label}: the file is left untouched",
+                unseeable.read_text(encoding="utf-8") == content,
+                unseeable.read_text(encoding="utf-8"),
+            )
 
         missing = subprocess.run(
             ["bash", str(script), str(root / "nope.conf")], capture_output=True, text=True
@@ -246,17 +335,6 @@ def _probe(fixture: Path) -> tuple[bool, bool] | None:
         return system.pg_hba_loopback_state(ROLE)
     finally:
         system.run, system.read_text = real_run, real_read
-
-
-def _role_rule_wins(text: str) -> bool:
-    """pg_hba is first-match-wins: the role's own rule must precede any `all`
-    rule that would match the same loopback connection."""
-    for line in text.splitlines():
-        if ROLE_LINE.match(line):
-            return True
-        if re.match(r"^\s*host(nossl)?(\s+all){2}\s", line):
-            return False
-    return False
 
 
 if __name__ == "__main__":

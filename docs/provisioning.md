@@ -63,18 +63,24 @@ and warns when every role — `postgres` included — may connect over loopback 
   before planning.
   The `pg_hba.conf` step runs on an already-provisioned host too, so a host left with a blanket loopback
   `trust` by an earlier version is narrowed the next time you apply; when the rules are already in that
-  shape, nothing is planned. What counts as a blanket `trust` is decided by the **method, not the address**:
-  any `host`/`hostnossl` rule for every role whose method is `trust` — `127.0.0.1/32`, `localhost`,
-  `samehost`, `127.0.0.1 255.255.255.255`, and equally `all`, `0.0.0.0/0` or `127.0.0.0/8`, which contain
-  loopback without naming it. The role's own line is inserted **before** any rule for every role, because
-  `pg_hba` is first-match-wins: a line below one of those is never read, and a line that is merely *present*
-  is not a narrowing. The step ends by **connecting as the role over loopback**: if it cannot, apply stops
-  there instead of reporting a narrowing that does not work.
+  shape, nothing is planned. What counts as a blanket `trust` is decided by the **method, not the address**,
+  on **every connection type** (`host`, `hostssl`, `hostnossl`, `hostgssenc`, `hostnogssenc`): any rule for
+  every role whose method is `trust` — `127.0.0.1/32`, `localhost`, `samehost`,
+  `127.0.0.1 255.255.255.255`, and equally `all`, `0.0.0.0/0` or `127.0.0.0/8`, which contain loopback
+  without naming it. `hostssl` matters in particular: Ubuntu 24.04 ships `ssl = on` and clients prefer TLS,
+  so a `hostssl` rule is the one your loopback connection is matched against.
+
+  The role's own line is inserted **before the first `host` rule of any kind**, because `pg_hba` is
+  first-match-wins: a line below a rule that already matches the connection is never read, and a line that
+  is merely *present* is not a narrowing. The step ends by **connecting as the role over loopback**: if it
+  cannot, apply stops there instead of reporting a narrowing that does not work.
 
   When `pg_hba.conf` cannot be read (it is root-owned, so run the check with `sudo`) or pulls in rules
   through `include`, `include_if_exists` or `include_dir`, the state cannot be had from that file alone. The
   check reports it as unknown (WARN) instead of claiming either answer, and apply plans the narrowing rather
-  than assuming it is done.
+  than assuming it is done. **The step then refuses** rather than rewrite a file whose rules it cannot read
+  one line at a time — an `include` directive, or a record continued with a trailing backslash — and says
+  which of the two it found: narrow that file by hand, or join the continued lines, and run apply again.
 
   Apply also acts when a probe could not answer: PostgreSQL installed but stopped, a role it could not check
   without a password, an unreadable `pg_hba.conf`. Everything it plans is idempotent, so the worst case is a

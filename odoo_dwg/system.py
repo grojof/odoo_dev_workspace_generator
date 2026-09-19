@@ -328,8 +328,8 @@ def db_role_exists(role: str, port: int = 5432) -> bool | None:
 # The method, not the address: an address can contain loopback without naming it
 # (`all`, `0.0.0.0/0`, `127.0.0.0/8`), and every such rule lets any local user in
 # as any role. Mirrors planners.BLANKET_TRUST_RULE.
-_BLANKET_TRUST = re.compile(r"^\s*host(nossl)?(\s+all){2}\s+\S+(\s+[0-9a-fA-F.:]+)?\s+trust(\s|$)")
-_ANY_ALL_ROLES = re.compile(r"^\s*host(nossl)?(\s+all){2}\s")
+_BLANKET_TRUST = re.compile(r"^\s*host[a-z]*(\s+all){2}\s+\S+(\s+[0-9a-fA-F.:]+)?\s+trust(\s|$)")
+_ANY_ALL_ROLES = re.compile(r"^\s*host[a-z]*(\s+all){2}\s")
 _INCLUDE = re.compile(r"^\s*include(_if_exists|_dir)?\s", re.IGNORECASE)
 
 
@@ -360,7 +360,7 @@ def pg_hba_loopback_state(role: str, port: int = 5432) -> tuple[bool, bool] | No
     lines = [line for line in text.splitlines() if not line.lstrip().startswith("#")]
     if any(_INCLUDE.match(line) for line in lines):
         return None
-    own = re.compile(rf"^\s*host(nossl)?\s+all\s+{re.escape(role)}\s+\S+\s+trust(\s|$)")
+    own = re.compile(rf"^\s*host[a-z]*\s+all\s+{re.escape(role)}\s+\S+\s+trust(\s|$)")
     role_trusted = False
     for line in lines:
         if own.match(line):

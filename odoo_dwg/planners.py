@@ -314,13 +314,13 @@ def plan_postgresql(role: str) -> list[Command]:
 # an address can contain loopback without naming it, so the method is what this
 # tool reasons about. The address is one token, or an address and a netmask.
 BLANKET_TRUST_RULE = (
-    "^([[:space:]]*host(nossl)?([[:space:]]+all){2}[[:space:]]+[^[:space:]]+"
+    "^([[:space:]]*host[a-z]*([[:space:]]+all){2}[[:space:]]+[^[:space:]]+"
     "([[:space:]]+[0-9a-fA-F.:]+)?[[:space:]]+)trust([[:space:]]|$)"
 )
 # Any rule for every role, and any host rule at all: the two anchors the role's
 # own line is inserted before, so it is never shadowed by one of them.
-ANY_ALL_ROLES_RULE = "^[[:space:]]*host(nossl)?([[:space:]]+all){2}[[:space:]]"
-ANY_HOST_RULE = "^[[:space:]]*host(nossl)?[[:space:]]"
+ANY_ALL_ROLES_RULE = "^[[:space:]]*host[a-z]*([[:space:]]+all){2}[[:space:]]"
+ANY_HOST_RULE = "^[[:space:]]*host[a-z]*[[:space:]]"
 
 
 def plan_pg_hba_trust(role: str) -> list[Command]:
@@ -337,10 +337,10 @@ def plan_pg_hba_trust(role: str) -> list[Command]:
     reached = (
         "awk '"
         "/^[[:space:]]*#/ { next } "
-        f"$0 ~ /^[[:space:]]*host(nossl)?[[:space:]]+all[[:space:]]+{role}[[:space:]]+"
+        f"$0 ~ /^[[:space:]]*host[a-z]*[[:space:]]+all[[:space:]]+{role}[[:space:]]+"
         "[^[:space:]]+([[:space:]]+[0-9a-fA-F.:]+)?[[:space:]]+trust([[:space:]]|$)/ "
         "{ found=1; exit } "
-        "$0 ~ /^[[:space:]]*host(nossl)?[[:space:]]+all[[:space:]]+all[[:space:]]/ { exit } "
+        "$0 ~ /^[[:space:]]*host[a-z]*[[:space:]]+all[[:space:]]+all[[:space:]]/ { exit } "
         "END { exit !found }' \"$PGHBA\""
     )
     # Only the development role, not every role: a blanket loopback trust would let
@@ -353,17 +353,30 @@ def plan_pg_hba_trust(role: str) -> list[Command]:
         'set -e',
         'PGHBA=$(sudo -u postgres psql -tAc "SHOW hba_file;")',
         '[ -f "$PGHBA" ] || { echo "pg_hba.conf not found: $PGHBA" >&2; exit 1; }',
-        f'sed -ri "s#{BLANKET_TRUST_RULE}#\\1scram-sha-256\\5#" "$PGHBA"',
+        # Rules this step cannot see, line by line: a record continued with a
+        # trailing backslash, or rules pulled in from another file. Narrowing
+        # what it can see would leave the rest and report success.
+        'grep -qE \'\\\\[[:space:]]*$\' "$PGHBA" && { echo "$PGHBA has line '
+        'continuations (a record split with a trailing backslash); join them and '
+        'run this again — this step reads one rule per line" >&2; exit 1; }',
+        r'grep -qiE "^[[:space:]]*include(_if_exists|_dir)?[[:space:]]" "$PGHBA" && '
+        r'{ echo "$PGHBA pulls in rules with an include directive; this step cannot '
+        r'see them — narrow that file by hand, or inline its rules" >&2; exit 1; }',
+        # \1 is everything up to the method, \4 the whitespace or end of line
+        # after it — keep both in step with BLANKET_TRUST_RULE's groups.
+        f'sed -ri "s#{BLANKET_TRUST_RULE}#\\1scram-sha-256\\4#" "$PGHBA"',
         f"if ! {reached}; then",
         # The insertion must be at least as permissive as the downgrade above, or
         # the role's line lands *after* a rule that matches the same connection
         # first — pg_hba is first-match-wins, and the line would never be read.
-        f'  if grep -qE {shlex.quote(ANY_ALL_ROLES_RULE)} "$PGHBA"; then',
-        f'    sed -ri "0,/{ANY_ALL_ROLES_RULE}/s##{v4}\\n{v6}\\n&#" "$PGHBA"',
-        f'  elif grep -qE {shlex.quote(ANY_HOST_RULE)} "$PGHBA"; then',
+        # Before the *first* host rule of any kind: anything later could be a rule
+        # that already matches this connection (a group role, a wider address).
+        f'  if grep -qE {shlex.quote(ANY_HOST_RULE)} "$PGHBA"; then',
         f'    sed -ri "0,/{ANY_HOST_RULE}/s##{v4}\\n{v6}\\n&#" "$PGHBA"',
         '  else',
-        f'    printf "%s\\n%s\\n" {shlex.quote(v4)} {shlex.quote(v6)} >> "$PGHBA"',
+        # Leading newline: a file with no final one would otherwise have its last
+        # record fused with the first inserted line, which pg_hba cannot parse.
+        f'    printf "\\n%s\\n%s\\n" {shlex.quote(v4)} {shlex.quote(v6)} >> "$PGHBA"',
         '  fi',
         'fi',
         f'{reached} || '

@@ -62,6 +62,20 @@ All notable changes to this project are documented here. The format is based on
   first run: dead variables in `setup_venv.sh`, and a failure path written as `a && b || c`).
 
 ### Fixed
+- **A blanket `trust` written on any connection type but `host`/`hostnossl` was invisible to the
+  narrowing** — and `hostssl` is not a corner case: Ubuntu 24.04 ships `ssl = on` and clients prefer TLS, so
+  a `hostssl all all 127.0.0.1/32 trust` is the rule a loopback connection is actually matched against. It
+  survived, the role's line was inserted *below* it, the closing connection check passed because of it, and
+  `provision check` reported `trust for odoo only` while any local user could still connect as `postgres`.
+  All five `host*` types are covered now, by a prefix that cannot miss a sixth.
+- **A `pg_hba.conf` with no final newline had its last record fused with the inserted rule**, which
+  PostgreSQL cannot parse. The append starts on a line of its own.
+- **A file whose rules cannot be read one line at a time is refused, not rewritten**: a record continued
+  with a trailing backslash, or rules pulled in with `include`/`include_if_exists`/`include_dir`. Narrowing
+  what such a file shows while leaving the rest would report a success that did not happen.
+- The role's line goes before the **first `host` rule of any kind**. Preferring a rule for every role could
+  only push it later — behind a group-role rule, for instance, which would shadow it.
+
 - **A blanket `trust` whose address merely *contained* loopback survived the narrowing** — `all` (what the
   official `postgres` image writes for `POSTGRES_HOST_AUTH_METHOD=trust`), `0.0.0.0/0`, `127.0.0.0/8` — and
   the check then reported `trust for odoo only`, with the network reachable in the `0.0.0.0/0` case. The

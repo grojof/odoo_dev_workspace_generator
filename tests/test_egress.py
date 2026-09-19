@@ -254,10 +254,14 @@ def test_loopback_trust_covers_only_the_development_role():
     # Anchored on the method, not on a list of addresses: `all`, `0.0.0.0/0` and
     # `127.0.0.0/8` all contain loopback without naming it.
     assert planners.BLANKET_TRUST_RULE in hba
-    assert r"scram-sha-256\5" in hba
-    # The role's line is inserted before any rule for every role, never after one
-    # that would match the same connection first.
-    assert planners.ANY_ALL_ROLES_RULE in hba and planners.ANY_HOST_RULE in hba
+    # …and on every connection type pg_hba has, not only host/hostnossl: the
+    # supported host runs with ssl = on, so `hostssl` is the record consulted.
+    assert "host[a-z]*" in planners.BLANKET_TRUST_RULE
+    # The backreference has to follow the pattern's own groups.
+    assert r"scram-sha-256\4" in hba
+    # The role's line is inserted before the first host rule of any kind, never
+    # after one that would match the same connection first.
+    assert planners.ANY_HOST_RULE in hba
     # The line is added when it is not *reached* — present but shadowed by an
     # earlier rule for every role is not good enough (first match wins).
     assert "if ! awk " in hba
@@ -266,9 +270,12 @@ def test_loopback_trust_covers_only_the_development_role():
     # in place or fails: a silent no-op would leave the role unable to connect.
     assert hba.rstrip().endswith('exit 1; }')
 
-    # Three insertion points: any loopback rule, any host rule, or the end of file.
-    assert hba.count('sed -ri "0,/^[[:space:]]*host') == 2
-    assert 'printf "%s\\n%s\\n"' in hba
+    # Two insertion points: before the first host rule, or at the end of the file
+    # — on its own line, since the file may not end with a newline.
+    assert hba.count('sed -ri "0,/^[[:space:]]*host') == 1
+    assert 'printf "\\n%s\\n%s\\n"' in hba
+    # A file whose rules it cannot see line by line is refused, not narrowed.
+    assert "continuations" in hba and "include directive" in hba
 
 
 def _operands(operator: dict) -> list[dict]:
