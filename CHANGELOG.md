@@ -31,6 +31,20 @@ All notable changes to this project are documented here. The format is based on
   - `tools/verify_egress_pins.py` re-checks the pins, the signature and the signing key against upstream.
 
 ### Changed
+- **`provision check` reads the loopback rules from PostgreSQL, not from `pg_hba.conf`** (change
+  `read-pg-hba-from-the-server`). `pg_hba_file_rules` is the server's own parse: continued records folded,
+  `include`/`include_dir` resolved and attributed to the file each rule came from, list fields split. Four
+  audit rounds had found the same defect in four disguises — a blanket trust written `localhost`, indented,
+  on an address that merely contains loopback, and finally on `hostssl`, which is the rule a loopback
+  connection is matched against on a host with `ssl = on`. The address-by-address matching that kept missing
+  them is gone.
+- **`provision apply` verifies its own rewrite against the server** before connecting as the role: no rule
+  may still trust every role — naming the file and line, which may be one the rewriter never saw — and the
+  first rule PostgreSQL matches for the role must be the one the step added.
+- `tools/verify_pg_hba_trust.py` asserts against a throwaway PostgreSQL cluster it creates and destroys,
+  and against a reading of the file written independently of the code under test. It had been asserting with
+  a copy of that code's own regex, which is why it passed a `hostssl` trust three rounds running.
+
 - **A plan now reports one line per step** while it runs, keeping any warning a step printed, and printing the
   end of a failed step's output before it stops. `--verbose` (or `ODWG_VERBOSE=1`) streams every line as
   before.

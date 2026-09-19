@@ -233,4 +233,4 @@ def test_a_state_that_could_not_be_had_is_never_read_as_narrow():
     """Unreadable, or full of include directives: either way, not "narrow"."""
     state, detail = _hba_row()  # both None
     assert state == "WARN"
-    assert "sudo" in detail and "include" in detail
+    assert "sudo" in detail and "stopped" in detail

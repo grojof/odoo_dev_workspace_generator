@@ -49,12 +49,20 @@ whose OpenUpgrade code is not on disk, a step that fails — which must name its
 upgrade-path ones. The unit suite may not shell out, so this is where the *behaviour* of the generated shell is checked — run it
 whenever `render_run_migration_sh` changes.
 
-`verify_pg_hba_trust.py` runs the `pg_hba.conf` rewriter over thirteen shapes of that file (the Ubuntu
+`verify_pg_hba_trust.py` runs the `pg_hba.conf` rewriter over sixteen shapes of that file (the Ubuntu
 default; a blanket trust written as CIDR, as `localhost`/`samehost`, indented, in `address netmask` form, as
 `hostnossl`, on `all`, on `0.0.0.0/0` and on `127.0.0.0/8`; a file with no `host` rules; one this tool
-already narrowed; a role line shadowed by an earlier rule; and — the only negative case — a password rule
-whose comment merely mentions trust, which it must leave alone), asserting each result and that `system.pg_hba_loopback_state` reads the same file the
-same way. It found the `localhost` spelling surviving the narrowing while the check reported it narrowed.
+already narrowed; a role line shadowed by an earlier rule; a `hostssl` and a `hostgssenc` trust; a file with
+no trailing newline; and — the only negative case — a password rule whose comment merely mentions trust,
+which it must leave alone), asserting each result.
+
+It asserts twice over. Once against a reading of the file written independently of the code under test: the
+first version of that tool asserted with a copy of `system.py`'s own regex, so every shape both missed
+passed as correct — which is how a `hostssl` trust survived three rounds of it. And once against
+**PostgreSQL itself**: it creates a throwaway cluster (`initdb` in a temp directory, its own port and
+socket, TLS on like the supported host), points it at each fixture, and asks `pg_hba_file_rules` and a real
+connection. It needs the PostgreSQL binaries and says so when they are absent, never touches the host's own
+cluster, and takes about a minute.
 
 `verify_generated_shell.py` renders every generated script (both OpenUpgrade layouts, both interpreter
 sources) and runs [ShellCheck](https://www.shellcheck.net) on it — install it with

@@ -23,8 +23,10 @@ python3 -m odoo_dwg provision      # menu: Check / Apply / Outbound firewall and
 `Check host readiness` prints a capability table, changes nothing and **never asks for a password**. PostgreSQL's
 state and version come from `pg_lsclusters`. The development role is checked by logging in as it over loopback,
 or through `sudo -n`. When neither works, the role row says it could not be checked (WARN), instead of claiming
-it is missing. The loopback-auth row reads `pg_hba.conf` (root-owned, so run the check with `sudo` to see it)
-and warns when every role — `postgres` included — may connect over loopback without a password:
+it is missing. The loopback-auth row asks **PostgreSQL itself** (`pg_hba_file_rules`, which needs `sudo`)
+rather than parsing `pg_hba.conf`, so it sees the rules the server actually uses — continuations folded,
+`include` files resolved — and warns when every role, `postgres` included, may connect over TCP without a
+password:
 
 ```
 +-------+-----------------------------------------+------------------------------------------------+
@@ -75,15 +77,21 @@ and warns when every role — `postgres` included — may connect over loopback 
   is merely *present* is not a narrowing. The step ends by **connecting as the role over loopback**: if it
   cannot, apply stops there instead of reporting a narrowing that does not work.
 
-  When `pg_hba.conf` cannot be read (it is root-owned, so run the check with `sudo`) or pulls in rules
-  through `include`, `include_if_exists` or `include_dir`, the state cannot be had from that file alone. The
-  check reports it as unknown (WARN) instead of claiming either answer, and apply plans the narrowing rather
-  than assuming it is done. **The step then refuses** rather than rewrite a file whose rules it cannot read
-  one line at a time — an `include` directive, or a record continued with a trailing backslash — and says
-  which of the two it found: narrow that file by hand, or join the continued lines, and run apply again.
+  After reloading, apply **asks the server what rules it now has** and fails the step if any rule still
+  trusts every role — naming the file and line, which may be one the rewriter never saw — or if the first
+  rule PostgreSQL matches for your role is not the one it just added. Only then does it connect as the role.
+  Every defect this feature has had was a step reporting a success that had not happened, so success is now
+  something PostgreSQL confirms.
+
+  The **rewriter** still reads text, and refuses rather than rewrite a file whose rules it cannot read one
+  line at a time — an `include` directive, or a record continued with a trailing backslash. It says which of
+  the two it found: narrow that file by hand, or join the continued lines, then run apply again. When PostgreSQL is
+  stopped, the view cannot be read without `sudo`, or the server reports a rule it could not parse, the
+  check says so (WARN) instead of claiming either answer, and apply plans the narrowing rather than assuming
+  it is done.
 
   Apply also acts when a probe could not answer: PostgreSQL installed but stopped, a role it could not check
-  without a password, an unreadable `pg_hba.conf`. Everything it plans is idempotent, so the worst case is a
+  without a password, a rule set it could not read. Everything it plans is idempotent, so the worst case is a
   no-op, while the alternative was telling you the host was ready when it had no role at all.
 - **wkhtmltopdf** — the Odoo-recommended patched build (0.12.6 for Odoo ≥ 15), downloaded for the host
   codename and **verified by SHA-256** before install; a mismatch aborts. 0.12.5, which Odoo recommends up to

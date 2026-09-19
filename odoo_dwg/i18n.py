@@ -249,6 +249,8 @@ _ES_TO_EN: dict[str, str] = {
     '¿Instalar o actualizar el cortafuegos de salida (OpenSnitch)?': 'Install or update the outbound firewall (OpenSnitch)?',
     '¿Instalar o actualizar la captura local de correo (Mailpit)?': 'Install or update the local mail capture (Mailpit)?',
     'Comprobar que {} conecta por loopback': 'Check that {} connects over loopback',
+    'Preguntar a PostgreSQL qué reglas tiene ahora para {}':
+        'Ask PostgreSQL what rules it now has for {}',
     'OpenSnitch bloquea toda conexión saliente sin regla y pregunta en su interfaz cuando está abierta. Odoo solo puede llegar a localhost, más DNS en el puerto 53; las herramientas de desarrollo conservan sus destinos. Ver docs/egress-control.md.': 'OpenSnitch blocks every outbound connection without a rule, asking in its UI when it is open. Odoo may reach only localhost, plus DNS on port 53; the development tools keep their hosts. See docs/egress-control.md.',
     'Base de datos cuyo correo redirigir': 'Database whose mail to redirect',
     'Nombre de base de datos no válido: {}': 'Invalid database name: {}',

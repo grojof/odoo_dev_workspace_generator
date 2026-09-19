@@ -403,8 +403,40 @@ def plan_pg_hba_trust(role: str) -> list[Command]:
             script,
         ),
         Command(tf("Reload PostgreSQL"), "systemctl reload postgresql"),
+        Command(tf("Ask PostgreSQL what rules it now has for {}", role), _pg_hba_audit(role)),
         Command(tf("Check that {} connects over loopback", role), probe),
     ]
+
+
+def _pg_hba_audit(role: str) -> str:
+    """Ask the server what it parsed, rather than trusting the text just written.
+
+    `pg_hba_file_rules` folds continuations, expands `include*` and names the file
+    each rule came from, so this sees rules the rewriter above cannot — which is
+    the point: it is a check written against a different source of truth."""
+    blanket = (
+        "SELECT file_name || ':' || line_number FROM pg_hba_file_rules "
+        "WHERE type LIKE 'host%' AND 'all' = ANY(database) AND 'all' = ANY(user_name) "
+        "AND auth_method = 'trust' ORDER BY rule_number LIMIT 1"
+    )
+    first_match = (
+        "SELECT CASE WHEN auth_method = 'trust' AND "
+        f"'{role}' = ANY(user_name) AND 'all' = ANY(database) THEN 'ok' "
+        "ELSE 'shadowed by ' || file_name || ':' || line_number END "
+        "FROM pg_hba_file_rules WHERE type LIKE 'host%' "
+        f"AND ('{role}' = ANY(user_name) OR 'all' = ANY(user_name)) "
+        "ORDER BY rule_number LIMIT 1"
+    )
+    ask = "sudo -u postgres psql -w -tAc"
+    return "\n".join([
+        "set -e",
+        f"LEFT=$({ask} {shlex.quote(blanket)})",
+        '[ -z "$LEFT" ] || { echo "a rule still trusts every role over TCP, at $LEFT — '
+        'this step did not narrow it (it may live in an included file)" >&2; exit 1; }',
+        f"FIRST=$({ask} {shlex.quote(first_match)})",
+        f'[ "$FIRST" = ok ] || {{ echo "the first rule PostgreSQL matches for {role} is $FIRST, '
+        f'not the trust rule this step added" >&2; exit 1; }}',
+    ])
 
 
 def plan_wkhtmltopdf(major: int, codename: str) -> list[Command]:

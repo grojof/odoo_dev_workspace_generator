@@ -68,17 +68,24 @@ the one a loopback connection is matched against. The role's own line SHALL be i
 matching rule wins, and the role SHALL be treated as trusted only when its line is **reached**, never merely
 present.
 
-When the file holds rules that cannot be read one line at a time — a record continued with a trailing
-backslash, or rules pulled in through `include`, `include_if_exists` or `include_dir` — the state SHALL be
-reported as unknown rather than as either answer, and the step SHALL refuse to rewrite the file, naming what
-it cannot see. Narrowing the rules it can read while leaving the rest would report a success that did not
-happen.
+When the file holds rules the *rewriter* cannot read one line at a time — a record continued with a trailing
+backslash, or rules pulled in through `include`, `include_if_exists` or `include_dir` — the step SHALL
+refuse to rewrite it, naming what it cannot see. Narrowing the rules it can read while leaving the rest
+would report a success that did not happen. (The **check** reads such a file through the server and reports
+it like any other; it is the text rewriting that has the blind spot.)
 
 The role's line SHALL be appended on a line of its own: a file with no final newline would otherwise have
 its last record fused with the first inserted rule.
 
-The step SHALL fail rather than report success when it cannot place the line, whatever shape the file has,
-and SHALL end by connecting as the role over loopback — `pg_hba.conf` is first-match-wins, so a line that is
+The step SHALL fail rather than report success when it cannot place the line, whatever shape the file has.
+
+After reloading PostgreSQL it SHALL ask the server what rules it now has (`pg_hba_file_rules`) and fail when
+a TCP rule trusting every role remains — naming the file and line, which may be an included file the
+rewriter never saw — or when the first rule PostgreSQL matches for the role is not the trust rule the step
+added. That check is written against a different source of truth than the text the step wrote, because every
+defect this feature has had took the form of a step reporting a success that had not happened.
+
+It SHALL then end by connecting as the role over loopback — `pg_hba.conf` is first-match-wins, so a line that is
 present but shadowed by an earlier rule is not a narrowing.
 
 Every probe behind these decisions is a tri-state, and an answer that could not be obtained SHALL be treated
@@ -116,6 +123,16 @@ step SHALL be idempotent, so acting on an unknown costs a no-op.
 
 - **WHEN** `pg_hba.conf` continues a record onto the next line, or pulls in rules with `include_dir`
 - **THEN** the step exits non-zero naming what it cannot see, and leaves the file untouched
+
+#### Scenario: A trust the rewriter could not reach is caught after the reload
+
+- **WHEN** a rule trusting every role remains anywhere the server can see, the rewrite having missed it
+- **THEN** the verification step fails naming that file and line, rather than reporting the host as narrowed
+
+#### Scenario: A rule that PostgreSQL matches first is caught
+
+- **WHEN** a rule for a group role the development role belongs to precedes the added trust rule
+- **THEN** the verification step fails naming the rule PostgreSQL matches first
 
 #### Scenario: A role line that is present but never reached
 

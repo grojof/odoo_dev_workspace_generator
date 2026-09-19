@@ -15,6 +15,7 @@ import shlex
 import shutil
 import subprocess
 
+from . import pghba
 from .i18n import t, tf
 from .models import DB_ROLE_RE, DEFAULT_DB_ROLE, Command  # noqa: F401 (re-exported)
 from .ui import level_tag, level_text, style, title, wrap_plain_block
@@ -325,51 +326,71 @@ def db_role_exists(role: str, port: int = 5432) -> bool | None:
     return "1" in result.stdout
 
 
-# The method, not the address: an address can contain loopback without naming it
-# (`all`, `0.0.0.0/0`, `127.0.0.0/8`), and every such rule lets any local user in
-# as any role. Mirrors planners.BLANKET_TRUST_RULE.
-_BLANKET_TRUST = re.compile(r"^\s*host[a-z]*(\s+all){2}\s+\S+(\s+[0-9a-fA-F.:]+)?\s+trust(\s|$)")
-_ANY_ALL_ROLES = re.compile(r"^\s*host[a-z]*(\s+all){2}\s")
-_INCLUDE = re.compile(r"^\s*include(_if_exists|_dir)?\s", re.IGNORECASE)
+PG_HBA_RULES_QUERY = (
+    "SELECT type, array_to_string(database, ','), array_to_string(user_name, ','), "
+    "coalesce(address, ''), coalesce(netmask, ''), auth_method, coalesce(file_name, ''), "
+    "coalesce(line_number::text, '0'), coalesce(error, '') "
+    "FROM pg_hba_file_rules ORDER BY rule_number"
+)
+
+
+def pg_hba_rules(port: int = 5432) -> list[pghba.Rule] | None:
+    """The server's own view of its `pg_hba.conf`, or None when it cannot be had.
+
+    `pg_hba_file_rules` (PostgreSQL 10+) is the parsed rule set: continuations
+    folded, `include*` expanded and attributed to the file each rule came from,
+    list fields split. It is read at query time, so it also answers "what does the
+    file say now" before a reload. Superuser-only, hence `sudo -n`, which fails
+    rather than prompting.
+    """
+    result = run(
+        # $'\t' and not '\t': the second gives psql a literal backslash-t.
+        f"sudo -n -u postgres psql -p {int(port)} -w -tAF$'\\t' "
+        f"-c {shlex.quote(PG_HBA_RULES_QUERY)} 2>/dev/null",
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    return pghba.parse_rules(result.stdout)
 
 
 def pg_hba_loopback_state(role: str, port: int = 5432) -> tuple[bool, bool] | None:
-    """``(blanket_trust, role_trusted)`` for loopback in the server's ``pg_hba.conf``.
+    """``(blanket_trust, role_trusted)`` for TCP connections, from the server.
 
     ``blanket_trust``: a TCP rule trusting *every* role, whatever address it
     names — any local user may then connect as any role, ``postgres`` included.
 
-    ``role_trusted``: the development role's loopback trust line is present **and
-    reached**. ``pg_hba`` is first-match-wins, so a line sitting below a rule that
-    matches the same connection is never read, and reporting it as trusted would
-    claim a narrowing that does not work.
+    ``role_trusted``: the development role's trust rule is the one a connection
+    **reaches**. `pg_hba` is first-match-wins, so a rule below one that already
+    matches is never read, and reporting it as trusted would claim a narrowing
+    that does not work.
 
-    None when the answer cannot be had: the file could not be located or read (it
-    is root-owned), or it pulls in rules this cannot see (``include``,
-    ``include_if_exists``, ``include_dir``). A caller must not mistake "unknown"
-    for "already narrow".
+    None when the answer cannot be had: PostgreSQL is not running, the view is not
+    readable without a password, or the server reports a rule it could not parse.
+    A caller must not mistake "unknown" for "already narrow".
     """
     if not DB_ROLE_RE.fullmatch(role):
         return None
-    path = run(
-        f"sudo -n -u postgres psql -p {int(port)} -tAc 'SHOW hba_file;' 2>/dev/null", check=False
-    ).stdout.strip()
-    text = read_text(path) if path else None
+    rules = pg_hba_rules(port)
+    if rules is None or not rules or pghba.unreadable(rules) is not None:
+        return None
+    blanket = pghba.blanket_trust(rules)
+    if blanket is not None and _rule_quotes_a_field(blanket):
+        # A rule for a database and a role *named* `all`, which the view reports
+        # exactly like the keyword. Only its own text tells them apart.
+        blanket = pghba.blanket_trust([r for r in rules if r is not blanket])
+    return (blanket is not None, pghba.role_is_reached(rules, role))
+
+
+def _rule_quotes_a_field(rule: pghba.Rule) -> bool:
+    """Read back the rule's own line, to tell `all` from a quoted `"all"`."""
+    text = read_text(rule.file) if rule.file else None
     if not text:
-        return None
-    lines = [line for line in text.splitlines() if not line.lstrip().startswith("#")]
-    if any(_INCLUDE.match(line) for line in lines):
-        return None
-    own = re.compile(rf"^\s*host[a-z]*\s+all\s+{re.escape(role)}\s+\S+\s+trust(\s|$)")
-    role_trusted = False
-    for line in lines:
-        if own.match(line):
-            role_trusted = True
-            break
-        # An earlier rule for every role decides this connection instead.
-        if _ANY_ALL_ROLES.match(line):
-            break
-    return (any(_BLANKET_TRUST.match(line) for line in lines), role_trusted)
+        return False
+    lines = text.splitlines()
+    if not 1 <= rule.line <= len(lines):
+        return False
+    return pghba.quotes_a_field(lines[rule.line - 1])
 
 
 # --- migration preflight probes --------------------------------------------

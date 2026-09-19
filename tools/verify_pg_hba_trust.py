@@ -1,36 +1,47 @@
 #!/usr/bin/env python3
-"""Execute the generated `pg_hba.conf` rewriter against real files.
+"""Execute the generated `pg_hba.conf` rewriter against real files — and ask
+PostgreSQL whether the result means what the tool says it means.
 
-`plan_pg_hba_trust` emits three chained `sed -ri` expressions that rewrite a
-root-owned authentication file, with the development role interpolated into the
-replacement text. The unit suite may not shell out (CLAUDE.md), so its only
-assertion is on the plan's *text* — which is how a blanket `trust` written as
-`localhost` rather than `127.0.0.1/32` once survived the narrowing while the
-check reported `trust for odoo only`.
+`plan_pg_hba_trust` rewrites a root-owned authentication file with `sed`, and the
+unit suite may not shell out (CLAUDE.md), so its assertions are on the plan's
+*text*. Four audit rounds found the same class of bug behind that: a blanket
+trust written `localhost`, then indented or `hostnossl`, then on an address that
+merely contains loopback, then on `hostssl` — each surviving the narrowing while
+the check reported `trust for odoo only`.
 
-This renders the real command, replaces only its `SHOW hba_file;` lookup with a
-fixture path, runs it over a set of `pg_hba.conf` shapes, and asserts the result
-— and asserts the probe in `system.pg_hba_loopback_state` reads each shape the
-same way the rewriter does.
+This tool renders the real command, points only its `SHOW hba_file;` lookup at a
+fixture, runs it over every shape of that file, and asserts the result. It does
+so twice over:
+
+- against a **field-based reading** of the file, written independently of the
+  code it checks (the earlier version of this tool asserted with a copy of
+  `system.py`'s own regex, which is how `hostssl` passed three rounds of it);
+- against **PostgreSQL itself**, in a throwaway cluster this creates and destroys
+  — `pg_hba_file_rules` is the server's own parse of the file, and a connection
+  through it is the only proof that a narrowing narrowed anything.
 
     python tools/verify_pg_hba_trust.py
 
-Host-only (needs bash and sed), no network, no PostgreSQL, nothing written
-outside its temp directory. The rewriter's final connection check is the one
-thing this cannot exercise: it needs a live server.
+Needs `bash` and `sed`; uses the host's PostgreSQL *binaries* when they are
+present and says so when they are not. No network, no root, the host's own
+cluster untouched, nothing written outside a temp directory.
 """
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import socket
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from odoo_dwg import planners, system  # noqa: E402
+from odoo_dwg import pghba, planners, system  # noqa: E402
 
 ROLE = "odoo"
 LOOKUP = 'PGHBA=$(sudo -u postgres psql -tAc "SHOW hba_file;")'
@@ -202,6 +213,110 @@ def _role_is_reached(text: str) -> bool:
     return False
 
 
+class Cluster:
+    """A PostgreSQL cluster of our own, in a temp directory.
+
+    It exists so the assertions have an oracle this project did not write: the
+    server parses each fixture itself (`pg_hba_file_rules`) and answers a real
+    connection. It never touches the host's cluster — its own data directory,
+    its own port, its own unix socket, and `initdb` refuses to run as root, so
+    this stays a developer-machine tool.
+    """
+
+    def __init__(self, root: Path, bindir: Path) -> None:
+        self.root = root
+        self.data = root / "data"
+        self.port = _free_port()
+        self.bin = bindir
+
+    def start(self) -> None:
+        subprocess.run(
+            [str(self.bin / "initdb"), "-D", str(self.data), "-U", "postgres", "--auth=trust",
+             "--no-sync"],
+            check=True, capture_output=True, text=True,
+        )
+        # TLS on, like the supported host (Ubuntu ships ssl = on): without it the
+        # server rejects every `hostssl` rule as unusable, and those are exactly
+        # the rules a loopback connection is matched against there.
+        options = f"-p {self.port} -k {self.root} -c listen_addresses=127.0.0.1"
+        options += " -c ssl=on" if self._make_certificate() else " -c ssl=off"
+        subprocess.run(
+            [str(self.bin / "pg_ctl"), "-D", str(self.data), "-w", "-l", str(self.root / "pg.log"),
+             "-o", options, "start"],
+            check=True, capture_output=True, text=True,
+        )
+        self.sql(f"CREATE ROLE {ROLE} LOGIN CREATEDB")
+
+    def _make_certificate(self) -> bool:
+        """A self-signed certificate for the cluster, if openssl is here."""
+        if not shutil.which("openssl"):
+            return False
+        result = subprocess.run(
+            ["openssl", "req", "-new", "-x509", "-days", "1", "-nodes", "-subj", "/CN=localhost",
+             "-out", str(self.data / "server.crt"), "-keyout", str(self.data / "server.key")],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            return False
+        (self.data / "server.key").chmod(0o600)
+        return True
+
+    def stop(self) -> None:
+        subprocess.run(
+            [str(self.bin / "pg_ctl"), "-D", str(self.data), "-m", "immediate", "-w", "stop"],
+            check=False, capture_output=True, text=True,
+        )
+
+    def sql(self, query: str, user: str = "postgres", host: str | None = None) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [str(self.bin / "psql"), "-h", host or str(self.root), "-p", str(self.port),
+             "-U", user, "-d", "postgres", "-w", "-tAF\t", "-c", query],
+            capture_output=True, text=True,
+        )
+
+    def load(self, content: str) -> None:
+        """Point the cluster at a fixture and make it re-read it.
+
+        A `local all all trust` line is prepended so this tool can always reach
+        its own cluster over the socket — the fixtures' own `local … peer` rules
+        would reject it, since the OS user is not `postgres`. Every question asked
+        here is about `host` rules, which that line does not affect.
+        """
+        (self.data / "pg_hba.conf").write_text(
+            "local all all trust\n" + content, encoding="utf-8"
+        )
+        self.sql("SELECT pg_reload_conf()")
+        time.sleep(0.2)
+
+    def rules(self) -> list[pghba.Rule]:
+        return pghba.parse_rules(self.sql(system.PG_HBA_RULES_QUERY).stdout)
+
+    def role_can_connect_over_tcp(self) -> bool:
+        """Without a password: the whole point of the development trust line."""
+        env = dict(os.environ, PGPASSWORD="")
+        result = subprocess.run(
+            [str(self.bin / "psql"), "-h", "127.0.0.1", "-p", str(self.port), "-U", ROLE,
+             "-d", "postgres", "-w", "-tAc", "SELECT 1"],
+            capture_output=True, text=True, env=env,
+        )
+        return result.returncode == 0
+
+
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _postgres_bindir() -> Path | None:
+    """Where initdb lives: on PATH, or in the versioned directory Debian uses."""
+    found = shutil.which("initdb")
+    if found:
+        return Path(found).parent
+    candidates = sorted(Path("/usr/lib/postgresql").glob("*/bin/initdb"), reverse=True)
+    return candidates[0].parent if candidates else None
+
+
 def _script(into: Path) -> Path:
     command = next(
         c.command for c in planners.plan_pg_hba_trust(ROLE) if "PGHBA=" in c.command
@@ -228,21 +343,8 @@ def main() -> int:
             target = root / "pg_hba.conf"
             target.write_text(content, encoding="utf-8")
 
-            # The probe must read the file the same way the rewriter treats it,
-            # or `provision check` reports a state `provision apply` disagrees with.
-            before = target.read_text(encoding="utf-8")
-            probed = _probe(target)
-            check(
-                f"{label}: the probe and the file agree on the blanket trust",
-                probed is not None and probed[0] == _has_blanket_trust(before),
-                f"probe={probed} file_has_blanket={_has_blanket_trust(before)}",
-            )
-            check(
-                f"{label}: the probe and the file agree on whether the role's line is reached",
-                probed is not None and probed[1] == _role_is_reached(before),
-                f"probe={probed} role_rule_reached={_role_is_reached(before)}",
-            )
-
+            # (What the probe makes of this shape is asked of a real server
+            # below — it reads PostgreSQL's parse now, not the file's text.)
             first = subprocess.run(["bash", str(script), str(target)], capture_output=True, text=True)
             after = target.read_text(encoding="utf-8")
             check(f"{label}: the step succeeds", first.returncode == 0, first.stderr)
@@ -314,6 +416,8 @@ def main() -> int:
             missing.stderr,
         )
 
+    _against_a_real_server(check)
+
     if failures:
         print("\n".join(["", "FAILED:"] + failures))
         return 1
@@ -321,20 +425,97 @@ def main() -> int:
     return 0
 
 
-def _probe(fixture: Path) -> tuple[bool, bool] | None:
-    """`system.pg_hba_loopback_state` against a fixture: its only I/O is the
-    `SHOW hba_file;` lookup and the read, so both are pointed at the file."""
-    real_run, real_read = system.run, system.read_text
+def _against_a_real_server(check) -> None:
+    """Ask PostgreSQL the same questions, in a cluster of our own.
 
-    class _Result:
-        stdout = str(fixture)
+    This is the oracle no reading of the file can replace: the server's own parse
+    (`pg_hba_file_rules`) and a connection that either happens or does not.
+    """
+    bindir = _postgres_bindir()
+    if bindir is None:
+        print("skip  PostgreSQL binaries not found — the server-backed checks need initdb")
+        return
+    if os.geteuid() == 0:
+        print("skip  running as root — initdb refuses, so the server-backed checks are skipped")
+        return
 
-    system.run = lambda *a, **k: _Result()  # type: ignore[assignment]
-    system.read_text = lambda path: Path(path).read_text(encoding="utf-8")  # type: ignore[assignment]
+    with tempfile.TemporaryDirectory(prefix="odwg-pghba-pg-") as tmp:
+        root = Path(tmp)
+        cluster = Cluster(root, bindir)
+        try:
+            cluster.start()
+        except subprocess.CalledProcessError as error:
+            print(f"skip  could not start a throwaway cluster: {error.stderr.strip()[:120]}")
+            return
+        try:
+            script = _script(root)
+            for label, content in CASES:
+                # What the server says about the fixture, before anything is done.
+                cluster.load(content)
+                server_rules = cluster.rules()
+                probed = _probe(cluster)
+                check(
+                    f"{label}: the probe reads the server the way the server reads the file",
+                    probed is not None
+                    and probed[0] == (pghba.blanket_trust(server_rules) is not None)
+                    and probed[1] == pghba.role_is_reached(server_rules, ROLE),
+                    f"probe={probed} server_blanket={pghba.blanket_trust(server_rules) is not None} "
+                    f"server_reached={pghba.role_is_reached(server_rules, ROLE)}",
+                )
+                check(
+                    f"{label}: PostgreSQL agrees there is a blanket trust"
+                    if _has_blanket_trust(content)
+                    else f"{label}: PostgreSQL agrees there is no blanket trust",
+                    (pghba.blanket_trust(server_rules) is not None) == _has_blanket_trust(content),
+                    f"server={pghba.blanket_trust(server_rules)} reading={_has_blanket_trust(content)}",
+                )
+
+                # And after the step has run over it.
+                target = root / "pg_hba.conf"
+                target.write_text(content, encoding="utf-8")
+                subprocess.run(["bash", str(script), str(target)], capture_output=True, text=True)
+                cluster.load(target.read_text(encoding="utf-8"))
+                narrowed = cluster.rules()
+                check(
+                    f"{label}: PostgreSQL sees no rule trusting every role afterwards",
+                    pghba.blanket_trust(narrowed) is None,
+                    str(pghba.blanket_trust(narrowed)),
+                )
+                check(
+                    f"{label}: PostgreSQL matches {ROLE} against the rule the step added",
+                    pghba.role_is_reached(narrowed, ROLE),
+                    "\n".join(str(rule) for rule in narrowed),
+                )
+                check(
+                    f"{label}: {ROLE} really connects over TCP without a password",
+                    cluster.role_can_connect_over_tcp(),
+                    target.read_text(encoding="utf-8"),
+                )
+        finally:
+            cluster.stop()
+
+
+def _probe(cluster: Cluster) -> tuple[bool, bool] | None:
+    """`system.pg_hba_loopback_state` against the throwaway cluster.
+
+    Only the `sudo -n -u postgres psql` prefix is redirected, so the real query,
+    the real parser and the real classification all run."""
+    real_run = system.run
+
+    def redirected(command: str, check: bool = False):
+        return real_run(
+            command.replace(
+                "sudo -n -u postgres psql -p 5432",
+                f"{cluster.bin / 'psql'} -h {cluster.root} -p {cluster.port} -U postgres",
+            ),
+            check=check,
+        )
+
+    system.run = redirected  # type: ignore[assignment]
     try:
         return system.pg_hba_loopback_state(ROLE)
     finally:
-        system.run, system.read_text = real_run, real_read
+        system.run = real_run
 
 
 if __name__ == "__main__":
