@@ -345,7 +345,7 @@ def pg_hba_rules(port: int = 5432) -> list[pghba.Rule] | None:
     """
     result = run(
         # $'\t' and not '\t': the second gives psql a literal backslash-t.
-        f"sudo -n -u postgres psql -p {int(port)} -w -tAF$'\\t' "
+        f"sudo -n -u postgres psql -X -p {int(port)} -w -tAF$'\\t' "
         f"-c {shlex.quote(PG_HBA_RULES_QUERY)} 2>/dev/null",
         check=False,
     )
@@ -374,11 +374,18 @@ def pg_hba_loopback_state(role: str, port: int = 5432) -> tuple[bool, bool] | No
     rules = pg_hba_rules(port)
     if rules is None or not rules or pghba.unreadable(rules) is not None:
         return None
-    blanket = pghba.blanket_trust(rules)
-    if blanket is not None and _rule_quotes_a_field(blanket):
-        # A rule for a database and a role *named* `all`, which the view reports
-        # exactly like the keyword. Only its own text tells them apart.
-        blanket = pghba.blanket_trust([r for r in rules if r is not blanket])
+    if pghba.names_roles_by_pattern(rules) is not None:
+        # A trust rule for `/regex` or `+group` roles: whether it covers every
+        # role cannot be told from here, so this is unknown, not "fine".
+        return None
+    # A rule for a database and a role *named* `all` is not the keyword, though
+    # the view reports it identically. Only its own text tells them apart, and
+    # there may be more than one.
+    remaining = list(rules)
+    blanket = pghba.blanket_trust(remaining)
+    while blanket is not None and _rule_quotes_a_field(blanket):
+        remaining = [rule for rule in remaining if rule is not blanket]
+        blanket = pghba.blanket_trust(remaining)
     return (blanket is not None, pghba.role_is_reached(rules, role))
 
 

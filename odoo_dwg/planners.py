@@ -414,26 +414,59 @@ def _pg_hba_audit(role: str) -> str:
     `pg_hba_file_rules` folds continuations, expands `include*` and names the file
     each rule came from, so this sees rules the rewriter above cannot — which is
     the point: it is a check written against a different source of truth."""
-    blanket = (
-        "SELECT file_name || ':' || line_number FROM pg_hba_file_rules "
-        "WHERE type LIKE 'host%' AND 'all' = ANY(database) AND 'all' = ANY(user_name) "
-        "AND auth_method = 'trust' ORDER BY rule_number LIMIT 1"
-    )
-    first_match = (
-        "SELECT CASE WHEN auth_method = 'trust' AND "
-        f"'{role}' = ANY(user_name) AND 'all' = ANY(database) THEN 'ok' "
-        "ELSE 'shadowed by ' || file_name || ':' || line_number END "
-        "FROM pg_hba_file_rules WHERE type LIKE 'host%' "
-        f"AND ('{role}' = ANY(user_name) OR 'all' = ANY(user_name)) "
-        "ORDER BY rule_number LIMIT 1"
-    )
-    ask = "sudo -u postgres psql -w -tAc"
+    # `file_name` and `rule_number` exist from PostgreSQL 15; `include` directives
+    # (the only reason a rule can come from another file) from 16. Below 15 the
+    # configured file is the only one there is, so `hba_file` names it.
+    tcp_trust = "type LIKE 'host%' AND auth_method = 'trust'"
+    ask = "sudo -u postgres psql -X -w -tAc"
     return "\n".join([
         "set -e",
-        f"LEFT=$({ask} {shlex.quote(blanket)})",
-        '[ -z "$LEFT" ] || { echo "a rule still trusts every role over TCP, at $LEFT — '
-        'this step did not narrow it (it may live in an included file)" >&2; exit 1; }',
-        f"FIRST=$({ask} {shlex.quote(first_match)})",
+        f"PGVER=$({ask} 'SHOW server_version_num')",
+        'if [ "${PGVER:-0}" -ge 150000 ]; then',
+        "  LOC=\"coalesce(file_name, '') || ':' || line_number\"; ORD=rule_number",
+        "else",
+        "  LOC=\"(SELECT setting FROM pg_settings WHERE name='hba_file') || ':' || line_number\"",
+        "  ORD=line_number",
+        "fi",
+        # A file the server cannot parse is a file it did not load: `pg_ctl reload`
+        # returns 0 whatever happens, so without this the steps below would read a
+        # narrowed file while the rules in force are still the old ones.
+        f'BAD=$({ask} "SELECT $LOC FROM pg_hba_file_rules WHERE error IS NOT NULL '
+        'ORDER BY line_number LIMIT 1")',
+        '[ -z "$BAD" ] || { echo "PostgreSQL cannot parse the rule at $BAD, so it refused to load '
+        'the file — the rules it is running are still the previous ones" >&2; exit 1; }',
+        # Roles named by pattern or group: the view reports the field verbatim and
+        # this step cannot tell whether it covers every role, so it says so.
+        f'WIDE=$({ask} "SELECT $LOC FROM pg_hba_file_rules WHERE {tcp_trust} '
+        "AND EXISTS (SELECT 1 FROM unnest(user_name) u WHERE u LIKE '/%' OR u LIKE '+%') "
+        f'ORDER BY $ORD LIMIT 1")',
+        '[ -z "$WIDE" ] || { echo "the trust rule at $WIDE names its roles by pattern or group, '
+        'which this step cannot rule out — narrow it by hand" >&2; exit 1; }',
+        f'LEFT=$({ask} "SELECT $LOC FROM pg_hba_file_rules WHERE {tcp_trust} '
+        f'AND \'all\' = ANY(database) AND \'all\' = ANY(user_name) ORDER BY $ORD")',
+        # `"all"` in the file is a role *named* all, which PostgreSQL does not treat
+        # as the keyword though the view reports it identically. Only the line tells.
+        'IFS="',
+        '"',
+        "for loc in $LEFT; do",
+        '  [ -n "$loc" ] || continue',
+        '  file=${loc%:*}; line=${loc##*:}',
+        '  if [ -f "$file" ] && sed -n "${line}p" "$file" | sed "s/#.*//" | grep -q \'"\'; then',
+        "    continue",
+        "  fi",
+        '  echo "a rule still trusts every role over TCP, at $loc — this step did not narrow it '
+        '(it may live in a file it cannot rewrite)" >&2',
+        "  exit 1",
+        "done",
+        "unset IFS",
+        # Only a plain `host` rule reaches the role: with TLS on, which the
+        # supported host has, `hostnossl` is never consulted. Every host type can
+        # still shadow, which is why the WHERE is wider than the CASE.
+        f'FIRST=$({ask} "SELECT CASE WHEN type = \'host\' AND auth_method = \'trust\' '
+        f"AND '{role}' = ANY(user_name) AND 'all' = ANY(database) THEN 'ok' "
+        f'ELSE \'shadowed by \' || $LOC END FROM pg_hba_file_rules WHERE type LIKE \'host%\' '
+        f"AND ('{role}' = ANY(user_name) OR 'all' = ANY(user_name)) "
+        f'ORDER BY $ORD LIMIT 1")',
         f'[ "$FIRST" = ok ] || {{ echo "the first rule PostgreSQL matches for {role} is $FIRST, '
         f'not the trust rule this step added" >&2; exit 1; }}',
     ])

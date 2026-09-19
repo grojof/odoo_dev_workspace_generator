@@ -85,3 +85,26 @@ def test_a_rule_for_a_role_named_all_is_told_apart_by_its_own_text():
     assert pghba.quotes_a_field('host "all" "all" 127.0.0.1/32 trust')
     assert not pghba.quotes_a_field("host all all 127.0.0.1/32 trust")
     assert not pghba.quotes_a_field('host all all 127.0.0.1/32 trust # "quoted" comment')
+
+
+def test_roles_named_by_pattern_or_group_cannot_be_ruled_out():
+    """`/regex` and `+group` reach every member without spelling `all`, and the
+    view reports the field verbatim — so the answer is "unknown", not "fine"."""
+    for users in ("/.*", "+everyone"):
+        rules = pghba.parse_rules(_row(users=users))
+        assert pghba.names_roles_by_pattern(rules) is not None, users
+        # It is not a blanket trust by the literal test, which is the point.
+        assert pghba.blanket_trust(rules) is None
+    # A password method is not this tool's business, patterned or not.
+    assert pghba.names_roles_by_pattern(pghba.parse_rules(_row(users="/.*", method="peer"))) is None
+    assert pghba.names_roles_by_pattern(pghba.parse_rules(_row(users="odoo"))) is None
+
+
+def test_only_a_plain_host_rule_reaches_the_role():
+    """With `ssl = on`, which the supported host has, a `hostnossl` rule is never
+    consulted: counting one as reached would call a host narrowed where the role
+    cannot connect at all."""
+    assert pghba.role_is_reached(pghba.parse_rules(_row(type_="host", users="odoo")), "odoo")
+    for type_ in ("hostnossl", "hostgssenc"):
+        rules = pghba.parse_rules(_row(type_=type_, users="odoo"))
+        assert not pghba.role_is_reached(rules, "odoo"), type_

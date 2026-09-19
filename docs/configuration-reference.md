@@ -3,7 +3,7 @@ type: reference
 title: "Workspace profile reference"
 description: "The JSON profile fields that describe an odoo_dwg workspace."
 audience: [developer]
-updated: 2026-09-19
+updated: 2026-09-20
 ---
 
 # Workspace profile reference

@@ -3,7 +3,7 @@ type: how-to
 title: "Migrating a database (OpenUpgrade 12 → 19)"
 description: "Generate an OpenUpgrade migration environment and run the checkpointing driver."
 audience: [developer]
-updated: 2026-09-19
+updated: 2026-09-20
 ---
 
 # Migrating a database (OpenUpgrade 12 → 19)

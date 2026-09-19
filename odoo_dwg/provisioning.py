@@ -117,7 +117,13 @@ def _pg_hba_rows(facts: ProvisionFacts) -> list[tuple[str, str, str]]:
             f"{facts.dev_role}",
         )]
     if not facts.pg_hba_role_trusted:
-        return [("INFO", label, f"{facts.dev_role} has no loopback trust line — apply adds one")]
+        # Not "no line": it may be there and never reached, and an operator who
+        # greps the file would then think the check is wrong.
+        return [(
+            "INFO", label,
+            f"{facts.dev_role}'s loopback trust rule is missing or is never reached — "
+            "apply adds one that is",
+        )]
     return [("OK", label, f"trust for {facts.dev_role} only")]
 
 

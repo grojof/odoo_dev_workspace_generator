@@ -79,11 +79,20 @@ its last record fused with the first inserted rule.
 
 The step SHALL fail rather than report success when it cannot place the line, whatever shape the file has.
 
-After reloading PostgreSQL it SHALL ask the server what rules it now has (`pg_hba_file_rules`) and fail when
-a TCP rule trusting every role remains — naming the file and line, which may be an included file the
-rewriter never saw — or when the first rule PostgreSQL matches for the role is not the trust rule the step
-added. That check is written against a different source of truth than the text the step wrote, because every
-defect this feature has had took the form of a step reporting a success that had not happened.
+After reloading PostgreSQL it SHALL ask the server what rules it now has (`pg_hba_file_rules`) and fail on
+any of these, naming the file and line — which may be a file the rewriter never saw:
+
+1. the server reports a rule it could not parse. It then refused to load the file and is still running the
+   previous rules, while the file on disk reads as narrowed. `pg_ctl reload` returns success either way, so
+   nothing else in the plan would notice;
+2. a TCP rule still trusts every role — unless that rule's own line quotes its fields, since `"all"` is a
+   role literally named `all` and not the keyword;
+3. a TCP trust rule names its roles by pattern (`/…`) or group (`+…`), which this step cannot rule out;
+4. the first rule PostgreSQL matches for the development role is not the plain `host` trust rule the step
+   added.
+
+That check is written against a different source of truth than the text the step wrote, because every defect
+this feature has had took the form of a step reporting a success that had not happened.
 
 It SHALL then end by connecting as the role over loopback — `pg_hba.conf` is first-match-wins, so a line that is
 present but shadowed by an earlier rule is not a narrowing.

@@ -443,11 +443,13 @@ def _against_a_real_server(check) -> None:
         root = Path(tmp)
         cluster = Cluster(root, bindir)
         try:
-            cluster.start()
-        except subprocess.CalledProcessError as error:
-            print(f"skip  could not start a throwaway cluster: {error.stderr.strip()[:120]}")
-            return
-        try:
+            # Inside the try: a start that fails *after* the postmaster came up
+            # would otherwise leave it running over a deleted directory.
+            try:
+                cluster.start()
+            except subprocess.CalledProcessError as error:
+                print(f"skip  could not start a throwaway cluster: {error.stderr.strip()[:120]}")
+                return
             script = _script(root)
             for label, content in CASES:
                 # What the server says about the fixture, before anything is done.
@@ -491,8 +493,53 @@ def _against_a_real_server(check) -> None:
                     cluster.role_can_connect_over_tcp(),
                     target.read_text(encoding="utf-8"),
                 )
+
+            _the_audit_step(check, cluster)
         finally:
             cluster.stop()
+
+
+# What the plan's own verification step must accept and refuse. The file is put
+# in front of a real server, because each of these is a state only the server
+# knows about — the text says nothing about them.
+AUDIT_CASES = [
+    ("a rule the server cannot parse, so the reload was refused",
+     "local all all trust\nhost all odoo 127.0.0.1/32 trust\n"
+     "host all all 127.0.0.1/32 bogusmethod\n", True),
+    ("a database and role literally named \"all\"",
+     'local all all trust\nhost all odoo 127.0.0.1/32 trust\n'
+     'host "all" "all" 127.0.0.1/32 trust\n', False),
+    ("a trust rule naming its roles by pattern",
+     'local all all trust\nhost all odoo 127.0.0.1/32 trust\n'
+     'host all "/.*" 127.0.0.1/32 trust\n', True),
+    ("a blanket trust the rewriter left behind",
+     "local all all trust\nhost all odoo 127.0.0.1/32 trust\n"
+     "host all all 127.0.0.1/32 trust\n", True),
+    ("the role's own rule is hostnossl, so never consulted",
+     "local all all trust\nhostnossl all odoo 127.0.0.1/32 trust\n"
+     "host all all 127.0.0.1/32 scram-sha-256\n", True),
+    ("a properly narrowed file",
+     "local all all trust\nhost all odoo 127.0.0.1/32 trust\n"
+     "host all all 127.0.0.1/32 scram-sha-256\n", False),
+]
+
+
+def _the_audit_step(check, cluster: Cluster) -> None:
+    """The plan's own "ask PostgreSQL what rules it now has" step, run for real."""
+    audit = next(
+        c.command for c in planners.plan_pg_hba_trust(ROLE) if "pg_hba_file_rules" in c.command
+    ).replace(
+        "sudo -u postgres psql",
+        f"{cluster.bin / 'psql'} -h {cluster.root} -p {cluster.port} -U postgres",
+    )
+    for label, content, should_fail in AUDIT_CASES:
+        cluster.load(content)
+        result = subprocess.run(["bash", "-c", audit], capture_output=True, text=True)
+        check(
+            f"the audit step {'refuses' if should_fail else 'accepts'}: {label}",
+            (result.returncode != 0) == should_fail,
+            f"exit={result.returncode} {result.stderr.strip()[:160]}",
+        )
 
 
 def _probe(cluster: Cluster) -> tuple[bool, bool] | None:
@@ -501,19 +548,20 @@ def _probe(cluster: Cluster) -> tuple[bool, bool] | None:
     Only the `sudo -n -u postgres psql` prefix is redirected, so the real query,
     the real parser and the real classification all run."""
     real_run = system.run
+    prefix = "sudo -n -u postgres psql"
+    replacement = f"{cluster.bin / 'psql'} -h {cluster.root} -U postgres"
 
     def redirected(command: str, check: bool = False):
-        return real_run(
-            command.replace(
-                "sudo -n -u postgres psql -p 5432",
-                f"{cluster.bin / 'psql'} -h {cluster.root} -p {cluster.port} -U postgres",
-            ),
-            check=check,
-        )
+        if prefix not in command:
+            # Never let a probe that was meant for the throwaway cluster reach the
+            # host's own: this redirect is string surgery, and adding a flag to
+            # the real command once made it silently miss.
+            raise AssertionError(f"probe command no longer starts with {prefix!r}: {command}")
+        return real_run(command.replace(prefix, replacement), check=check)
 
     system.run = redirected  # type: ignore[assignment]
     try:
-        return system.pg_hba_loopback_state(ROLE)
+        return system.pg_hba_loopback_state(ROLE, port=cluster.port)
     finally:
         system.run = real_run
 

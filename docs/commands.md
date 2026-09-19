@@ -3,7 +3,7 @@ type: reference
 title: "Command reference"
 description: "Every CLI invocation, menu action, confirmation phrase, and environment variable."
 audience: [developer, operator]
-updated: 2026-09-19
+updated: 2026-09-20
 ---
 
 # Command reference

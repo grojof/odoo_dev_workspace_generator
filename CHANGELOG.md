@@ -44,7 +44,6 @@ All notable changes to this project are documented here. The format is based on
 - `tools/verify_pg_hba_trust.py` asserts against a throwaway PostgreSQL cluster it creates and destroys,
   and against a reading of the file written independently of the code under test. It had been asserting with
   a copy of that code's own regex, which is why it passed a `hostssl` trust three rounds running.
-
 - **A plan now reports one line per step** while it runs, keeping any warning a step printed, and printing the
   end of a failed step's output before it stops. `--verbose` (or `ODWG_VERBOSE=1`) streams every line as
   before.
@@ -76,6 +75,25 @@ All notable changes to this project are documented here. The format is based on
   first run: dead variables in `setup_venv.sh`, and a failure path written as `a && b || c`).
 
 ### Fixed
+- **A `pg_hba.conf` PostgreSQL refuses to load made `provision apply` report success on a host it had not
+  changed.** `pg_ctl reload` returns 0 whether or not the file parsed, so with one malformed rule anywhere
+  the server keeps its previous rules while the file on disk reads as narrowed — and the verification step,
+  which reads the file, agreed. The connection check then passed *through the blanket trust that was still
+  live*. Reproduced against a real server: `postgres` still connected over TCP with no password while all
+  four steps reported OK. The verification now refuses any file the server reports a parse error for, naming
+  the line.
+- **A rule for roles named by pattern (`/…`) or group (`+…`) was invisible.** It reaches every member
+  without spelling `all`, so a `trust` written that way was neither narrowed nor reported. Neither the check
+  nor apply can tell whether such a rule covers every role, so both now say so instead of passing.
+- **A role literally named `"all"` could block apply forever.** The check knew `"all"` is not the keyword;
+  the verification step did not, so it failed on a rule nothing could ever narrow, on a host that was in
+  fact correct. Both sides read the rule's own line now, and the check handles more than one such rule.
+- **A `hostnossl` trust rule for the development role counted as "reached".** With `ssl = on` — the
+  supported host's default — that rule is never consulted, so the check reported a narrowed host where the
+  role could not connect at all. Only a plain `host` rule counts as reached; every type still shadows.
+- The plan's `psql` calls run with `-X`, so the `postgres` user's `~/.psqlrc` cannot end up inside a parsed
+  answer, and the verification survives a server older than PostgreSQL 15, where `file_name` does not exist.
+
 - **A blanket `trust` written on any connection type but `host`/`hostnossl` was invisible to the
   narrowing** — and `hostssl` is not a corner case: Ubuntu 24.04 ships `ssl = on` and clients prefer TLS, so
   a `hostssl all all 127.0.0.1/32 trust` is the rule a loopback connection is actually matched against. It
@@ -99,8 +117,9 @@ All notable changes to this project are documented here. The format is based on
   a line below a rule for every role is never read. Both the check and the step now ask whether the line is
   *reached*, and apply inserts one that is.
 - **`pg_hba.conf` files that pull in rules through `include`, `include_if_exists` or `include_dir`** were
-  read as if those rules did not exist. The state is now reported as unknown — which, since an unknown probe
-  means act, plans the narrowing instead of assuming it is done.
+  read as if those rules did not exist. The check reads them like any other rule now, because PostgreSQL
+  resolves the include; the text rewriter refuses such a file, naming what it cannot see, rather than
+  narrowing the part of it that it can.
 - **The migration preflight blamed the modules when the environment had never been generated.** With no
   clones on disk nothing resolves, so every installed module was reported missing and Odoo's own — `base`
   among them — as "dropped by Odoo". Both the interactive check and the driver's own coverage now say the

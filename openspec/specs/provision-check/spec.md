@@ -72,8 +72,13 @@ a role whose trust rule is not the one a connection **reaches** as INFO; and the
 A rule whose own line quotes its database or role field SHALL NOT be treated as a blanket trust: `"all"` is
 a database or role literally named `all`, which the view reports exactly like the keyword.
 
-When the state cannot be had — PostgreSQL is not running, the view cannot be read without a password, or the
-server reports a rule it could not parse — the row SHALL say so rather than claim either state.
+When the state cannot be had — PostgreSQL is not running, the view cannot be read without a password, the
+server reports a rule it could not parse, or a TCP trust rule names its roles by pattern (`/…`) or group
+(`+…`), which cannot be told to cover every role — the row SHALL say so rather than claim either state.
+
+A role SHALL be treated as reached only through a plain `host` rule: the supported host runs with `ssl = on`
+and clients prefer TLS, so a `hostnossl` rule is never consulted, and calling one "reached" would report a
+host as narrowed where the role cannot connect at all.
 
 #### Scenario: Blanket trust is called out
 

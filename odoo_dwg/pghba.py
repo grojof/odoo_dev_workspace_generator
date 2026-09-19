@@ -104,6 +104,24 @@ def blanket_trust(rules: list[Rule]) -> Rule | None:
     )
 
 
+def names_roles_by_pattern(rules: list[Rule]) -> Rule | None:
+    """The first TCP trust rule naming its roles by regex (`/…`) or group (`+…`).
+
+    Those reach every member without spelling `all`, and the view reports the
+    field verbatim, so whether such a rule trusts everyone cannot be told from
+    here. Like ``unreadable``, it is a reason to say "unknown" rather than "fine".
+    """
+    return next(
+        (
+            rule
+            for rule in rules
+            if rule.is_tcp and rule.method == "trust"
+            and any(user.startswith(("/", "+")) for user in rule.users)
+        ),
+        None,
+    )
+
+
 def role_is_reached(rules: list[Rule], role: str) -> bool:
     """Whether ``role``'s own trust rule is the one a TCP connection matches.
 
@@ -111,13 +129,23 @@ def role_is_reached(rules: list[Rule], role: str) -> bool:
     same connection is never read. Any earlier TCP rule covering this role counts
     as a match, whatever its address: assuming otherwise is how a rule was read as
     reached when it was not, and the cost of being strict is one extra line.
+
+    Only a plain ``host`` rule *reaches* it. The supported host runs with
+    ``ssl = on`` and clients prefer TLS, so a ``hostnossl`` rule is never
+    consulted — counting one as reached would report a host as narrowed where the
+    role cannot connect at all.
     """
     for rule in rules:
         if not rule.is_tcp:
             continue
         if role not in rule.users and "all" not in rule.users:
             continue
-        return role in rule.users and rule.method == "trust" and "all" in rule.databases
+        return (
+            rule.type == "host"
+            and role in rule.users
+            and rule.method == "trust"
+            and "all" in rule.databases
+        )
     return False
 
 
