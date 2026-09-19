@@ -186,8 +186,8 @@ def provision_rows(facts: ProvisionFacts) -> list[tuple[str, str, str]]:
     else:
         rows.append(("WARN", "wkhtmltopdf", f"{facts.wkhtmltopdf} (un-patched — reports may be degraded)"))
 
-    rows.append(("OK" if facts.node else "INFO", "Node.js (optional)", "present" if facts.node else "not installed (only needed for RTL/less)"))
-    rows.append(("OK" if facts.rtlcss else "INFO", "rtlcss (optional)", "present" if facts.rtlcss else "not installed (only needed for RTL/less)"))
+    rows.append(("OK" if facts.node else "INFO", "Node.js (optional)", "present" if facts.node else "not installed (only for right-to-left languages)"))
+    rows.append(("OK" if facts.rtlcss else "INFO", "rtlcss (optional)", "present" if facts.rtlcss else "not installed (only for right-to-left languages)"))
 
     if facts.uv:
         provides = ", ".join(facts.uv_pythons) if facts.uv_pythons else "no interpreters listed"

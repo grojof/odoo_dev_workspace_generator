@@ -2,7 +2,7 @@
 
 Prepares a *Linux* host for Odoo development: `check` reports host readiness
 (read-only), and `apply` installs/configures the missing capabilities (apt build
-deps, PostgreSQL + dev role, patched wkhtmltopdf, optional Node + rtlcss) via
+deps, PostgreSQL + dev role, patched wkhtmltopdf, optional rtlcss for right-to-left languages) via
 plan → preview → apply. `apply` requires root and refuses any host outside the
 releases the support matrix declares. Never assumes WSL.
 """
@@ -70,7 +70,10 @@ def _apply() -> None:
         commands += planners.plan_postgresql(role)
     if not facts.wkhtmltopdf or "with patched qt" not in facts.wkhtmltopdf.lower():
         commands += planners.plan_wkhtmltopdf(_DEV_WKHTMLTOPDF_MAJOR, facts.os_codename)
-    if ask_bool("Also install the optional web toolchain (Node + rtlcss)?", False):
+    if ask_bool(
+        "Install rtlcss (with Node.js)? Only needed if users work in a right-to-left language (Arabic, Hebrew, Persian…)",
+        False,
+    ):
         commands += planners.plan_node_rtlcss()
     commands += _optional_egress(facts)
 

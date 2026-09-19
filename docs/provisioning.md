@@ -32,7 +32,7 @@ python3 -m odoo_dwg provision      # menu: Check / Apply
 | OK    | Dev role (odoo)         | present                                  |
 | OK    | wkhtmltopdf             | wkhtmltopdf 0.12.6.1 (with patched qt)   |
 | OK    | PostgreSQL version      | 16 (Odoo 19.0 requires 13.0)             |
-| INFO  | Node.js (optional)      | not installed (only needed for RTL/less) |
+| INFO  | Node.js (optional)      | not installed (only for right-to-left languages) |
 | OK    | uv (interpreters)       | present — provides 3.8, 3.10, 3.12 …     |
 | INFO  | Host python3            | 3.12                                     |
 +-------+-------------------------+------------------------------------------+
@@ -52,7 +52,14 @@ python3 -m odoo_dwg provision      # menu: Check / Apply
   before planning.
 - **wkhtmltopdf** — the Odoo-recommended patched build (0.12.6 for Odoo ≥ 15), downloaded for the host
   codename and **verified by SHA-256** before install; a mismatch aborts.
-- **Node + rtlcss** *(opt-in)* — only needed for RTL/less asset compilation.
+- **rtlcss, with Node.js** *(opt-in)*: only needed if users work in a right-to-left language (Arabic, Hebrew,
+  Persian…).
+  - **What it does:** Odoo runs `rtlcss` only to mirror its CSS for those languages
+    (`base/models/assetsbundle.py`). Without it, Odoo logs a warning and serves the stylesheet unmirrored.
+  - **Not needed for:** styles themselves, which since Odoo 12 are SCSS compiled in Python.
+  - **How it is installed:** without recommended packages. With them, `apt` pulled in 455 packages, a GUI
+    terminal among them.
+  - **If Node already comes from nvm,** `npm install -g rtlcss` is enough.
 - **Outbound firewall — OpenSnitch** *(opt-in)*: denies every outbound connection without a rule, asks in its
   window when that is open, and logs every decision. Odoo may reach only localhost, while the development
   tools keep their hosts. The package is pinned and verified, the configuration hardened, and the baseline
