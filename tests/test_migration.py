@@ -361,10 +361,11 @@ def test_checkpoints_and_the_source_hash_are_written_atomically():
 def test_a_checkpoint_that_cannot_be_written_stops_the_chain():
     sh = _driver()
     body = sh.split("checkpoint() {", 1)[1].split("\n}", 1)[0]
-    # Every link chained, so a failing pg_dump cannot be followed by the "[checkpoint]"
-    # line and the next step: the whole function must end in the failure branch.
-    assert body.count("&&") == 2
-    assert 'echo "[checkpoint] $1"' in body
-    assert body.index('echo "[checkpoint] $1"') < body.index("die ")
+    body = "\n".join(ln for ln in body.splitlines() if not ln.strip().startswith("#"))
+    # A failing pg_dump must reach `die`, not fall through to the "[checkpoint]"
+    # line and the next step, and must leave no half-written file behind.
+    assert "if ! pg_dump" in body
     assert 'rm -f "$CK/$1.dump.tmp"' in body
-    assert "; echo" not in body
+    assert body.index("die ") < body.index('echo "[checkpoint] $1"')
+    # Not `a && b || c`, which would also fire on a failing echo (shellcheck SC2015).
+    assert "&&" not in body
