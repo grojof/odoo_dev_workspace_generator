@@ -168,7 +168,7 @@ _ES_TO_EN: dict[str, str] = {
     "Aplicar (instalar lo que falte)": "Apply (install what's missing)",
     "Capacidad": "Capability",
     "{} no está soportado — hosts soportados: {}.": "{} is not supported — supported hosts: {}.",
-    "¿Instalar también las herramientas web opcionales (Node + rtlcss)?": "Also install the optional web toolchain (Node + rtlcss)?",
+    "¿Instalar rtlcss (con Node.js)? Solo hace falta si los usuarios trabajan en un idioma de derecha a izquierda (árabe, hebreo, persa…)": "Install rtlcss (with Node.js)? Only needed if users work in a right-to-left language (Arabic, Hebrew, Persian…)",
     "El host ya está provisionado — nada que hacer.": "Host already provisioned — nothing to do.",
     "Provisión aplicada.": "Provisioning applied.",
     "\nMigración (OpenUpgrade 12→19)": "\nMigration (OpenUpgrade 12→19)",

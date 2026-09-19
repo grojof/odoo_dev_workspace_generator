@@ -51,7 +51,7 @@ Every menu shows a numbered list; `0` (or `Back`/`Cancel`) always returns withou
 | Action | Behavior | Guard |
 |---|---|---|
 | Check host readiness | Read-only capability table (host release, build deps, PostgreSQL + role + server version, wkhtmltopdf, Node, host `python3`, uv interpreters, OpenSnitch and whether it is hardened, Mailpit) | Never mutates |
-| Apply (install what's missing) | Plans installs for missing capabilities. Node + rtlcss, the outbound firewall (OpenSnitch) and the mail capture (Mailpit) are separate opt-ins ([egress-control](egress-control.md)). | Root required; preview + confirm |
+| Apply (install what's missing) | Plans installs for missing capabilities. rtlcss (right-to-left languages only), the outbound firewall (OpenSnitch) and the mail capture (Mailpit) are separate opt-ins ([egress-control](egress-control.md)). | Root required; preview + confirm |
 | Outbound firewall and mail capture (on/off, uninstall) | Shows both components' state. Turns each off or on (persistent across restarts), or uninstalls it. For OpenSnitch it lists what `apt` removes first and keeps your own rules. ([details](egress-control.md#turning-it-off-or-uninstalling)) | Root required; preview + confirm; phrase `UNINSTALL` to uninstall |
 
 ### Migration (OpenUpgrade 12→19)

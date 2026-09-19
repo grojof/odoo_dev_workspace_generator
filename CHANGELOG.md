@@ -31,7 +31,8 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 - **Node + rtlcss installed 455 packages.** `apt` added every recommended package, a GUI terminal among
-  them. It now installs `nodejs` and `npm` without recommends.
+  them. It now installs `nodejs` and `npm` without recommends, and the prompt says what the step is for:
+  only right-to-left languages (Arabic, Hebrew, Persian…).
 
 ## [0.1.0] - 2026-09-19
 

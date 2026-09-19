@@ -330,7 +330,9 @@ def plan_wkhtmltopdf(major: int, codename: str) -> list[Command]:
 
 
 def plan_node_rtlcss() -> list[Command]:
-    """Optional web toolchain for RTL/less asset compilation."""
+    """Optional rtlcss, which Odoo runs only to mirror its CSS for a right-to-left
+    language (base/models/assetsbundle.py, run_rtlcss); without it Odoo logs a warning
+    and serves the stylesheet unmirrored. Node.js is needed only to run it."""
     return [
         # Without recommends: they pulled in 455 packages on Ubuntu 24.04, a GUI
         # terminal among them, for what only needs node and npm.

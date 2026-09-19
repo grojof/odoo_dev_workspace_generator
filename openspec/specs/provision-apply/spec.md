@@ -68,12 +68,14 @@ installing; a checksum mismatch MUST abort the install.
 
 ### Requirement: Optional Node and rtlcss
 
-`provision apply` SHALL offer, as an optional step, installing Node.js and the `rtlcss` package (needed only
-for RTL/less asset compilation), so a host that does not need it is not forced to install Node.
+`provision apply` SHALL offer, as an optional step, installing Node.js and the `rtlcss` package, which Odoo
+uses only to mirror its CSS for right-to-left languages, so a host that does not need it is not forced to
+install Node. The prompt SHALL say what it is for, and Node.js SHALL be installed without recommended
+packages.
 
 #### Scenario: Node + rtlcss is opt-in
 
-- **WHEN** the user declines the optional web toolchain
+- **WHEN** the user declines the optional rtlcss step
 - **THEN** no Node.js or rtlcss install command is included in the plan
 
 ### Requirement: Supported Ubuntu releases only
