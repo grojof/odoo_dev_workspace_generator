@@ -48,10 +48,17 @@ All notable changes to this project are documented here. The format is based on
   install and the `odoo:13.0`/`odoo:12.0` image pulls, and the migration preflight and driver stop requiring
   a daemon. A host that installed Docker for earlier versions can keep or remove it freely.
 
-- **BREAKING — supported hosts narrowed from the Debian/Ubuntu apt family to Ubuntu 22.04 and 24.04.**
-  `provision check` reports any other host as unsupported (it still completes and still changes nothing) and
-  `provision apply` refuses before assembling a single command. Debian was never validated, so the claim was
+- **BREAKING — Ubuntu 24.04 is the only supported host**, narrowed from the whole Debian/Ubuntu apt family
+  (changes `add-support-matrix`, then `lighten-scope`). `provision check` reports any other host as
+  unsupported (it still completes and still changes nothing) and `provision apply` refuses before assembling a
+  single command. Debian and Ubuntu 22.04 had been declared but never run on a real host, so the claim was
   dropped rather than left implied.
+- **BREAKING — the tool needs Python 3.12** (24.04's system Python; `requires-python = ">=3.12"`), up from
+  3.10, which existed only to honour 22.04.
+- **Workspace clones are shallow** (`--depth 1`, Odoo and OCA alike), with no option to configure. A full
+  single-branch Odoo clone measured 4.2–5.7 GB, almost all history; a shallow one is about 1 GB. Existing clones
+  are left untouched, **Refresh shared repos** keeps working, and `git fetch --unshallow` restores history for
+  whoever needs `log`/`blame`.
 
 ### Fixed
 - **The containerised Odoo 13 step silently under-migrated.** The `odoo:13.0` image sets

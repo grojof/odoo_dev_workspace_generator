@@ -74,7 +74,7 @@ Every command, menu action, and confirmation phrase: [`docs/commands.md`](docs/c
 - A **Linux** host (target: Ubuntu 24.04) — don't have one? [`docs/wsl-setup.md`](docs/wsl-setup.md) sets up
   Ubuntu 24.04 on WSL 2 step by step. Development *of this tool* works on any OS; real end-to-end
   generation is validated on WSL/Linux.
-- `python3` ≥ 3.10 (the tool itself). Host tools it orchestrates — `git`, `psql`/`createdb` and `uv`
+- `python3` ≥ 3.12 (the tool itself; Ubuntu 24.04's system Python). Host tools it orchestrates — `git`, `psql`/`createdb` and `uv`
   (which provides every migration step's interpreter) — are checked by `provision check`, not bundled. No
   container runtime is needed.
 

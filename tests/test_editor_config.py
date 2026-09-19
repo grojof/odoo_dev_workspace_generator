@@ -10,9 +10,8 @@ those keys are still accepted upstream is checked by
 from __future__ import annotations
 
 import json
+import tomllib
 from pathlib import Path
-
-import pytest
 
 from odoo_dwg import planners, templates
 from odoo_dwg.models import WorkspaceConfig
@@ -26,7 +25,6 @@ def _cfg(tmp_path: Path, monkeypatch, **kw) -> WorkspaceConfig:
 
 
 def _parse(text: str) -> dict:
-    tomllib = pytest.importorskip("tomllib")  # stdlib from 3.11; the floor is 3.10
     return tomllib.loads(text)
 
 

@@ -5,6 +5,7 @@ tests guard its shape and its lookups — not the specific bounds, which
 from __future__ import annotations
 
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -139,24 +140,20 @@ def test_docs_url_follows_the_layout_of_each_era():
     assert odoo_docs_url("19.0").endswith("/19.0/administration/on_premise/source.html")
 
 
-def test_supported_hosts_are_ubuntu_only_with_one_reference_box():
-    assert [host.version_id for host in SUPPORTED_HOSTS] == ["22.04", "24.04"]
-    assert {host.os_id for host in SUPPORTED_HOSTS} == {"ubuntu"}
-    assert [host.reference for host in SUPPORTED_HOSTS].count(True) == 1
-    assert supported_host("ubuntu", "24.04").codename == "noble"
-    assert supported_host("Ubuntu", "22.04").system_python == "3.10"
+def test_the_only_supported_host_is_the_reference_box():
+    assert [host.version_id for host in SUPPORTED_HOSTS] == ["24.04"]
+    assert SUPPORTED_HOSTS[0].reference
+    assert supported_host("Ubuntu", "24.04").codename == "noble"
+    assert supported_host("ubuntu", "24.04").system_python == "3.12"
+    # Declared-but-never-run hosts were dropped rather than implied.
+    assert supported_host("ubuntu", "22.04") is None
     assert supported_host("debian", "12") is None
-    assert supported_host("ubuntu", "20.04") is None
 
 
 def test_tool_python_floor_matches_pyproject():
-    # Read with a regex rather than tomllib: the declared floor is 3.10, where
-    # tomllib does not exist yet.
-    text = PYPROJECT.read_text(encoding="utf-8")
-    declared = re.search(r'requires-python\s*=\s*">=\s*([0-9.]+)"', text)
-    assert declared, "requires-python not found in pyproject.toml"
-    assert declared.group(1) == TOOL_PYTHON_MINIMUM
-    # And it is the oldest supported host's system Python.
+    declared = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]["requires-python"]
+    assert declared == f">={TOOL_PYTHON_MINIMUM}"
+    # And it is the supported host's system Python.
     assert TOOL_PYTHON_MINIMUM == SUPPORTED_HOSTS[0].system_python
 
 
@@ -180,7 +177,7 @@ def test_host_above_the_maximum_falls_back_to_the_recommendation():
 
 
 def test_host_below_the_minimum_falls_back_to_the_recommendation():
-    # A 22.04 host runs 3.10, below nothing here; use an older host to check.
+    # A host interpreter below Odoo 19's 3.10 floor falls back to the recommendation.
     choice = resolve_interpreter("19.0", host_python="3.9")
     assert (choice.python, choice.source) == ("3.12", UV_PYTHON)
 

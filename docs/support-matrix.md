@@ -3,7 +3,7 @@ type: reference
 title: "Support matrix"
 description: "What odoo_dwg supports — hosts, Python per Odoo version, PostgreSQL — with the source behind every bound and how to re-verify it."
 audience: [developer, contributor]
-updated: 2026-09-17
+updated: 2026-09-19
 ---
 
 # Support matrix
@@ -27,27 +27,19 @@ the value.
 
 ## Hosts
 
-Ubuntu only, and only these releases. Debian was **dropped deliberately** — the apt-family check used to
-accept it, but it was never validated, and claiming support nobody tested is worse than declining it.
-`provision check` reports an unsupported host and still completes; `provision apply` refuses before running
-anything.
+**One host: Ubuntu 24.04 LTS**, the reference box every end-to-end acceptance runs on. Hosts that were declared
+but never run were dropped rather than implied: Debian first, then Ubuntu 22.04 (2026-09-19). `provision check`
+reports any other host as unsupported and still completes; `provision apply` refuses before running anything.
 
-| Host | Codename | System `python3` | PostgreSQL | Notes |
-|---|---|---|---|---|
-| Ubuntu 22.04 LTS | jammy | 3.10 | 14 | Oldest supported; sets the tool's own Python floor. |
-| Ubuntu 24.04 LTS | noble | 3.12 | 16 | **Reference box** — every end-to-end acceptance runs here. |
+| Host | Codename | System `python3` | PostgreSQL |
+|---|---|---|---|
+| Ubuntu 24.04 LTS | noble | 3.12 | 16 |
 
-Source: [`packages.ubuntu.com/jammy/python3`](https://packages.ubuntu.com/jammy/python3),
-[`/jammy/postgresql`](https://packages.ubuntu.com/jammy/postgresql),
-[`/noble/python3`](https://packages.ubuntu.com/noble/python3),
+Source: [`packages.ubuntu.com/noble/python3`](https://packages.ubuntu.com/noble/python3),
 [`/noble/postgresql`](https://packages.ubuntu.com/noble/postgresql).
 
-**The tool's own Python floor is 3.10**, being Ubuntu 22.04's system Python, and it matches
-`requires-python = ">=3.10"` in `pyproject.toml` (a unit test asserts the two agree). Day-to-day development
-runs on 3.12, the reference box's Python.
-
-> The 22.04 row is read from `packages.ubuntu.com`, not from a running 22.04 host. Confirming it on a jammy
-> host or container is an open validation item — see [`roadmap.md`](roadmap.md).
+**The tool's own Python floor is 3.12**, the supported host's system Python, and it matches
+`requires-python = ">=3.12"` in `pyproject.toml` (a unit test asserts the two agree).
 
 ## Odoo versions
 

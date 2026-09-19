@@ -10,7 +10,7 @@ updated: 2026-09-17
 
 The optional **provision** section prepares a *Linux* host (bare server, WSL, or container) for Odoo
 development. The host releases it supports are declared in the
-[support matrix](support-matrix.md) — **Ubuntu 22.04 and 24.04** — detected from `/etc/os-release`. Any other
+[support matrix](support-matrix.md) — **Ubuntu 24.04** — detected from `/etc/os-release`. Any other
 host is reported by `check` and refused by `apply` rather than guessed at: earlier versions accepted the whole
 apt family, which implied Debian support that was never validated.
 
@@ -51,6 +51,15 @@ python3 -m odoo_dwg provision      # menu: Check / Apply
 - **wkhtmltopdf** — the Odoo-recommended patched build (0.12.6 for Odoo ≥ 15), downloaded for the host
   codename and **verified by SHA-256** before install; a mismatch aborts.
 - **Node + rtlcss** *(opt-in)* — only needed for RTL/less asset compilation.
+
+## Why `trust` on loopback
+
+`provision apply` lets the development role connect from `127.0.0.1` / `::1` without a password. That is a
+deliberate choice for a local development box — nothing to generate, store or leak — and it is why the generated
+`odoo.conf` carries no `db_password`. It is **not** a setup for a shared or remote PostgreSQL. If you need
+password authentication, do it by hand: `ALTER ROLE odoo WITH PASSWORD '...'`, change those two `pg_hba.conf`
+lines from `trust` to `scram-sha-256`, reload PostgreSQL, and add `db_password` to each `config/odoo<major>.conf`
+yourself.
 
 ## Official references
 

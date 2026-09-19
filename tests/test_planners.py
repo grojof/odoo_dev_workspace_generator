@@ -23,11 +23,13 @@ def test_repo_cache_clones_each_version_and_oca():
     cfg = _cfg(versions=["17.0", "18.0"], oca_repos=["web"])
     cmds = planners.plan_repo_cache(cfg)  # default exists = nothing present
     joined = "\n".join(c.command for c in cmds)
-    assert "git clone --branch 17.0 --single-branch" in joined
-    assert "git clone --branch 18.0 --single-branch" in joined
+    assert "git clone --depth 1 --branch 17.0 --single-branch" in joined
+    assert "git clone --depth 1 --branch 18.0 --single-branch" in joined
     assert "OCA/web.git" in joined
     # one odoo clone per version (2) + one OCA clone per version (2) = 4
     assert len(cmds) == 4
+    # Every clone is shallow, OCA included: history is most of a clone's size.
+    assert all("--depth 1 " in c.command for c in cmds)
 
 
 def test_repo_cache_skips_present_clone():
@@ -112,7 +114,8 @@ def test_generate_workspace_composes_clone_tree_and_venvs():
     cfg = _cfg(versions=["17.0", "18.0"])
     cmds = planners.plan_generate_workspace(cfg)  # nothing present
     joined = "\n".join(c.command for c in cmds)
-    assert "git clone --branch 17.0" in joined and "git clone --branch 18.0" in joined
+    assert "git clone --depth 1 --branch 17.0" in joined
+    assert "git clone --depth 1 --branch 18.0" in joined
     assert "workspace.json" in joined  # profile marker written by the tree
     assert len(_venv_builds(cmds)) == 2  # a venv build for each version
 
