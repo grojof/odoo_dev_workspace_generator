@@ -2,17 +2,18 @@
 
 ## 1. Implementation
 
-- [ ] 1.1 Emit an Odoo shell configuration per version and a shared `odooDatabase` input in `launch.json`;
-      unit tests for the pair per version, the arguments and the input
-- [ ] 1.2 Mention both configurations in the generated README
-- [ ] 1.3 Run the shell in `tools/verify_workspace_versions.py`, piping an ORM query and requiring its answer
+- [x] 1.1 Emit server, shell, upgrade-modules and test-module configurations per version with `odooDatabase`,
+      `odooModules` and `odooTestModule` inputs in `launch.json`; unit tests for names, arguments and inputs
+- [x] 1.2 Describe the four configurations in the generated README
+- [x] 1.3 Make `tools/verify_workspace_versions.py` run the generated configurations: shell (piped ORM query),
+      test module (`barcodes`) and upgrade modules (`/web/login`)
 
 ## 2. Docs
 
-- [ ] 2.1 Update `docs/workspace-layout.md` and `CHANGELOG.md`
+- [x] 2.1 Update `docs/editor-integration.md`, `docs/workspace-layout.md` and `CHANGELOG.md`
 
 ## 3. Acceptance
 
-- [ ] 3.1 Project checks green: pytest, ruff, `openspec validate --specs`, CLI smoke
-- [ ] 3.2 Run `tools/verify_workspace_versions.py` on this host: every version from 12.0 to 19.0 passes, the
-      shell included
+- [x] 3.1 Project checks green: pytest, ruff, `openspec validate --specs`, CLI smoke
+- [x] 3.2 Run `tools/verify_workspace_versions.py` on this host: every version from 12.0 to 19.0 passes all
+      four configurations

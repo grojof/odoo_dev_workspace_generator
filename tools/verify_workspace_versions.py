@@ -16,8 +16,12 @@ What it does, in order (see docs/workspace-layout.md for when and how to act on 
    interpreter the tool picks by default for this host. The plan is previewed and
    applied only after you type ``yes`` (or pass ``--yes``).
 2. For each version reports the venv's Python and setuptools, installs ``base``
-   into a fresh database ``verifyall_<major>`` (``--stop-after-init``), then
-   serves it and requires ``/web/login`` to return the login form.
+   and ``barcodes`` (a small module with tests in every version) with demo data
+   into a fresh database ``verifyall_<major>``, then runs the workspace's own debug
+   configurations from the generated ``.vscode/launch.json``, with the prompts
+   answered: the **shell** must evaluate an ORM query piped into it, **test
+   module** must run ``barcodes``' tests without failures, and **upgrade
+   modules** must serve ``/web/login`` with the login form.
 3. Removes what it created — the workspace, its databases and filestores, and
    only the shared clones that did not exist before — unless ``--keep``.
 
@@ -28,6 +32,7 @@ Needs network, PostgreSQL with the development role (``provision apply``) and
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import shutil
 import subprocess
@@ -50,6 +55,8 @@ from odoo_dwg.ui import render_table  # noqa: E402
 
 NAME = "verifyall"
 SERVE_TIMEOUT = 120
+TEST_MODULE = "barcodes"
+SHELL_PROBE = "print('ORM_OK', env['res.users'].search_count([]))\n"
 # Odoo's default data_dir; the generated odoo.conf does not override it.
 FILESTORE = Path("~/.local/share/Odoo/filestore").expanduser()
 
@@ -95,12 +102,50 @@ def _venv_facts(cfg: WorkspaceConfig, version: str) -> str:
     return result.stdout.strip() or result.stderr.strip().splitlines()[-1]
 
 
-def _serves_login(cfg: WorkspaceConfig, version: str, database: str) -> str:
+def _launch_commands(cfg: WorkspaceConfig, version: str, database: str) -> dict[str, list[str]]:
+    """The generated debug configurations for ``version``, keyed by kind, as the
+    command debugpy would run once VS Code has asked its prompts."""
+    answers = {
+        "${input:odooDatabase}": database,
+        "${input:odooModules}": TEST_MODULE,
+        "${input:odooTestModule}": TEST_MODULE,
+    }
+    launch = json.loads((cfg.vscode_dir / "launch.json").read_text(encoding="utf-8"))
+    commands: dict[str, list[str]] = {}
+    for configuration in launch["configurations"]:
+        if not configuration["python"].endswith(f"/odoo{odoo_major(version)}/bin/python"):
+            continue
+        kind = next(
+            (k for k in ("shell", "upgrade modules", "test module") if f" {k} (" in configuration["name"]),
+            "serve",
+        )
+        args = []
+        for arg in configuration["args"]:
+            for placeholder, answer in answers.items():
+                arg = arg.replace(placeholder, answer)
+            args.append(arg)
+        commands[kind] = [configuration["python"], configuration["program"], *args]
+    return commands
+
+
+def _shell_answers(command: list[str]) -> str:
+    result = subprocess.run(command, input=SHELL_PROBE, capture_output=True, text=True, timeout=300)
+    return "ORM ok" if "ORM_OK" in result.stdout else f"no answer (exit {result.returncode})"
+
+
+def _tests_pass(command: list[str]) -> str:
+    result = subprocess.run(command, capture_output=True, text=True, timeout=1800)
+    log = result.stdout + result.stderr
+    ran = f"odoo.addons.{TEST_MODULE}.tests" in log
+    problems = len(re.findall(r" (ERROR|CRITICAL) |FAIL:", log))
+    if result.returncode == 0 and ran and problems == 0:
+        return "tests ok"
+    return f"exit {result.returncode}, ran={ran}, {problems} problems"
+
+
+def _serves_login(cfg: WorkspaceConfig, version: str, database: str, command: list[str]) -> str:
     url = f"http://127.0.0.1:{cfg.http_port_for(version)}/web/login?db={database}"
-    server = subprocess.Popen(
-        _odoo_bin(cfg, version, "-d", database),
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
+    server = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         deadline = time.monotonic() + SERVE_TIMEOUT
         while time.monotonic() < deadline:
@@ -120,15 +165,20 @@ def _check(cfg: WorkspaceConfig, version: str) -> tuple[bool, list[str]]:
     database = _database(version)
     facts = _venv_facts(cfg, version)
     init = subprocess.run(
-        _odoo_bin(cfg, version, "-d", database, "-i", "base",
-                  "--without-demo=all", "--stop-after-init"),
+        # With demo data: Odoo 12 only runs tests on a demo database
+        # (odoo/modules/loading.py: "launch tests only in demo mode").
+        _odoo_bin(cfg, version, "-d", database, "-i", f"base,{TEST_MODULE}", "--stop-after-init"),
         capture_output=True, text=True,
     )
     errors = len(re.findall(r" (ERROR|CRITICAL) ", init.stdout + init.stderr))
-    login = _serves_login(cfg, version, database) if init.returncode == 0 else "skipped"
-    ok = init.returncode == 0 and errors == 0 and login == "login form"
-    row = [version, facts, f"exit {init.returncode}, {errors} errors", login]
-    return ok, row
+    if init.returncode != 0:
+        return False, [version, facts, f"exit {init.returncode}, {errors} errors", "skipped", "", ""]
+    launch = _launch_commands(cfg, version, database)
+    shell = _shell_answers(launch["shell"])
+    tests = _tests_pass(launch["test module"])
+    login = _serves_login(cfg, version, database, launch["upgrade modules"])
+    ok = errors == 0 and (shell, tests, login) == ("ORM ok", "tests ok", "login form")
+    return ok, [version, facts, f"exit 0, {errors} errors", shell, tests, login]
 
 
 def _clean(cfg: WorkspaceConfig, new_clones: list[Path]) -> None:
@@ -183,7 +233,8 @@ def main() -> int:
             _clean(cfg, new_clones)
 
     print()
-    print(render_table(["Odoo", "Python / setuptools", "-i base", "/web/login"],
+    print(render_table(["Odoo", "Python / setuptools", "install", "shell", "test module",
+                        "upgrade + /web/login"],
                        [row for _ok, row in results]))
     failed = [row[0] for ok, row in results if not ok]
     print(f"\n{'FAIL: ' + ', '.join(failed) if failed else 'All versions pass.'}")

@@ -24,10 +24,40 @@ to survive those releases without regeneration.
 | `odools.toml` (workspace root) | One `[[config]]` profile per Odoo version ≥ 14, with `name`, `odoo_path`, `addons_paths`, `python_path` as absolute paths | OdooLS's zero-config detection looks for Odoo *inside* the opened folder; a workspace keeps it in the shared `.repos` cache, often in several versions |
 | `.vscode/extensions.json` | Recommends `Odoo.odoo` (plus `ms-python.python` and `ms-python.debugpy`) | The official extension, not a third-party one |
 | `.vscode/settings.json` | `"python.languageServer": "None"` | OdooLS analyses Python; Pylance on the same files would duplicate and contradict it. The Python extension stays for debugging and interpreter selection |
+| `.vscode/launch.json` | Four debugpy configurations per version, plus prompts for their inputs (see below) | The everyday entry points of Odoo development, each under the debugger |
 
 Pick a profile from the status bar (**Change Configuration**). A single-version workspace has one profile,
 selected on its own. **Show Server Configuration (TOML/JSON)** in the command palette displays what the server
 actually loaded.
+
+### Debug configurations (F5)
+
+Each version gets four configurations. All four run that version's `odoo-bin` from its venv, in the integrated
+terminal, with `justMyCode` off so breakpoints stop in Odoo's code as well as yours:
+
+| Configuration | Arguments | Asks for |
+|---|---|---|
+| `Odoo <version> (<instance>)` | `-c config/odoo<major>.conf` | — |
+| `Odoo <version> shell (<instance>)` | `shell -c … -d <database>`: a Python REPL with `env` bound to the database | database (default: the workspace name) |
+| `Odoo <version> upgrade modules (<instance>)` | `-c … -d <database> -u <modules>`, then keeps serving | database, modules (comma-separated) |
+| `Odoo <version> test module (<instance>)` | `-c … -d <database> -u <module> --test-enable --test-tags /<module> --stop-after-init` | database, module |
+
+The prompts are `launch.json` `inputs` (`odooDatabase`, `odooModules`, `odooTestModule`), so VS Code asks for
+them when the configuration starts. `tools/verify_workspace_versions.py` runs these same configurations from the
+generated file, with the prompts answered, on every version:
+- **shell:** an ORM query is piped in and must come back.
+- **test module:** `barcodes`' tests must run and pass.
+- **upgrade modules:** the server must serve `/web/login`.
+
+**Odoo 12 runs tests only on a database with demo data.** Its loader skips them otherwise
+(`odoo/modules/loading.py`: "launch tests only in demo mode"), so the test configuration exits cleanly
+having run nothing. From 13 on, tests run either way.
+
+Deliberately not included:
+- **An auto-reload configuration:** Odoo's `reload` re-executes the process, which detaches the debugger. It
+  also needs `watchdog`, which Odoo's requirements do not include.
+- **Attach, `scaffold` and the other subcommands:** they are rarely debugged, and each would add one more
+  entry per version to the picker.
 
 ### What is deliberately *not* emitted
 
