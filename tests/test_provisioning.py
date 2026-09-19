@@ -155,3 +155,18 @@ def test_unpatched_wkhtmltopdf_is_warn():
     facts = ProvisionFacts(os_id="ubuntu", os_version_id="24.04", wkhtmltopdf="wkhtmltopdf 0.12.6")
     states = _states(provision_rows(facts))
     assert states["wkhtmltopdf"] == "WARN"
+
+
+def test_apply_rejects_an_unsafe_role_before_probing_or_planning(monkeypatch, capsys):
+    from odoo_dwg.workflows import provision
+
+    monkeypatch.setattr(provision, "_is_root", lambda: True)
+    monkeypatch.setattr(provision, "ask_text", lambda *a, **k: "odoo'; DROP DATABASE x; --")
+
+    def _unexpected(*args, **kwargs):
+        raise AssertionError("an unsafe role must stop apply before the host is probed")
+
+    monkeypatch.setattr(provision.provisioning, "gather_facts", _unexpected)
+    monkeypatch.setattr(provision.planners, "plan_postgresql", _unexpected)
+    provision._apply()
+    assert "Invalid PostgreSQL role" in capsys.readouterr().out

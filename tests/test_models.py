@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 
 from odoo_dwg.models import (
+    DB_ROLE_RE,
+    DEFAULT_DB_ROLE,
     MIGRATION_CHAIN,
     InstanceConfig,
     WorkspaceConfig,
@@ -57,8 +59,32 @@ def test_workspace_port_offsets_are_deterministic():
 def test_normalize_defaults_fills_user_and_prefix():
     cfg = WorkspaceConfig(name="acme")
     cfg.normalize_defaults()
-    assert cfg.db_user == "acme"
+    # The shared development role, the one `provision apply` creates by default.
+    assert cfg.db_user == DEFAULT_DB_ROLE == "odoo"
     assert cfg.addon_prefix == "acme"
+
+
+def test_normalize_defaults_keeps_an_explicit_db_user():
+    cfg = WorkspaceConfig(name="acme", db_user="acme")
+    cfg.normalize_defaults()
+    assert cfg.db_user == "acme"
+
+
+def test_validate_rejects_an_unsafe_db_user():
+    cfg = WorkspaceConfig(name="acme", versions=["18.0"], db_user="odoo; DROP ROLE x")
+    with pytest.raises(ValueError, match="db_user"):
+        cfg.validate()
+    # A newline would break out of the heredoc that writes odoo.conf.
+    cfg.db_user = "odoo\nEOF"
+    with pytest.raises(ValueError, match="db_user"):
+        cfg.validate()
+
+
+def test_db_role_pattern():
+    for role in ("odoo", "_dev", "acme_2", "a" * 63):
+        assert DB_ROLE_RE.fullmatch(role)
+    for role in ("", "Odoo", "2acme", "a-b", "odoo'", "a" * 64):
+        assert not DB_ROLE_RE.fullmatch(role)
 
 
 def test_validate_rejects_bad_name_and_version():
@@ -123,4 +149,4 @@ def test_save_and_load_round_trip(tmp_path):
     assert restored.name == "acme"
     assert restored.versions == ["17.0", "18.0"]
     assert restored.oca_repos == ["web"]
-    assert restored.db_user == "acme"
+    assert restored.db_user == "odoo"

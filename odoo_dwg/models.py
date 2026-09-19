@@ -22,6 +22,15 @@ from typing import ClassVar
 # and instance names, so it must be filesystem- and PostgreSQL-safe.
 WORKSPACE_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 
+# The development PostgreSQL role shared by workspaces and migration environments,
+# and the one `provision apply` creates by default. Loopback auth is `trust`, so a
+# role per workspace would isolate nothing and only need another `sudo` step.
+DEFAULT_DB_ROLE = "odoo"
+# A role is interpolated into SQL and written through shell heredocs, so only a
+# plain unquoted identifier is accepted (lowercase: unquoted names fold to it;
+# 63 bytes: NAMEDATALEN - 1).
+DB_ROLE_RE = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
+
 # First-class development versions (see the plan: dev on current majors).
 SUPPORTED_DEV_VERSIONS: tuple[str, ...] = ("17.0", "18.0", "19.0")
 
@@ -606,7 +615,7 @@ class WorkspaceConfig:
 
     def normalize_defaults(self) -> None:
         if not self.db_user:
-            self.db_user = self.name
+            self.db_user = DEFAULT_DB_ROLE
         if not self.addon_prefix:
             self.addon_prefix = self.name
         # De-duplicate and order versions for stable port assignment.
@@ -618,6 +627,11 @@ class WorkspaceConfig:
             errors.append(
                 "invalid workspace name: start with a lowercase letter, "
                 "only [a-z0-9_], max 32 chars."
+            )
+        if not DB_ROLE_RE.fullmatch(self.db_user):
+            errors.append(
+                f"invalid db_user: {self.db_user!r} (a PostgreSQL role: lowercase letters, "
+                "digits and underscores, max 63 chars)."
             )
         if not self.versions:
             errors.append("at least one Odoo version is required.")
@@ -662,7 +676,7 @@ class MigrationEnv:
     target: str
     db_host: str = "127.0.0.1"
     db_port: int = 5432
-    db_user: str = "odoo"
+    db_user: str = DEFAULT_DB_ROLE
     working_db: str = "migration"
     # Per-step interpreter overrides, ``{version: python}``. Empty means every
     # step uses the matrix's recommendation. An override exists so a migration

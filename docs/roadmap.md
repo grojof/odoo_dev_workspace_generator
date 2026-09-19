@@ -119,8 +119,8 @@ items are host-dependent.
   Odoo 14 + 18 was generated and applied on WSL Ubuntu 24.04. The out-of-range version built on `uv`
   Python 3.8.20 and the in-range one on the host's 3.12.3; both requirement sets installed **without
   overrides** (unlike the migration path, which needs them at 3.10), and `odoo-bin --version` runs in each
-  venv. Remaining for a full serve check: the generated profile's `db_user` defaults to the workspace name,
-  so serving needs a PostgreSQL role of that name — `provision apply` creates whichever role you name.
+  venv. The role mismatch this exposed (`db_user` defaulted to the workspace name, a role nobody created) was
+  fixed by `default-shared-db-role`: workspaces now default to the shared `odoo` role.
 - **One manual VSCode check** — open a generated workspace in VSCode once and confirm two things the CLI
   cannot: the official extension's status-bar switcher lists one profile per version, and **F5** attaches the
   debugger with the generated `launch.json` (debugpy + `odoo-bin`; `odoo.conf` already runs threaded,

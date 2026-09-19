@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 
 from . import planners, system
 from .models import (
+    DEFAULT_DB_ROLE,
     ODOO_SUPPORT,
     postgres_floor_for,
     python_tuple,
@@ -29,7 +30,7 @@ class ProvisionFacts:
     build_deps_missing: list[str] = field(default_factory=list)
     postgres_installed: bool = False
     postgres_running: bool = False
-    dev_role: str = "odoo"
+    dev_role: str = DEFAULT_DB_ROLE
     dev_role_exists: bool = False
     postgres_version: int | None = None
     wkhtmltopdf: str | None = None
@@ -42,7 +43,7 @@ class ProvisionFacts:
     versions: list[str] = field(default_factory=list)
 
 
-def gather_facts(dev_role: str = "odoo", versions: list[str] | None = None) -> ProvisionFacts:
+def gather_facts(dev_role: str = DEFAULT_DB_ROLE, versions: list[str] | None = None) -> ProvisionFacts:
     """Probe the host for readiness (I/O). ``versions`` scopes the PostgreSQL
     floor to the Odoo versions in play; empty means every supported version."""
     release = system.detect_os_release()

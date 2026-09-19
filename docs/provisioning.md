@@ -47,7 +47,9 @@ python3 -m odoo_dwg provision      # menu: Check / Apply
 - **PostgreSQL** — installed, enabled, and a `LOGIN CREATEDB` development role created idempotently. For a
   development host it also sets loopback (`127.0.0.1/::1`) to `trust` in `pg_hba.conf` so a workspace
   `odoo.conf` (which uses `db_host=127.0.0.1`) connects. **This is a dev-only convenience — not for
-  production**; a password-auth mode is a planned follow-up.
+  production** (see below). The role defaults to `odoo`, the one workspaces and migration environments
+  connect as; a role name must be a plain PostgreSQL identifier (`^[a-z_][a-z0-9_]{0,62}$`) or apply stops
+  before planning.
 - **wkhtmltopdf** — the Odoo-recommended patched build (0.12.6 for Odoo ≥ 15), downloaded for the host
   codename and **verified by SHA-256** before install; a mismatch aborts.
 - **Node + rtlcss** *(opt-in)* — only needed for RTL/less asset compilation.

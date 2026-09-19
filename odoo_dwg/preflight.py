@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import system
-from .models import MigrationEnv, odoo_major
+from .models import DEFAULT_DB_ROLE, MigrationEnv, odoo_major
 
 Exists = Callable[[Path], bool]
 
@@ -32,7 +32,7 @@ Exists = Callable[[Path], bool]
 class HostFacts:
     uv: bool = False
     postgres_running: bool = False
-    dev_role: str = "odoo"
+    dev_role: str = DEFAULT_DB_ROLE
     dev_role_exists: bool = False
     dump_path: str | None = None
     dump_readable: bool = False
