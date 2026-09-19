@@ -20,6 +20,7 @@ from ..planners import write_text_file_command
 from ..prompts import ask_bool, ask_text, choose, confirm_with_phrase
 from ..system import Command, apply_commands, list_dirs, preview_commands
 from ..ui import level_text, render_table
+from .workspace import redirect_mail
 
 
 def _exists(path) -> bool:
@@ -307,6 +308,7 @@ def migration_menu() -> None:
                 "Preflight check",
                 "Stage custom modules",
                 "Clean a migration environment",
+                "Redirect a database's mail to Mailpit",
                 "Back",
             ],
             default_index=None,
@@ -321,3 +323,7 @@ def migration_menu() -> None:
             _stage_modules()
         elif action == "Clean a migration environment":
             _clean_environment()
+        elif action == "Redirect a database's mail to Mailpit":
+            # Migration databases use the environment's defaults (host, port, role).
+            defaults = MigrationEnv(source="12.0", target="19.0")
+            redirect_mail(defaults.db_host, defaults.db_port, defaults.db_user)

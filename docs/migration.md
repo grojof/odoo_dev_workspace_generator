@@ -165,6 +165,16 @@ database (version match, addons coverage) before step 1, then runs each step wit
 checkpoint after each successful step** — so a failure resumes from the last good step, not from the source.
 Any preflight failure exits non-zero with a `[preflight-fail]` line naming the check.
 
+### Keeping a migration from reaching the outside
+
+Each step's `odoo.conf` sends mail to the local capture (`127.0.0.1:1025`). With the
+[outbound firewall](egress-control.md) installed, every `odoo-bin` step is also rejected on any non-local
+connection, and each attempt is logged.
+- **Rehearsing on a copy:** also run **Redirect a database's mail to Mailpit** on it, so that its own mail
+  servers do not bypass `odoo.conf`.
+- **A database going back to production:** do **not** redirect it. Keep the firewall on during the run, and
+  review what it tried to reach before cutover ([live production migrations](egress-control.md#live-production-migrations)).
+
 ## Cleaning up
 
 The migration menu's **Clean a migration environment** action removes an environment directory

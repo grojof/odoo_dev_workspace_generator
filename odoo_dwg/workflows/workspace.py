@@ -13,6 +13,7 @@ from pathlib import Path
 from .. import planners
 from ..i18n import t, tf
 from ..models import (
+    DB_NAME_RE,
     InterpreterChoice,
     WorkspaceConfig,
     interpreter_from_pyvenv,
@@ -178,6 +179,26 @@ def _refresh_files(cfg: WorkspaceConfig) -> None:
     _apply_if_confirmed(commands)
 
 
+def redirect_mail(db_host: str, db_port: int, db_user: str) -> None:
+    """Point a rehearsal database's mail servers at Mailpit (shared with migration)."""
+    database = ask_text("Database whose mail to redirect", required=True)
+    if not DB_NAME_RE.fullmatch(database):
+        print(level_text("ERROR", tf("Invalid database name: {}", database)))
+        return
+    if not confirm_with_phrase(
+        tf(
+            "Every mail server of {} will point at Mailpit and lose its credentials, and mail "
+            "fetching stops. Use it on rehearsal copies only — never on a database going back "
+            "to production.",
+            database,
+        ),
+        "REDIRECT",
+    ):
+        print(level_text("INFO", t("Cancelled.")))
+        return
+    _apply_if_confirmed(planners.plan_mail_redirect(database, db_host, db_port, db_user))
+
+
 def _regenerate_venv(cfg: WorkspaceConfig) -> None:
     version = choose("Which version", list(cfg.versions) + ["Cancel"], default_index=None)
     if version in ("", "Cancel"):
@@ -254,6 +275,7 @@ def _manage_workspace() -> None:
                 "Regenerate a venv",
                 "Refresh shared repos",
                 "Add a version",
+                "Redirect a database's mail to Mailpit",
                 "Back",
             ],
             default_index=None,
@@ -268,6 +290,8 @@ def _manage_workspace() -> None:
             _refresh_repos(cfg)
         elif action == "Add a version":
             _add_version(cfg)
+        elif action == "Redirect a database's mail to Mailpit":
+            redirect_mail(cfg.db_host, cfg.db_port, cfg.db_user)
 
 
 # --- entry ----------------------------------------------------------------

@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import shlex
 
+from . import egress
 from .models import (
     LEGACY_LAYOUT_MAX_MAJOR,
     UV_PYTHON,
@@ -33,6 +34,17 @@ from .models import (
 def _gevent_port_key(version: str) -> str:
     """Live-chat/bus port key: ``gevent_port`` on Odoo ≥ 16, else ``longpolling_port``."""
     return "gevent_port" if odoo_major(version) >= 16 else "longpolling_port"
+
+
+def _smtp_to_capture() -> list[str]:
+    """Outgoing mail goes to the local capture (Mailpit): shown there when it runs,
+    refused when it does not — never delivered. A mail server stored in the
+    database takes precedence over these keys; see the mail redirect action."""
+    return [
+        "; Mail goes to the local capture (Mailpit); never delivered. docs/egress-control.md",
+        f"smtp_server = {egress.MAILPIT_SMTP_HOST}",
+        f"smtp_port = {egress.MAILPIT_SMTP_PORT}",
+    ]
 
 
 def render_odoo_conf(cfg: WorkspaceConfig, version: str) -> str:
@@ -62,6 +74,8 @@ def render_odoo_conf(cfg: WorkspaceConfig, version: str) -> str:
         f"db_port = {cfg.db_port}",
         f"db_user = {cfg.db_user}",
         "admin_passwd = admin",
+        "",
+        *_smtp_to_capture(),
     ]
     return "\n".join(lines) + "\n"
 
@@ -572,6 +586,8 @@ def render_migration_conf(env: MigrationEnv, version: str) -> str:
         "",
         "workers = 0",
         "max_cron_threads = 0",
+        "",
+        *_smtp_to_capture(),
     ]
     return "\n".join(lines) + "\n"
 

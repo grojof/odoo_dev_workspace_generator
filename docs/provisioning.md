@@ -53,6 +53,13 @@ python3 -m odoo_dwg provision      # menu: Check / Apply
 - **wkhtmltopdf** — the Odoo-recommended patched build (0.12.6 for Odoo ≥ 15), downloaded for the host
   codename and **verified by SHA-256** before install; a mismatch aborts.
 - **Node + rtlcss** *(opt-in)* — only needed for RTL/less asset compilation.
+- **Outbound firewall — OpenSnitch** *(opt-in)*: denies every outbound connection without a rule, asks in its
+  window when that is open, and logs every decision. Odoo may reach only localhost, while the development
+  tools keep their hosts. The package is pinned and verified, the configuration hardened, and the baseline
+  rules installed. See [egress-control](egress-control.md).
+- **Mail capture — Mailpit** *(opt-in)*: a local SMTP server (`127.0.0.1:1025`) with a web UI (`:8025`). Every
+  generated `odoo.conf` sends mail there, so it is read and never delivered. See
+  [egress-control](egress-control.md#mail-capture).
 
 ## Why `trust` on loopback
 

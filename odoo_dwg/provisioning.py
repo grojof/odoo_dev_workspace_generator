@@ -8,9 +8,10 @@ installation lives in ``planners`` and is run by ``system.apply_commands``.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 
-from . import planners, system
+from . import egress, planners, system
 from .models import (
     DEFAULT_DB_ROLE,
     ODOO_SUPPORT,
@@ -41,6 +42,15 @@ class ProvisionFacts:
     host_python: str | None = None
     # Odoo versions this check is scoped to, which set the PostgreSQL floor.
     versions: list[str] = field(default_factory=list)
+    # Optional egress control and mail capture.
+    opensnitch_version: str | None = None
+    opensnitch_active: bool = False
+    # Hardened settings the running config does not have (``key: value``).
+    opensnitch_deviations: list[str] = field(default_factory=list)
+    mailpit_version: str | None = None
+    mailpit_active: bool = False
+    # Non-loopback DNS servers, for the baseline rules.
+    resolvers: list[str] = field(default_factory=list)
 
 
 def gather_facts(dev_role: str = DEFAULT_DB_ROLE, versions: list[str] | None = None) -> ProvisionFacts:
@@ -50,6 +60,7 @@ def gather_facts(dev_role: str = DEFAULT_DB_ROLE, versions: list[str] | None = N
     running = system.postgres_running()
     role_exists = system.db_role_exists(dev_role) if running else False
     uv_present = system.has_tool("uv")
+    opensnitch_version = system.deb_version("opensnitch")
     return ProvisionFacts(
         os_id=release.get("ID", ""),
         os_version_id=release.get("VERSION_ID", ""),
@@ -68,6 +79,12 @@ def gather_facts(dev_role: str = DEFAULT_DB_ROLE, versions: list[str] | None = N
         uv_pythons=system.uv_python_minors() if uv_present else [],
         host_python=system.detect_python_version(),
         versions=list(versions or []),
+        opensnitch_version=opensnitch_version,
+        opensnitch_active=system.service_active("opensnitch") if opensnitch_version else False,
+        opensnitch_deviations=_opensnitch_deviations() if opensnitch_version else [],
+        mailpit_version=system.mailpit_version(egress.MAILPIT_BINARY),
+        mailpit_active=system.service_active("mailpit"),
+        resolvers=egress.parse_resolvers(system.read_text("/etc/resolv.conf") or ""),
     )
 
 
@@ -91,6 +108,38 @@ def _postgres_version_rows(facts: ProvisionFacts) -> list[tuple[str, str, str]]:
             )
         ]
     return [("OK", "PostgreSQL version", f"{installed} (Odoo {version} requires {required})")]
+
+
+def _opensnitch_deviations() -> list[str]:
+    text = system.read_text(egress.OPENSNITCH_CONFIG)
+    if text is None:
+        return ["config: unreadable"]
+    try:
+        return egress.config_deviations(json.loads(text))
+    except ValueError:
+        return ["config: not valid JSON"]
+
+
+def _egress_rows(facts: ProvisionFacts) -> list[tuple[str, str, str]]:
+    rows: list[tuple[str, str, str]] = []
+    label = "Egress firewall — OpenSnitch (optional)"
+    if not facts.opensnitch_version:
+        rows.append(("INFO", label, "not installed"))
+    elif not facts.opensnitch_active:
+        rows.append(("WARN", label, f"{facts.opensnitch_version} installed but not running"))
+    elif facts.opensnitch_deviations:
+        softened = ", ".join(facts.opensnitch_deviations)
+        rows.append(("WARN", label, f"{facts.opensnitch_version} running, not hardened: {softened}"))
+    else:
+        rows.append(("OK", label, f"{facts.opensnitch_version} running, hardened (default deny)"))
+    label = "Mail capture — Mailpit (optional)"
+    if not facts.mailpit_version:
+        rows.append(("INFO", label, "not installed"))
+    elif facts.mailpit_active:
+        rows.append(("OK", label, f"{facts.mailpit_version} running — SMTP 127.0.0.1:1025, UI :8025"))
+    else:
+        rows.append(("WARN", label, f"{facts.mailpit_version} installed but not running"))
+    return rows
 
 
 def provision_rows(facts: ProvisionFacts) -> list[tuple[str, str, str]]:
@@ -156,4 +205,5 @@ def provision_rows(facts: ProvisionFacts) -> list[tuple[str, str, str]]:
     if facts.host_python:
         rows.append(("INFO", "Host python3", facts.host_python))
 
+    rows += _egress_rows(facts)
     return rows

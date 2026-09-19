@@ -6,6 +6,27 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- **Outbound firewall and mail capture** (change `add-egress-control`), both opt-in in `provision apply`, see
+  [`docs/egress-control.md`](docs/egress-control.md).
+  - **OpenSnitch 1.8.0** is installed from the upstream release, with SHA-512 pinned from the maintainer-signed
+    list.
+  - **Hardened configuration:** deny by default whether or not its window is open, `proc` process monitoring
+    (`ebpf` lost long-running processes on WSL), no connection flush on start, and fail closed.
+  - **Baseline `00-odwg-*` rules** that come before any other rule:
+    - localhost, DNS, NTP and the VS Code server;
+    - **Odoo (`odoo-bin`) confined to localhost**;
+    - GitHub, PyPI, `uv`, the Ubuntu archives and npm for the development tools.
+  - **Mailpit 1.31.2** runs as a loopback-only service. Workspace and migration `odoo.conf` send mail to it.
+  - **Redirect a database's mail to Mailpit** retargets a rehearsal copy's own mail servers and stops fetchmail,
+    on Odoo 12–19.
+  - **Every firewall decision reaches the system journal** (`journalctl -t opensnitch`), with or without its
+    window.
+  - **A `provision` submenu** turns each component off or on, persistently across restarts, or uninstalls it.
+    For OpenSnitch it shows what `apt` will remove first and keeps your own rules.
+  - `provision check` reports both and flags a softened firewall configuration.
+  - `tools/verify_egress_pins.py` re-checks the pins, the signature and the signing key against upstream.
+
 ## [0.1.0] - 2026-09-19
 
 First release.
