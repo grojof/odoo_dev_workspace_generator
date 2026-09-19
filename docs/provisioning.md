@@ -63,7 +63,14 @@ and warns when every role — `postgres` included — may connect over loopback 
   before planning.
   The `pg_hba.conf` step runs on an already-provisioned host too, so a host left with a blanket loopback
   `trust` by an earlier version is narrowed the next time you apply; when the rules are already in that
-  shape, nothing is planned. If the line cannot be placed, the step fails instead of reporting success.
+  shape, nothing is planned. A blanket `trust` counts however it is spelled (`127.0.0.1/32`, `::1/128`,
+  `localhost`, `samehost`, `samenet`). The step ends by **connecting as the role over loopback**: if it
+  cannot, apply stops there instead of reporting a narrowing that does not work — a rule earlier in the file
+  may be matching first.
+
+  Apply also acts when a probe could not answer: PostgreSQL installed but stopped, a role it could not check
+  without a password, an unreadable `pg_hba.conf`. Everything it plans is idempotent, so the worst case is a
+  no-op, while the alternative was telling you the host was ready when it had no role at all.
 - **wkhtmltopdf** — the Odoo-recommended patched build (0.12.6 for Odoo ≥ 15), downloaded for the host
   codename and **verified by SHA-256** before install; a mismatch aborts. 0.12.5, which Odoo recommends up to
   14, is not provisioned. When no verified build is pinned for the host, `apply` says so instead of skipping

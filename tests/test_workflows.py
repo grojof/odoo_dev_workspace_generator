@@ -214,7 +214,8 @@ def _provision_facts(**kwargs):
         ({"pg_hba_blanket_trust": True, "pg_hba_role_trusted": True}, True),
         ({"pg_hba_blanket_trust": False, "pg_hba_role_trusted": False}, True),
         ({"pg_hba_blanket_trust": False, "pg_hba_role_trusted": True}, False),
-        ({}, False),  # unreadable: nothing is planned blind
+        # Unreadable is not "already narrow": an unknown probe means do the work.
+        ({}, True),
     ],
 )
 def test_an_already_provisioned_host_still_gets_pg_hba_narrowed(monkeypatch, hba, narrowed):

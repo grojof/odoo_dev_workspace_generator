@@ -62,6 +62,18 @@ All notable changes to this project are documented here. The format is based on
   first run: dead variables in `setup_venv.sh`, and a failure path written as `a && b || c`).
 
 ### Fixed
+- **`provision apply` reported "Host already provisioned — nothing to do" on a host with PostgreSQL stopped
+  and no development role.** A probe that could not answer (a stopped server hides both the role and
+  `pg_hba.conf`) was read as "nothing to do" instead of "do the work". Unknown now means act, and every step
+  planned is idempotent.
+- **A blanket loopback `trust` written as `localhost`, `samehost` or `samenet` survived the narrowing** and
+  `provision check` then reported `trust for odoo only` — while any local user could still connect as
+  `postgres`. Every spelling is recognised now, by the rewriter and by the check alike, and the step ends by
+  connecting as the role: a line that is present but shadowed by an earlier rule fails the step instead of
+  passing it. `tools/verify_pg_hba_trust.py` runs the rewriter over five shapes of that file.
+- **Installing Odoo 12's requirements could report `[OK]` having installed only the `python-ldap`
+  substitute.** The step is a `grep | pip` pipeline and plans run without `pipefail`, so `pip`'s status hid
+  `grep`'s. The step sets `pipefail` now, as the generated `setup_venv.sh` always did.
 - **A checkpoint that could not be written was reported as written.** `pg_dump`'s failure did not stop the
   driver — it printed `[checkpoint] <step>`, ran the rest of the chain and exited 0, leaving no recovery
   point at all. The run now aborts with a `[fail]` line naming the step, and removes the half-written file.

@@ -234,7 +234,8 @@ def test_build_venv_pins_setuptools_per_era():
 
 def test_odoo_12_installs_python_ldap_instead_of_the_deprecated_pyldap():
     install = planners.plan_build_venv(_cfg(versions=["12.0"]), "12.0")[2].command
-    assert install.startswith("grep -v -i -E '^pyldap([=<>!~; ]|$)' ")
+    # pipefail, or an unreadable requirements file installs the substitute alone.
+    assert install.startswith("set -o pipefail && grep -v -i -E '^pyldap([=<>!~; ]|$)' ")
     assert install.endswith("install -r /dev/stdin python-ldap==3.1.0")
     # Other versions install their requirements untouched.
     other = planners.plan_build_venv(_cfg(versions=["13.0"]), "13.0")[2].command

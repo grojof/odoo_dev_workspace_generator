@@ -59,8 +59,16 @@ as the `postgres` superuser.
 
 This SHALL be planned whenever the rules are not already in that shape, **including on a host that already
 has PostgreSQL and the role**, since those hosts are exactly the ones a previous version left with a blanket
-trust. The step SHALL fail loudly rather than report success when it cannot place the line, whatever shape
-the file has.
+trust. A blanket trust SHALL be recognised in every spelling `pg_hba.conf` accepts for loopback
+(`127.0.0.1/32`, `::1/128`, `localhost`, `samehost`, `samenet`).
+
+The step SHALL fail rather than report success when it cannot place the line, whatever shape the file has,
+and SHALL end by connecting as the role over loopback — `pg_hba.conf` is first-match-wins, so a line that is
+present but shadowed by an earlier rule is not a narrowing.
+
+Every probe behind these decisions is a tri-state, and an answer that could not be obtained SHALL be treated
+as "do the work", never as "already done": a stopped server hides both the role and the file. Every planned
+step SHALL be idempotent, so acting on an unknown costs a no-op.
 
 #### Scenario: An already-provisioned host is narrowed
 
@@ -76,6 +84,23 @@ the file has.
 
 - **WHEN** the file has no rule the insertion can anchor to and the line cannot be appended
 - **THEN** the step exits non-zero naming the file, rather than leaving the role unable to connect
+
+#### Scenario: A trust spelled another way is still blanket
+
+- **WHEN** `pg_hba.conf` trusts every role on `localhost` rather than `127.0.0.1/32`
+- **THEN** that line is narrowed too, and the check does not report the host as already narrow
+
+#### Scenario: The role's line is shadowed by an earlier rule
+
+- **WHEN** the role's trust line is added but an earlier rule matches the same loopback connection first
+- **THEN** the closing connection check fails the step, instead of reporting a narrowing that does not work
+
+#### Scenario: PostgreSQL installed but stopped
+
+- **WHEN** apply runs on a host where PostgreSQL is installed, its service is down, and the role therefore
+  cannot be probed
+- **THEN** the plan starts the service and creates the role if missing, rather than reporting the host as
+  already provisioned
 
 ### Requirement: Install the Odoo-recommended patched wkhtmltopdf verified by checksum
 

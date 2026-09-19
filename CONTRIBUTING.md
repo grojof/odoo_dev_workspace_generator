@@ -37,6 +37,7 @@ python tools/verify_workspace_versions.py        # build every version's venv, s
 python tools/verify_egress_pins.py               # OpenSnitch/Mailpit pins vs their signed/published sources
 python tools/verify_migration_driver.py          # run the generated migration driver against stub binaries
 python tools/verify_generated_shell.py           # ShellCheck every generated script
+python tools/verify_pg_hba_trust.py              # run the pg_hba rewriter over real files
 ```
 
 `verify_migration_driver.py` needs neither network nor PostgreSQL: it renders `run_migration.sh` into a
@@ -44,6 +45,11 @@ temporary directory and executes it with stub `psql`/`pg_dump`/`pg_restore`/`uv`
 resume, a gap in the checkpoints, a dump that does not match, and a checkpoint that cannot be written. The
 unit suite may not shell out, so this is where the *behaviour* of the generated shell is checked — run it
 whenever `render_run_migration_sh` changes.
+
+`verify_pg_hba_trust.py` runs the `pg_hba.conf` rewriter over five shapes of that file (the Ubuntu default,
+a blanket trust written as CIDR and as `localhost`/`samehost`, a file with no `host` rules, an
+already-narrowed one), asserting each result and that `system.pg_hba_loopback_state` reads the same file the
+same way. It found the `localhost` spelling surviving the narrowing while the check reported it narrowed.
 
 `verify_generated_shell.py` renders every generated script (both OpenUpgrade layouts, both interpreter
 sources) and runs [ShellCheck](https://www.shellcheck.net) on it — install it with

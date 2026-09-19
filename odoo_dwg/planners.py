@@ -326,7 +326,8 @@ def plan_pg_hba_trust(role: str) -> list[Command]:
         'set -e',
         'PGHBA=$(sudo -u postgres psql -tAc "SHOW hba_file;")',
         '[ -f "$PGHBA" ] || { echo "pg_hba.conf not found: $PGHBA" >&2; exit 1; }',
-        r'sed -ri "s#^(host\s+all\s+all\s+(127\.0\.0\.1/32|::1/128)\s+)trust#\1scram-sha-256#" "$PGHBA"',
+        r'sed -ri "s#^(host\s+all\s+all\s+(127\.0\.0\.1/32|::1/128|localhost|samehost|samenet)'
+        r'\s+)trust#\1scram-sha-256#" "$PGHBA"',
         f'if ! grep -qE {shlex.quote(want)} "$PGHBA"; then',
         r'  if grep -qE "^host\s+all\s+all\s+127\.0\.0\.1/32" "$PGHBA"; then',
         f'    sed -ri "0,/^host\\s+all\\s+all\\s+127\\.0\\.0\\.1\\/32/s##{v4}\\n{v6}\\n&#" "$PGHBA"',
@@ -339,12 +340,23 @@ def plan_pg_hba_trust(role: str) -> list[Command]:
         f'grep -qE {shlex.quote(want)} "$PGHBA" || '
         f'{{ echo "could not add the loopback trust line for {role} to $PGHBA" >&2; exit 1; }}',
     ])
+    # The grep proves the line exists, not that it is reached: an earlier rule
+    # matching the same connection wins, and pg_hba is first-match-wins. Only a
+    # connection proves the narrowing did what it says.
+    probe = (
+        f"for attempt in 1 2 3 4 5; do "
+        f"sudo -u postgres psql -p 5432 -tAc 'SELECT 1' >/dev/null 2>&1 && break; sleep 1; done; "
+        f"psql -w -h 127.0.0.1 -U {shlex.quote(role)} -d postgres -tAc 'SELECT 1' >/dev/null || "
+        f'{{ echo "{role} still cannot connect over loopback — check the rules above the ones this '
+        f'step added in $(sudo -u postgres psql -tAc \"SHOW hba_file;\")" >&2; exit 1; }}'
+    )
     return [
         Command(
             tf("Trust loopback connections of {} for local development (pg_hba)", role),
             script,
         ),
         Command(tf("Reload PostgreSQL"), "systemctl reload postgresql"),
+        Command(tf("Check that {} connects over loopback", role), probe),
     ]
 
 

@@ -251,7 +251,9 @@ def test_loopback_trust_covers_only_the_development_role():
     hba = next(c.command for c in planners.plan_postgresql("odoo") if "PGHBA=" in c.command)
     assert "host    all             odoo" in hba and "trust" in hba
     # Any blanket trust this tool wrote before is put back to a password method.
-    assert r"s#^(host\s+all\s+all\s+(127\.0\.0\.1/32|::1/128)\s+)trust#\1scram-sha-256#" in hba
+    # Every spelling of loopback pg_hba accepts, not only the CIDR one.
+    assert r"s#^(host\s+all\s+all\s+(127\.0\.0\.1/32|::1/128|localhost|samehost|samenet)" in hba
+    assert r"trust#\1scram-sha-256#" in hba
     # And the role line is added only when it is not already there.
     assert "if ! grep -qE " in hba
     # Whatever the file looks like, the step either ends with the role's trust line

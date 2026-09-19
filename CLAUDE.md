@@ -89,6 +89,7 @@ python tools/verify_workspace_versions.py  # build + start Odoo 12-19 in a throw
 python tools/verify_egress_pins.py      # OpenSnitch/Mailpit pins vs their signed/published sources (network)
 python tools/verify_migration_driver.py # execute the generated migration driver against stub binaries (host)
 python tools/verify_generated_shell.py  # ShellCheck every generated script (host, needs shellcheck)
+python tools/verify_pg_hba_trust.py     # run the pg_hba rewriter over real pg_hba.conf shapes (host)
 ```
 
 End-to-end validation (cloning Odoo, building venvs, running `odoo-bin`, migrations) happens on a real

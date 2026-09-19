@@ -93,7 +93,9 @@ def requirements_install_command(pip: str, requirements: str, version: str) -> s
     dropped, replacement = substitute
     pattern = shlex.quote(f"^{dropped}([=<>!~; ]|$)")
     return (
-        f"grep -v -i -E {pattern} {shlex.quote(requirements)} | "
+        # pipefail: without it only pip's status is seen, so an unreadable
+        # requirements file would install the substitute alone and report [OK].
+        f"set -o pipefail && grep -v -i -E {pattern} {shlex.quote(requirements)} | "
         f"{shlex.quote(pip)} install -r /dev/stdin {shlex.quote(replacement)}"
     )
 

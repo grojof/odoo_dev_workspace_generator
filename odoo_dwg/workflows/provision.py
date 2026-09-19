@@ -66,11 +66,15 @@ def _apply() -> None:
     commands: list = []
     if facts.build_deps_missing:
         commands += planners.plan_build_deps()
-    if not facts.postgres_installed or facts.dev_role_exists is False:
+    # Every probe is a tri-state: False and None both mean "do the work". A
+    # stopped server hides the role and pg_hba behind None, and skipping on that
+    # would report a host as provisioned that has no role at all.
+    if (not facts.postgres_installed or not facts.postgres_running
+            or facts.dev_role_exists is not True):
         commands += planners.plan_postgresql(role)
-    elif facts.pg_hba_blanket_trust or facts.pg_hba_role_trusted is False:
+    elif facts.pg_hba_blanket_trust is not False or facts.pg_hba_role_trusted is not True:
         # PostgreSQL and the role are already there, but the loopback rules are
-        # not the ones this tool wants: narrow them on their own.
+        # not the ones this tool wants (or could not be read): narrow them.
         commands += planners.plan_pg_hba_trust(role)
     if not facts.wkhtmltopdf or "with patched qt" not in facts.wkhtmltopdf.lower():
         wkhtmltopdf = planners.plan_wkhtmltopdf(_DEV_WKHTMLTOPDF_MAJOR, facts.os_codename)

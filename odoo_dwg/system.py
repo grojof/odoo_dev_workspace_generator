@@ -343,7 +343,11 @@ def pg_hba_loopback_state(role: str, port: int = 5432) -> tuple[bool, bool] | No
     if not text:
         return None
     lines = [line for line in text.splitlines() if not line.lstrip().startswith("#")]
-    blanket = re.compile(r"^host\s+all\s+all\s+(127\.0\.0\.1/32|::1/128)\s+trust\b")
+    # pg_hba spells loopback several ways; a blanket trust is a blanket trust
+    # however it is written.
+    blanket = re.compile(
+        r"^host\s+all\s+all\s+(127\.0\.0\.1/32|::1/128|localhost|samehost|samenet)\s+trust\b"
+    )
     own = re.compile(rf"^host\s+all\s+{re.escape(role)}\s+127\.0\.0\.1/32\s+trust\b")
     return (
         any(blanket.match(line) for line in lines),
