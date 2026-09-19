@@ -152,7 +152,9 @@ def plan_workspace_links(cfg: WorkspaceConfig) -> list[Command]:
                 Command(
                     tf("Link OCA {} for Odoo {}", repo, version),
                     f"mkdir -p {shlex.quote(str(link.parent))} && "
-                    f"ln -sfn {shlex.quote(str(target))} {shlex.quote(str(link))}",
+                    # -T: replace the link itself. Without it, an existing real
+                    # directory at that path would get the symlink nested inside.
+                    f"ln -sfnT {shlex.quote(str(target))} {shlex.quote(str(link))}",
                 )
             )
     return commands
@@ -238,6 +240,12 @@ def plan_refresh_files(
 
 # Odoo build/system dependencies (Debian/Ubuntu apt). This is the set validated
 # end-to-end during F1 acceptance on Ubuntu 24.04.
+# apt runs unattended: a debconf or conffile dialog would hang a plan with its
+# prompt hidden, since a step's output is captured unless --verbose is on.
+_APT = "DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::=--force-confold"
+APT_INSTALL = f"{_APT} install"
+APT_PURGE = f"{_APT} purge"
+
 BUILD_DEPS: tuple[str, ...] = (
     "build-essential", "pkg-config", "python3-dev", "python3-venv", "python3-pip", "git",
     "libpq-dev", "libldap2-dev", "libsasl2-dev", "libssl-dev", "libffi-dev",
@@ -278,7 +286,7 @@ def plan_build_deps() -> list[Command]:
     packages = " ".join(BUILD_DEPS)
     return [
         Command(tf("Update apt package lists"), "apt-get update"),
-        Command(tf("Install Odoo build dependencies"), f"apt-get -y install {packages}"),
+        Command(tf("Install Odoo build dependencies"), f"{APT_INSTALL} {packages}"),
     ]
 
 
@@ -292,24 +300,49 @@ def plan_postgresql(role: str) -> list[Command]:
         "END IF; END $$;"
     )
     return [
-        Command(tf("Install PostgreSQL"), "apt-get update && apt-get -y install postgresql"),
+        Command(tf("Install PostgreSQL"), f"apt-get update && {APT_INSTALL} postgresql"),
         Command(tf("Enable and start PostgreSQL"), "systemctl enable --now postgresql"),
         Command(
             tf("Create development role {} (if missing)", role),
             f"sudo -u postgres psql -v ON_ERROR_STOP=1 -c {shlex.quote(role_sql)}",
         ),
+    ] + plan_pg_hba_trust(role)
+
+
+def plan_pg_hba_trust(role: str) -> list[Command]:
+    """Give the development role a loopback trust line and take away any blanket
+    one. Separate from ``plan_postgresql`` so a host that already has PostgreSQL
+    and the role still gets its ``pg_hba.conf`` narrowed."""
+    v4 = f"host    all             {role}             127.0.0.1/32            trust"
+    v6 = f"host    all             {role}             ::1/128                 trust"
+    want = f'^host[[:space:]]+all[[:space:]]+{role}[[:space:]]+127\\.0\\.0\\.1/32[[:space:]]+trust'
+    # Only the development role, not every role: a blanket loopback trust would let
+    # any local user connect as the postgres superuser. Any earlier blanket trust
+    # this tool wrote is put back to scram-sha-256. The insertion tries the usual
+    # anchor first, then any host rule, then the end of the file — and the step
+    # fails loudly rather than reporting success while the role still cannot
+    # connect.
+    script = "\n".join([
+        'set -e',
+        'PGHBA=$(sudo -u postgres psql -tAc "SHOW hba_file;")',
+        '[ -f "$PGHBA" ] || { echo "pg_hba.conf not found: $PGHBA" >&2; exit 1; }',
+        r'sed -ri "s#^(host\s+all\s+all\s+(127\.0\.0\.1/32|::1/128)\s+)trust#\1scram-sha-256#" "$PGHBA"',
+        f'if ! grep -qE {shlex.quote(want)} "$PGHBA"; then',
+        r'  if grep -qE "^host\s+all\s+all\s+127\.0\.0\.1/32" "$PGHBA"; then',
+        f'    sed -ri "0,/^host\\s+all\\s+all\\s+127\\.0\\.0\\.1\\/32/s##{v4}\\n{v6}\\n&#" "$PGHBA"',
+        r'  elif grep -qE "^host\s" "$PGHBA"; then',
+        f'    sed -ri "0,/^host\\s/s##{v4}\\n{v6}\\n&#" "$PGHBA"',
+        '  else',
+        f'    printf "%s\\n%s\\n" {shlex.quote(v4)} {shlex.quote(v6)} >> "$PGHBA"',
+        '  fi',
+        'fi',
+        f'grep -qE {shlex.quote(want)} "$PGHBA" || '
+        f'{{ echo "could not add the loopback trust line for {role} to $PGHBA" >&2; exit 1; }}',
+    ])
+    return [
         Command(
             tf("Trust loopback connections of {} for local development (pg_hba)", role),
-            # Only the development role, not every role: a blanket loopback trust
-            # would let any local user connect as the postgres superuser. Any
-            # earlier blanket trust this tool wrote is put back to scram-sha-256.
-            'PGHBA=$(sudo -u postgres psql -tAc "SHOW hba_file;"); '
-            'sed -ri "s#^(host\\s+all\\s+all\\s+(127\\.0\\.0\\.1/32|::1/128)\\s+)trust#\\1scram-sha-256#" '
-            '"$PGHBA"; '
-            f'if ! grep -qE "^host\\s+all\\s+{role}\\s+127\\.0\\.0\\.1/32\\s+trust" "$PGHBA"; then '
-            f'sed -ri "0,/^host\\s+all\\s+all\\s+127\\.0\\.0\\.1\\/32/s##'
-            f'host    all             {role}             127.0.0.1/32            trust\\n'
-            f'host    all             {role}             ::1/128                 trust\\n&#" "$PGHBA"; fi',
+            script,
         ),
         Command(tf("Reload PostgreSQL"), "systemctl reload postgresql"),
     ]
@@ -328,7 +361,7 @@ def plan_wkhtmltopdf(major: int, codename: str) -> list[Command]:
     tmp = f"{_ROOT_WORK_DIR}/{filename}"
     return [
         Command(tf("Ensure curl is available"),
-                "command -v curl >/dev/null 2>&1 || (apt-get update && apt-get -y install curl)"),
+                f"command -v curl >/dev/null 2>&1 || (apt-get update && {APT_INSTALL} curl)"),
         Command(tf("Create download directory {}", _ROOT_WORK_DIR),
                 f"mkdir -m 700 -p {shlex.quote(_ROOT_WORK_DIR)}"),
         Command(tf("Download patched wkhtmltopdf ({})", filename),
@@ -336,7 +369,7 @@ def plan_wkhtmltopdf(major: int, codename: str) -> list[Command]:
         Command(tf("Verify wkhtmltopdf SHA-256 (abort on mismatch)"),
                 f"echo {shlex.quote(sha256 + '  ' + tmp)} | sha256sum -c -"),
         Command(tf("Install verified wkhtmltopdf .deb"),
-                f"apt-get -y install {shlex.quote(tmp)}"),
+                f"{APT_INSTALL} {shlex.quote(tmp)}"),
         Command(tf("Remove downloaded wkhtmltopdf .deb"), f"rm -f {shlex.quote(tmp)}"),
     ]
 
@@ -349,7 +382,7 @@ def plan_node_rtlcss() -> list[Command]:
         # Without recommends: they pulled in 455 packages on Ubuntu 24.04, a GUI
         # terminal among them, for what only needs node and npm.
         Command(tf("Install Node.js and npm"),
-                "apt-get update && apt-get -y install --no-install-recommends nodejs npm"),
+                f"apt-get update && {APT_INSTALL} --no-install-recommends nodejs npm"),
         Command(tf("Install rtlcss globally"), "npm install -g rtlcss"),
     ]
 
@@ -377,7 +410,7 @@ def plan_opensnitch(resolvers: list[str], installed_version: str | None = None) 
         debs = [f"{workdir}/{name}" for name, _sha in egress.OPENSNITCH_PACKAGES]
         commands += [
             Command(tf("Ensure curl is available"),
-                    "command -v curl >/dev/null 2>&1 || (apt-get update && apt-get -y install curl)"),
+                    f"command -v curl >/dev/null 2>&1 || (apt-get update && {APT_INSTALL} curl)"),
             Command(tf("Create download directory {}", workdir),
                     f"rm -rf {shlex.quote(workdir)} && mkdir -m 700 -p {shlex.quote(workdir)}"),
         ]
@@ -401,7 +434,7 @@ def plan_opensnitch(resolvers: list[str], installed_version: str | None = None) 
                 f"trap 'rm -f {_POLICY_RC}' EXIT INT TERM HUP; "
                 f"printf '#!/bin/sh\\n# {_POLICY_MARK}\\nexit 101\\n' > {_POLICY_RC} && "
                 f"chmod 755 {_POLICY_RC} && "
-                f"apt-get -y install {install}",
+                f"{APT_INSTALL} {install}",
             ),
             Command(tf("Remove downloaded packages"), f"rm -rf {shlex.quote(workdir)}"),
         ]
@@ -437,7 +470,7 @@ def plan_mailpit(installed_version: str | None = None) -> list[Command]:
         archive = f"{workdir}/mailpit-linux-amd64.tar.gz"
         commands += [
             Command(tf("Ensure curl is available"),
-                    "command -v curl >/dev/null 2>&1 || (apt-get update && apt-get -y install curl)"),
+                    f"command -v curl >/dev/null 2>&1 || (apt-get update && {APT_INSTALL} curl)"),
             Command(tf("Create download directory {}", workdir),
                     f"rm -rf {shlex.quote(workdir)} && mkdir -m 700 -p {shlex.quote(workdir)}"),
             Command(tf("Download Mailpit {}", egress.MAILPIT_VERSION),
@@ -480,7 +513,7 @@ def plan_opensnitch_uninstall() -> list[Command]:
         Command(tf("Remove the tool's own OpenSnitch rules ({}*)", egress.RULE_PREFIX),
                 f"rm -f {shlex.quote(egress.OPENSNITCH_RULES_DIR)}/{egress.RULE_PREFIX}*.json"),
         Command(tf("Purge OpenSnitch and the packages it pulled in"),
-                f"apt-get -y purge --autoremove {packages}"),
+                f"{APT_PURGE} --autoremove {packages}"),
         # The packet-queue modules it loaded stay in the kernel until reboot otherwise.
         Command(tf("Unload the kernel modules it used"),
                 "modprobe -r nft_queue nfnetlink_queue 2>/dev/null || true"),

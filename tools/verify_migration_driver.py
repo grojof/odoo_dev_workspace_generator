@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+"""Execute the generated ``run_migration.sh`` against stub binaries.
+
+The unit suite asserts the driver's *text* (it may not shell out), which is how a
+checkpoint that reported success after a failed ``pg_dump`` survived two hardening
+rounds. This tool runs the real script instead: it renders a 16.0 → 18.0
+environment into a throwaway directory, puts stub ``psql``/``pg_dump``/
+``pg_restore``/``dropdb``/``createdb``/``uv`` and per-step interpreters on PATH,
+and checks what the driver actually does.
+
+    python tools/verify_migration_driver.py
+
+Host-only (needs bash), no network, no PostgreSQL, nothing outside its temp
+directory. Exits non-zero on the first case that does not behave as documented.
+"""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from odoo_dwg import templates  # noqa: E402
+from odoo_dwg.models import MigrationEnv  # noqa: E402
+
+SOURCE, TARGET = "16.0", "18.0"
+
+
+def _stub(path: Path, body: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"#!/bin/bash\n{body}\n", encoding="utf-8")
+    path.chmod(0o755)
+
+
+def _build(root: Path, *, failing_pg_dump: bool = False) -> tuple[Path, MigrationEnv]:
+    """Render the driver and the stub host it runs against."""
+    MigrationEnv.base_dir = str(root / "envs")
+    env = MigrationEnv(source=SOURCE, target=TARGET)
+    script = root / "run_migration.sh"
+    script.write_text(templates.render_run_migration_sh(env), encoding="utf-8")
+
+    stubs = root / "bin"
+    # One installed module authored by Odoo: coverage warns, never blocks.
+    _stub(stubs / "psql",
+          'if [[ "$*" == *base* && "$*" == *latest_version* ]]; then echo 16.0.1.0; '
+          'else printf "base\\tOdoo S.A.\\n"; fi')
+    for name in ("pg_restore", "dropdb", "createdb", "uv"):
+        _stub(stubs / name, "exit 0")
+    _stub(stubs / "pg_dump", "exit 1" if failing_pg_dump else 'echo "dump of $*"')
+    for version in env.chain():
+        _stub(env.venv_dir(version) / "bin" / "python", "exit 0")
+        odoo_bin = Path(env.odoo_bin(version))
+        odoo_bin.parent.mkdir(parents=True, exist_ok=True)
+        odoo_bin.write_text("", encoding="utf-8")
+    for directory in (env.conf_dir, env.logs_dir, env.checkpoints_dir):
+        Path(directory).mkdir(parents=True, exist_ok=True)
+    (root / "source.dump").write_text("source", encoding="utf-8")
+    return script, env
+
+
+def _run(root: Path, script: Path, dump: str = "source.dump") -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", str(script), dump],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        env={"PATH": f"{root / 'bin'}:/usr/bin:/bin", "HOME": str(root)},
+    )
+
+
+def _checkpoints(env: MigrationEnv) -> list[str]:
+    return sorted(p.name for p in Path(env.checkpoints_dir).iterdir())
+
+
+def main() -> int:
+    failures: list[str] = []
+
+    def check(label: str, condition: bool, detail: str = "") -> None:
+        print(f"{'ok  ' if condition else 'FAIL'}  {label}")
+        if not condition:
+            failures.append(f"{label}: {detail}")
+
+    with tempfile.TemporaryDirectory(prefix="odwg-driver-") as tmp:
+        root = Path(tmp)
+        script, env = _build(root)
+
+        first = _run(root, script)
+        check("a fresh run migrates the whole chain", first.returncode == 0, first.stderr)
+        check("every step is checkpointed",
+              _checkpoints(env) == ["00_source.dump", "17.0.dump", "18.0.dump", "source.sha256"],
+              str(_checkpoints(env)))
+
+        if not (Path(env.checkpoints_dir) / f"{TARGET}.dump").exists():
+            print("\nFAILED: the first run left no checkpoints — the cases below need them.")
+            return 1
+
+        # Resume: the last step's checkpoint is gone, the ones before it are not.
+        (Path(env.checkpoints_dir) / f"{TARGET}.dump").unlink()
+        resumed = _run(root, script)
+        check("a re-run resumes from the last checkpoint",
+              "[init] restoring checkpoint 17.0" in resumed.stdout
+              and "[skip] 17.0 already migrated" in resumed.stdout
+              and "[step] upgrading to 18.0" in resumed.stdout,
+              resumed.stdout)
+
+        # Gap: an intermediate checkpoint is missing while a later one exists.
+        (Path(env.checkpoints_dir) / "17.0.dump").unlink()
+        gapped = _run(root, script)
+        check("a gap is re-run instead of skipped",
+              "[init] restoring checkpoint 00_source" in gapped.stdout
+              and "[step] upgrading to 17.0" in gapped.stdout
+              and "[step] upgrading to 18.0" in gapped.stdout,
+              gapped.stdout)
+
+        # A different source dump must not resume onto these checkpoints.
+        (root / "other.dump").write_text("other", encoding="utf-8")
+        other = _run(root, script, "other.dump")
+        check("checkpoints from another dump are refused",
+              other.returncode != 0 and "another source dump" in other.stderr,
+              other.stderr)
+
+    with tempfile.TemporaryDirectory(prefix="odwg-driver-") as tmp:
+        root = Path(tmp)
+        script, env = _build(root, failing_pg_dump=True)
+        failed = _run(root, script)
+        check("a checkpoint that cannot be written stops the run",
+              failed.returncode != 0 and "[fail] checkpoint 00_source" in failed.stderr,
+              failed.stdout + failed.stderr)
+        check("no step ran after the failed checkpoint",
+              "[step] upgrading to" not in failed.stdout and "[done]" not in failed.stdout,
+              failed.stdout)
+        check("no half-written checkpoint is left behind",
+              not any(name.endswith(".tmp") or name.endswith(".dump")
+                      for name in _checkpoints(env)),
+              str(_checkpoints(env)))
+
+    if failures:
+        print("\n".join(["", "FAILED:"] + failures))
+        return 1
+    print("\nThe generated driver behaves as documented.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

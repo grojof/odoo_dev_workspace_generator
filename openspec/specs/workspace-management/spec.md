@@ -82,7 +82,7 @@ version** SHALL write files the same way.
 #### Scenario: Stale and hand-edited files
 
 - **WHEN** a workspace's `launch.json` predates the current generator and its `odoo18.conf` was edited by hand
-- **THEN** the plan copies each to `.bak`, rewrites only those two files, and leaves every other file untouched
+- **THEN** the plan copies each to its dated `.bak-<date>`, rewrites only those two files, and leaves every other file untouched
 
 #### Scenario: Interpreters are preserved
 

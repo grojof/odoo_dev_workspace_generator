@@ -150,13 +150,17 @@ def baseline_rules(resolvers: list[str]) -> list[dict]:
     rules += [
         _rule("002-allow-ntp", "System clock synchronisation.", "allow",
               _op("process.path", "/usr/lib/systemd/systemd-timesyncd")),
-        _rule("003-allow-vscode-server", "The VS Code server of any user (WSL / remote).", "allow",
-              _op("process.path", r"^/home/[^/]+/\.vscode-server/", "regexp")),
-        _rule("010-reject-odoo-external",
+        # Ahead of every allow rule but loopback and DNS: rules are evaluated in
+        # file-name order and the first match wins, so an allow that matched
+        # odoo-bin first (the VS Code server's own processes, for instance) would
+        # open exactly the hole this rule exists to close.
+        _rule("003-reject-odoo-external",
               "Odoo (odoo-bin: workspaces, migrations, shell) may reach localhost only.",
               "reject", _op("process.command", "odoo-bin", "regexp")),
+        _rule("004-allow-vscode-server", "The VS Code server of any user (WSL / remote).", "allow",
+              _op("process.path", r"^/home/[^/]+/\.vscode-server/", "regexp")),
         _rule("020-allow-dev-infrastructure",
-              "Development infrastructure any tool may reach. Odoo is rejected by 010 first.",
+              "Development infrastructure any tool may reach. Odoo is rejected by 003 first.",
               "allow",
               _op("dest.host", "^(" + "|".join(DEV_INFRASTRUCTURE_HOSTS) + ")$", "regexp")),
     ]

@@ -50,6 +50,33 @@ role MUST be a no-op.
 - **WHEN** the operator enters `odoo'; DROP DATABASE x; --` as the development role
 - **THEN** apply reports the invalid role and assembles no plan
 
+### Requirement: Loopback trust for the development role only
+
+`provision apply` SHALL give the development role a loopback (`127.0.0.1/32` and `::1/128`) `trust` line in
+`pg_hba.conf`, so a workspace `odoo.conf` connects without a password, and SHALL put any blanket
+`host all all <loopback> trust` line back to `scram-sha-256` — a blanket trust lets any local user connect
+as the `postgres` superuser.
+
+This SHALL be planned whenever the rules are not already in that shape, **including on a host that already
+has PostgreSQL and the role**, since those hosts are exactly the ones a previous version left with a blanket
+trust. The step SHALL fail loudly rather than report success when it cannot place the line, whatever shape
+the file has.
+
+#### Scenario: An already-provisioned host is narrowed
+
+- **WHEN** apply runs on a host that has PostgreSQL, the role, and a blanket loopback `trust`
+- **THEN** the plan contains the `pg_hba` narrowing even though nothing needs installing
+
+#### Scenario: Nothing to narrow
+
+- **WHEN** the role already has its loopback trust line and no blanket trust exists
+- **THEN** no `pg_hba` command is planned
+
+#### Scenario: The line cannot be placed
+
+- **WHEN** the file has no rule the insertion can anchor to and the line cannot be appended
+- **THEN** the step exits non-zero naming the file, rather than leaving the role unable to connect
+
 ### Requirement: Install the Odoo-recommended patched wkhtmltopdf verified by checksum
 
 `provision apply` SHALL install the Odoo-recommended patched wkhtmltopdf 0.12.6 (the build Odoo recommends

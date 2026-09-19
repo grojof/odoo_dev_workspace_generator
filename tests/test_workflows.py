@@ -196,3 +196,81 @@ def test_verbose_streams_every_line(quiet, monkeypatch, capsys):
     quiet.apply_commands(_plan()[:1])
     assert streamed == ["git clone x"]
     assert "[1/1] Clone something" in strip_ansi(capsys.readouterr().out)
+
+
+def _provision_facts(**kwargs):
+    from odoo_dwg.provisioning import ProvisionFacts
+
+    return ProvisionFacts(
+        os_id="ubuntu", os_version_id="24.04", os_codename="noble",
+        postgres_installed=True, postgres_running=True, dev_role="odoo", dev_role_exists=True,
+        wkhtmltopdf="wkhtmltopdf 0.12.6 (with patched qt)", **kwargs,
+    )
+
+
+@pytest.mark.parametrize(
+    "hba,narrowed",
+    [
+        ({"pg_hba_blanket_trust": True, "pg_hba_role_trusted": True}, True),
+        ({"pg_hba_blanket_trust": False, "pg_hba_role_trusted": False}, True),
+        ({"pg_hba_blanket_trust": False, "pg_hba_role_trusted": True}, False),
+        ({}, False),  # unreadable: nothing is planned blind
+    ],
+)
+def test_an_already_provisioned_host_still_gets_pg_hba_narrowed(monkeypatch, hba, narrowed):
+    from odoo_dwg.workflows import provision
+
+    planned: list = []
+    monkeypatch.setattr(provision, "_is_root", lambda: True)
+    monkeypatch.setattr(provision, "ask_text", lambda *a, **k: "odoo")
+    monkeypatch.setattr(provision, "ask_bool", lambda *a, **k: False)
+    monkeypatch.setattr(provision.provisioning, "gather_facts",
+                        lambda dev_role=None, **k: _provision_facts(**hba))
+    monkeypatch.setattr(provision, "preview_commands", lambda commands: planned.extend(commands))
+    provision._apply()
+    descriptions = " ".join(getattr(c, "description", "") for c in planned)
+    assert ("pg_hba" in descriptions) is narrowed
+    # The install steps are never re-planned on a host that already has them.
+    assert "Install PostgreSQL" not in descriptions
+
+
+def test_a_plan_step_never_reads_the_operators_terminal(monkeypatch):
+    """A step inheriting stdin would swallow the answer to the next prompt while
+    its own prompt sat hidden in the captured output."""
+    import subprocess
+
+    from odoo_dwg import system
+
+    seen: dict = {}
+
+    def fake_run(argv, **kwargs):
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setattr(system.subprocess, "run", fake_run)
+    system.run("echo hi")
+    assert seen["stdin"] is subprocess.DEVNULL
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("working_db", 'x"; DROP DATABASE y --'),
+        ("db_user", "odoo; DROP ROLE x"),
+        ("db_host", "127.0.0.1\nsomething"),
+        ("db_port", 0),
+    ],
+)
+def test_a_hand_edited_migration_environment_is_refused(field, value):
+    from odoo_dwg.models import MigrationEnv
+
+    env = MigrationEnv(source="16.0", target="18.0", **{field: value})
+    with pytest.raises(ValueError) as excinfo:
+        env.validate()
+    assert field in str(excinfo.value)
+
+
+def test_a_sane_migration_environment_validates():
+    from odoo_dwg.models import MigrationEnv
+
+    MigrationEnv(source="16.0", target="18.0", interpreter_overrides={"17.0": "3.10"}).validate()

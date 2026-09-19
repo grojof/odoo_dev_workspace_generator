@@ -80,11 +80,11 @@ match decides**.
 | Rule | Effect |
 |---|---|
 | `00-odwg-000-allow-localhost`, `…-localhost6` | Loopback: PostgreSQL, Mailpit, anything local |
-| `00-odwg-001-allow-systemd-resolved`, `…-dns-resolvers` | DNS: the system resolver, and the `nameserver` entries in `/etc/resolv.conf` at install time |
+| `00-odwg-001-allow-systemd-resolved`, `…-dns-resolvers` | DNS: the system resolver, and the `nameserver` entries in `/etc/resolv.conf` at install time — **on port 53 only** |
 | `00-odwg-002-allow-ntp` | Clock synchronisation (`systemd-timesyncd`) |
-| `00-odwg-003-allow-vscode-server` | The VS Code server (`~/.vscode-server`), the editor this tool configures |
-| `00-odwg-010-reject-odoo-external` | **Any process whose command line contains `odoo-bin`** (workspaces, migration steps, the shell) **can reach nothing but localhost** |
-| `00-odwg-020-allow-dev-infrastructure` | Any process may reach GitHub (including `cli.github.com` and `*.githubusercontent.com`), PyPI, `*.astral.sh` (uv's Pythons), the Ubuntu archives (with their country mirrors such as `es.archive.ubuntu.com`) and npm, so `git`, `gh`, `pip`, `uv`, `apt` and `npm` keep working. Odoo never reaches this rule, because `010` matches it first. |
+| `00-odwg-003-reject-odoo-external` | **Any process whose command line contains `odoo-bin`** (workspaces, migration steps, the shell) **is rejected everywhere except localhost** — and DNS, which the rules above allow to every process on port 53. It sorts ahead of every allow rule below, so none of them can let Odoo out |
+| `00-odwg-004-allow-vscode-server` | The VS Code server (`~/.vscode-server`), the editor this tool configures |
+| `00-odwg-020-allow-dev-infrastructure` | Any process may reach GitHub (including `cli.github.com` and `*.githubusercontent.com`), PyPI, `*.astral.sh` (uv's Pythons), the Ubuntu archives (with their country mirrors such as `es.archive.ubuntu.com`) and npm, so `git`, `gh`, `pip`, `uv`, `apt` and `npm` keep working. Odoo never reaches this rule, because `003` matches it first. |
 
 Everything else is **asked about** when the window is open, and **denied** when it is closed. A host that uses its
 own apt mirror (a company proxy, for instance) allows it once from the window, scoped to that host.

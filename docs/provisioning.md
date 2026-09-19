@@ -23,7 +23,8 @@ python3 -m odoo_dwg provision      # menu: Check / Apply / Outbound firewall and
 `Check host readiness` prints a capability table, changes nothing and **never asks for a password**. PostgreSQL's
 state and version come from `pg_lsclusters`. The development role is checked by logging in as it over loopback,
 or through `sudo -n`. When neither works, the role row says it could not be checked (WARN), instead of claiming
-it is missing:
+it is missing. The loopback-auth row reads `pg_hba.conf` (root-owned, so run the check with `sudo` to see it)
+and warns when every role — `postgres` included — may connect over loopback without a password:
 
 ```
 +-------+-----------------------------------------+------------------------------------------------+
@@ -34,6 +35,7 @@ it is missing:
 | OK    | PostgreSQL                              | installed and running                          |
 | OK    | PostgreSQL version                      | 16 (Odoo 19.0 requires 13.0)                   |
 | OK    | Dev role (odoo)                         | present                                        |
+| OK    | PostgreSQL loopback auth                | trust for odoo only                            |
 | OK    | wkhtmltopdf                             | wkhtmltopdf 0.12.6.1 (with patched qt)         |
 | OK    | Node.js (optional)                      | present                                        |
 | INFO  | rtlcss (optional)                       | not installed (only for right-to-left          |
@@ -52,11 +54,16 @@ it is missing:
 - **Odoo build dependencies** — the compiler toolchain and headers behind lxml, Pillow, psycopg2,
   python-ldap, etc. (validated against Odoo's source install).
 - **PostgreSQL** — installed, enabled, and a `LOGIN CREATEDB` development role created idempotently. For a
-  development host it also sets loopback (`127.0.0.1/::1`) to `trust` in `pg_hba.conf` so a workspace
-  `odoo.conf` (which uses `db_host=127.0.0.1`) connects. **This is a dev-only convenience — not for
+  development host it also sets loopback (`127.0.0.1/::1`) to `trust` in `pg_hba.conf` **for that role
+  only** — never for `all` — so a workspace `odoo.conf` (which uses `db_host=127.0.0.1`) connects while a
+  local user still cannot become `postgres`. A blanket loopback `trust` this tool wrote before is put back
+  to `scram-sha-256`. **This is a dev-only convenience — not for
   production** (see below). The role defaults to `odoo`, the one workspaces and migration environments
   connect as; a role name must be a plain PostgreSQL identifier (`^[a-z_][a-z0-9_]{0,62}$`) or apply stops
   before planning.
+  The `pg_hba.conf` step runs on an already-provisioned host too, so a host left with a blanket loopback
+  `trust` by an earlier version is narrowed the next time you apply; when the rules are already in that
+  shape, nothing is planned. If the line cannot be placed, the step fails instead of reporting success.
 - **wkhtmltopdf** — the Odoo-recommended patched build (0.12.6 for Odoo ≥ 15), downloaded for the host
   codename and **verified by SHA-256** before install; a mismatch aborts. 0.12.5, which Odoo recommends up to
   14, is not provisioned. When no verified build is pinned for the host, `apply` says so instead of skipping

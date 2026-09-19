@@ -54,11 +54,13 @@ Every other key SHALL be left as the package ships it.
 `provision` SHALL write a baseline rule set named `00-odwg-<nnn>-<name>.json` and SHALL rewrite only files with
 that prefix, leaving every other rule untouched. In evaluation order, the baseline SHALL:
 1. allow localhost;
-2. allow the host's non-loopback DNS resolvers, read from `/etc/resolv.conf` at apply time, and
-   `systemd-resolved`;
+2. allow the host's non-loopback DNS resolvers, read from `/etc/resolv.conf` at apply time, on port 53 only,
+   and `systemd-resolved`;
 3. allow `systemd-timesyncd`;
-4. allow the VS Code server (`^/home/[^/]+/\.vscode-server/`);
-5. reject every non-localhost connection from a process whose command line contains `odoo-bin`;
+4. reject every connection from a process whose command line contains `odoo-bin`, except those the rules
+   above already allow (loopback, and DNS to the host's resolvers on port 53). It SHALL sort ahead of every
+   remaining allow rule, so none of them can match an Odoo process first;
+5. allow the VS Code server (`^/home/[^/]+/\.vscode-server/`);
 6. allow the development infrastructure by destination host: GitHub (including `cli.github.com` and
    `*.githubusercontent.com`), PyPI, `*.astral.sh`, the Ubuntu archives (including their country mirrors such as
    `es.archive.ubuntu.com`) and npm.
@@ -69,6 +71,12 @@ No rule SHALL name an AI assistant.
 
 - **WHEN** an `odoo-bin` process connects to `github.com`
 - **THEN** the Odoo rule matches before the infrastructure rule and the connection is rejected
+
+#### Scenario: No allow rule precedes the Odoo rejection
+
+- **WHEN** the baseline rule set is written
+- **THEN** the only rules sorting before the Odoo rejection are the loopback and DNS allowances, so an
+  `odoo-bin` process started by an allowed program is rejected all the same
 
 #### Scenario: Development tools keep working
 

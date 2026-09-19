@@ -57,6 +57,23 @@ declares for the Odoo versions in play, and reported WARN when it is below that 
 - **WHEN** the check runs as a user without passwordless sudo and cannot log in as the role
 - **THEN** no password is asked for, and the role row is WARN saying it could not be checked
 
+### Requirement: Loopback authentication reporting
+
+The check SHALL report how loopback authentication is configured for the development role, reading
+`pg_hba.conf` at the path the server reports. A blanket `host all all <loopback> trust` SHALL be reported as
+a WARN naming what apply would do, a missing role trust line as INFO, and the narrowed state as OK. When the
+file cannot be read — it is root-owned — the row SHALL say so rather than claim either state.
+
+#### Scenario: Blanket trust is called out
+
+- **WHEN** `pg_hba.conf` trusts every role over loopback
+- **THEN** the row is WARN and says apply narrows it to the development role
+
+#### Scenario: Unreadable pg_hba is not read as narrow
+
+- **WHEN** the check runs as a user who cannot read `pg_hba.conf`
+- **THEN** the row is WARN saying it could not be read, never OK
+
 ### Requirement: wkhtmltopdf patched-build detection
 
 The system SHALL detect the installed wkhtmltopdf version and whether it is the Odoo-recommended patched

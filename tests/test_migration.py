@@ -351,7 +351,20 @@ def test_resuming_drops_everything_after_the_first_gap():
 
 def test_checkpoints_and_the_source_hash_are_written_atomically():
     sh = _driver()
-    assert 'pg_dump -Fc "$DB" > "$CK/$1.dump.tmp" && mv "$CK/$1.dump.tmp" "$CK/$1.dump"' in sh
+    assert 'pg_dump -Fc "$DB" > "$CK/$1.dump.tmp"' in sh
+    assert 'mv "$CK/$1.dump.tmp" "$CK/$1.dump"' in sh
     assert '"$CK/source.sha256.tmp" && mv "$CK/source.sha256.tmp" "$CK/source.sha256"' in sh
     # The hash lands before the checkpoint it describes.
     assert sh.index("source.sha256.tmp") < sh.index("checkpoint 00_source")
+
+
+def test_a_checkpoint_that_cannot_be_written_stops_the_chain():
+    sh = _driver()
+    body = sh.split("checkpoint() {", 1)[1].split("\n}", 1)[0]
+    # Every link chained, so a failing pg_dump cannot be followed by the "[checkpoint]"
+    # line and the next step: the whole function must end in the failure branch.
+    assert body.count("&&") == 2
+    assert 'echo "[checkpoint] $1"' in body
+    assert body.index('echo "[checkpoint] $1"') < body.index("die ")
+    assert 'rm -f "$CK/$1.dump.tmp"' in body
+    assert "; echo" not in body

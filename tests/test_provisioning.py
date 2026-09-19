@@ -202,3 +202,34 @@ def test_postgres_probes_never_prompt(monkeypatch):
             assert "sudo -n " in cmd, cmd
     assert any("pg_isready" in cmd for cmd in seen)
     assert any("-U odoo" in cmd and "-w" in cmd for cmd in seen)
+
+
+def _hba_row(**kwargs) -> tuple[str, str]:
+    facts = ProvisionFacts(
+        os_id="ubuntu", os_version_id="24.04", postgres_installed=True, dev_role="odoo", **kwargs
+    )
+    for state, check, detail in provision_rows(facts):
+        if check == "PostgreSQL loopback auth":
+            return state, detail
+    raise AssertionError("no loopback auth row")
+
+
+def test_blanket_loopback_trust_is_reported_so_apply_narrows_it():
+    # The dangerous one: any local user may connect as postgres.
+    state, detail = _hba_row(pg_hba_blanket_trust=True, pg_hba_role_trusted=True)
+    assert state == "WARN"
+    assert "odoo" in detail
+
+    state, _ = _hba_row(pg_hba_blanket_trust=False, pg_hba_role_trusted=True)
+    assert state == "OK"
+
+
+def test_a_missing_role_trust_line_is_reported_without_alarm():
+    state, _ = _hba_row(pg_hba_blanket_trust=False, pg_hba_role_trusted=False)
+    assert state == "INFO"
+
+
+def test_an_unreadable_pg_hba_is_never_read_as_narrow():
+    state, detail = _hba_row()  # both None: the file could not be read
+    assert state == "WARN"
+    assert "sudo" in detail

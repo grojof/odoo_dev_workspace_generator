@@ -35,10 +35,17 @@ python tools/verify_support_matrix.py 18.0 19.0  # only these versions
 python tools/verify_odools_config.py             # the editor config vs the latest OdooLS release
 python tools/verify_workspace_versions.py        # build every version's venv, start Odoo on each (host)
 python tools/verify_egress_pins.py               # OpenSnitch/Mailpit pins vs their signed/published sources
+python tools/verify_migration_driver.py          # run the generated migration driver against stub binaries
 ```
 
-All but `verify_workspace_versions.py` only read from the network. That one changes the host: it previews a
-plan, asks before applying (or not, with `--yes`), and removes what it created. See
+`verify_migration_driver.py` needs neither network nor PostgreSQL: it renders `run_migration.sh` into a
+temporary directory and executes it with stub `psql`/`pg_dump`/`pg_restore`/`uv`, covering the fresh run,
+resume, a gap in the checkpoints, a dump that does not match, and a checkpoint that cannot be written. The
+unit suite may not shell out, so this is where the *behaviour* of the generated shell is checked — run it
+whenever `render_run_migration_sh` changes.
+
+The others only read from the network. `verify_workspace_versions.py` is the one that changes the host: it
+previews a plan, asks before applying (or not, with `--yes`), and removes what it created. See
 [`docs/workspace-layout.md`](docs/workspace-layout.md#re-verifying-every-version) for when to run it.
 
 `verify_support_matrix.py` exits non-zero on drift and never edits the declared matrix: fixing drift means editing

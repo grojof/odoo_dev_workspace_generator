@@ -46,7 +46,9 @@ The system SHALL generate, under `<base>/<name>/`:
 - a `scripts/` directory with `setup_venv.sh` and one `run-odoo<major>.sh` per version;
 - a `<name>.code-workspace` file;
 - a `.vscode/` directory (`tasks.json`, `launch.json`, `settings.json`, `extensions.json`);
-- a per-workspace `README.md`.
+- an `odools.toml` when at least one version is supported by the language server;
+- a per-workspace `README.md`;
+- a `workspace.json` holding the resolved profile, so the workspace can be managed later.
 
 All generated files SHALL be English text and SHALL hold exactly the rendered content.
 
@@ -54,7 +56,8 @@ All generated files SHALL be English text and SHALL hold exactly the rendered co
 
 - **WHEN** a workspace `acme` with version `18.0` is generated
 - **THEN** the plan creates `addons-custom/`, `addons-oca/`, `config/odoo18.conf`, `scripts/setup_venv.sh`,
-  `scripts/run-odoo18.sh`, `acme.code-workspace`, `.vscode/*`, and `README.md`
+  `scripts/run-odoo18.sh`, `acme.code-workspace`, `.vscode/*`, `odools.toml`, `README.md` and
+  `workspace.json`
 
 #### Scenario: Rendered odoo.conf carries the composed addons_path and derived port
 

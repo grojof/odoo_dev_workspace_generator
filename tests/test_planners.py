@@ -172,7 +172,9 @@ def test_build_deps_plan_installs_key_packages():
 def test_postgresql_plan_installs_role_and_trust():
     cmds = planners.plan_postgresql("odoo")
     joined = "\n".join(c.command for c in cmds)
-    assert "apt-get -y install postgresql" in joined
+    assert f"{planners.APT_INSTALL} postgresql" in joined
+    # Unattended: a debconf dialog would hang the plan with its prompt hidden.
+    assert "DEBIAN_FRONTEND=noninteractive" in joined
     assert "systemctl enable --now postgresql" in joined
     assert "CREATE ROLE odoo WITH LOGIN CREATEDB" in joined
     assert "IF NOT EXISTS" in joined  # idempotent
@@ -199,7 +201,7 @@ def test_wkhtmltopdf_plan_verifies_checksum_for_odoo18():
     joined = "\n".join(c.command for c in cmds)
     assert "curl -fSL" in joined
     assert "sha256sum -c -" in joined  # abort on mismatch
-    assert "apt-get -y install" in joined
+    assert planners.APT_INSTALL in joined
 
 
 def test_wkhtmltopdf_plan_empty_for_legacy_and_unmapped():
@@ -210,7 +212,7 @@ def test_wkhtmltopdf_plan_empty_for_legacy_and_unmapped():
 def test_node_rtlcss_plan():
     joined = "\n".join(c.command for c in planners.plan_node_rtlcss())
     assert "nodejs" in joined and "npm install -g rtlcss" in joined
-    assert "apt-get -y install --no-install-recommends nodejs npm" in joined
+    assert f"{planners.APT_INSTALL} --no-install-recommends nodejs npm" in joined
 
 
 def test_build_venv_pins_setuptools_per_era():

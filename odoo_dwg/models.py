@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import ClassVar
 
@@ -795,7 +795,7 @@ class WorkspaceConfig:
         profiles keep loading (forward-compatible)."""
         if not isinstance(data, dict):
             raise ValueError(f"a workspace profile must be a JSON object, not {type(data).__name__}.")
-        known = {f for f in cls.__dataclass_fields__}  # noqa: C416
+        known = {f.name for f in fields(cls)}
         return cls(**{k: v for k, v in data.items() if k in known})
 
     @classmethod
@@ -1002,3 +1002,19 @@ class MigrationEnv:
     def validate(self) -> None:
         # migration_chain enforces source < target and the 12–19 range.
         self.chain()
+        # The connection fields reach the generated driver and step configs
+        # (``DB=``, ``dropdb``, ``db_host =``), so they are checked like a
+        # workspace profile's — an environment may be hand-edited on disk.
+        errors: list[str] = []
+        if not (isinstance(self.working_db, str) and DB_NAME_RE.fullmatch(self.working_db)):
+            errors.append(f"invalid working_db: {self.working_db!r}.")
+        if not (isinstance(self.db_user, str) and DB_ROLE_RE.fullmatch(self.db_user)):
+            errors.append(f"invalid db_user: {self.db_user!r} (a PostgreSQL role).")
+        if not (isinstance(self.db_host, str) and DB_HOST_RE.fullmatch(self.db_host)):
+            errors.append(f"invalid db_host: {self.db_host!r} (a host name or IP address).")
+        port_error = _port_error("db_port", self.db_port)
+        if port_error:
+            errors.append(port_error)
+        errors += [e for e in (python_version_error(p) for p in self.interpreter_overrides.values()) if e]
+        if errors:
+            raise ValueError(" ".join(errors))

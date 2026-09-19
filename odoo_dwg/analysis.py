@@ -88,19 +88,22 @@ def scan_source(
     the owning model, and ultra-generic field names are skipped entirely (see
     ``GENERIC_FIELD_NAMES``)."""
     findings: list[Finding] = []
+    # Compiled once per record, not once per (file x record) pair: a long chain
+    # would otherwise thrash the module-level regex cache.
+    patterns: list[tuple[AnalysisRecord, re.Pattern[str]]] = []
+    for record in records:
+        if record.kind == "removed_field":
+            if record.name in GENERIC_FIELD_NAMES:
+                continue
+            # `record.doall` is the normal usage — a leading dot must match.
+            patterns.append((record, re.compile(rf"(?<!\w){re.escape(record.name)}(?!\w)")))
+        else:
+            # Model names must not match inside longer dotted names.
+            patterns.append((record, re.compile(rf"(?<![\w.]){re.escape(record.name)}(?![\w.])")))
     for path, text in files:
-        for record in records:
-            if record.kind == "removed_field":
-                if record.name in GENERIC_FIELD_NAMES:
-                    continue
-                if record.model not in text:
-                    continue
-            if record.kind == "removed_field":
-                # `record.doall` is the normal usage — a leading dot must match.
-                pattern = re.compile(rf"(?<!\w){re.escape(record.name)}(?!\w)")
-            else:
-                # Model names must not match inside longer dotted names.
-                pattern = re.compile(rf"(?<![\w.]){re.escape(record.name)}(?![\w.])")
+        for record, pattern in patterns:
+            if record.kind == "removed_field" and record.model not in text:
+                continue
             for line_number, line in enumerate(text.splitlines(), start=1):
                 if pattern.search(line):
                     findings.append(Finding(path, line_number, record))

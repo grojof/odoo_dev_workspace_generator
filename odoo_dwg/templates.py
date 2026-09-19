@@ -745,9 +745,11 @@ def _render_preflight_db(env: MigrationEnv) -> str:
         "",
         "preflight_db() {",
         "  local base_ver blocking=0",
-        '  base_ver=$(psql -d "$DB" -tAc "SELECT latest_version FROM ir_module_module WHERE name=\'base\'")',
+        '  base_ver=$(psql -d "$DB" -tAc "SELECT latest_version FROM ir_module_module WHERE name=\'base\'") '
+        '|| fail "could not query the restored database \'$DB\'"',
         f'  case "$base_ver" in {source_major}.*) ;; *) fail "database base version \'$base_ver\' does not match declared source {env.source}";; esac',
-        '  modules_tsv=$(psql -d "$DB" -tAc "SELECT name || E\'\\t\' || coalesce(author, \'\') FROM ir_module_module WHERE state=\'installed\' ORDER BY name")',
+        '  modules_tsv=$(psql -d "$DB" -tAc "SELECT name || E\'\\t\' || coalesce(author, \'\') FROM ir_module_module WHERE state=\'installed\' ORDER BY name") '
+        '|| fail "could not list the installed modules of \'$DB\'"',
     ]
     for version in env.chain():
         # The step's own add-ons path, so coverage asks exactly what the step
@@ -790,6 +792,7 @@ LOGS={shlex.quote(str(env.logs_dir))}
 mkdir -p "$CK" "$LOGS"
 
 fail() {{ echo "[preflight-fail] $1" >&2; exit 1; }}
+die() {{ echo "[fail] $1" >&2; exit 1; }}
 
 {_render_preflight_host(env)}
 
@@ -798,8 +801,14 @@ fail() {{ echo "[preflight-fail] $1" >&2; exit 1; }}
 have_ck() {{ [ -f "$CK/$1.dump" ]; }}
 # Written through a temp file: an interrupted dump must never look like a
 # finished checkpoint the next run would trust.
-checkpoint() {{ pg_dump -Fc "$DB" > "$CK/$1.dump.tmp" && mv "$CK/$1.dump.tmp" "$CK/$1.dump"; \
-  echo "[checkpoint] $1"; }}
+checkpoint() {{
+  # Every link chained: a failing pg_dump must abort the run, not leave an empty
+  # .tmp behind while the step reports success and the chain keeps going.
+  pg_dump -Fc "$DB" > "$CK/$1.dump.tmp" \\
+    && mv "$CK/$1.dump.tmp" "$CK/$1.dump" \\
+    && echo "[checkpoint] $1" \\
+    || {{ rm -f "$CK/$1.dump.tmp"; die "checkpoint $1 could not be written"; }}
+}}
 
 preflight_host
 

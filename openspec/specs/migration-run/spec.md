@@ -51,8 +51,8 @@ migration script while the step still reports success.
 #### Scenario: The 13.0 step runs the fork's add-ons explicitly
 
 - **WHEN** the step upgrading to Odoo 13 is emitted
-- **THEN** its command runs the OpenUpgrade 13.0 checkout's `odoo-bin` from that step's virtualenv with an
-  `config `addons_path`` that includes the checkout's own `addons` directory, and includes neither
+- **THEN** its command runs the OpenUpgrade 13.0 checkout's `odoo-bin` from that step's virtualenv with a
+  config whose `addons_path` names the checkout's own `addons` directory, and includes neither
   `--upgrade-path` nor `--load`
 
 #### Scenario: An add-on's own migration script runs
@@ -71,7 +71,14 @@ pending step. A failed step can leave the database half-migrated, because OpenUp
 module, and that state must never be migrated again.
 
 The driver SHALL record the SHA-256 of the source dump with the first checkpoint, and SHALL refuse to resume
-with a different dump.
+with a different dump. A checkpoint that cannot be written SHALL abort the run naming the step: a chain that
+kept going would have no recovery point at all while reporting that it had one. A checkpoint SHALL become visible only once it is complete, so an interrupted
+`pg_dump` never leaves a truncated file that a later run would restore.
+
+A run that starts from the source rather than resuming SHALL discard the checkpoints already present, so a
+previous chain's dumps are never mistaken for this one's. A resume SHALL restore the newest checkpoint that
+is contiguous with the chain: if the checkpoint for a step is missing while a later one exists, the driver
+SHALL resume from the last unbroken point rather than skipping the gap.
 
 #### Scenario: Re-run resumes from the last good checkpoint
 
@@ -82,6 +89,27 @@ with a different dump.
 
 - **WHEN** step 16.0 failed after checkpoints for the source and 15.0 were written
 - **THEN** the re-run restores the 15.0 checkpoint into the working database and only then runs step 16.0
+
+#### Scenario: A checkpoint that cannot be written stops the chain
+
+- **WHEN** `pg_dump` fails while checkpointing a step
+- **THEN** the driver exits non-zero naming that checkpoint, runs no further step, and leaves no
+  half-written file behind
+
+#### Scenario: A fresh run discards earlier checkpoints
+
+- **WHEN** the driver is started from the source with checkpoints from a previous chain still on disk
+- **THEN** those checkpoints are removed before the source is restored, so no later step can resume onto them
+
+#### Scenario: A gap in the checkpoints is not skipped
+
+- **WHEN** the checkpoints for the source and 16.0 exist but the one for 15.0 does not
+- **THEN** the driver resumes from the source and re-runs 15.0, rather than restoring 16.0 and continuing
+
+#### Scenario: An interrupted checkpoint is not resumed from
+
+- **WHEN** a `pg_dump` is interrupted while writing a step's checkpoint
+- **THEN** no checkpoint file for that step exists afterwards, and the re-run resumes from the previous one
 
 #### Scenario: A different source dump is refused
 

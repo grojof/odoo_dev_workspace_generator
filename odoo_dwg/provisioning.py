@@ -35,6 +35,9 @@ class ProvisionFacts:
     # None: it could not be told without a password prompt.
     dev_role_exists: bool | None = False
     postgres_version: int | None = None
+    # None: pg_hba.conf could not be read (it is root-owned).
+    pg_hba_blanket_trust: bool | None = None
+    pg_hba_role_trusted: bool | None = None
     wkhtmltopdf: str | None = None
     node: bool = False
     rtlcss: bool = False
@@ -61,6 +64,7 @@ def gather_facts(dev_role: str = DEFAULT_DB_ROLE, versions: list[str] | None = N
     running = system.postgres_running()
     # Not running: the role cannot be told apart from an unreachable server.
     role_exists = system.db_role_exists(dev_role) if running else None
+    hba = system.pg_hba_loopback_state(dev_role) if running else None
     uv_present = system.has_tool("uv")
     # Both packages matter: with only the daemon installed, the UI must still be.
     opensnitch_version = system.deb_version("opensnitch")
@@ -77,6 +81,8 @@ def gather_facts(dev_role: str = DEFAULT_DB_ROLE, versions: list[str] | None = N
         postgres_version=system.detect_postgres_version() if running else None,
         dev_role=dev_role,
         dev_role_exists=role_exists,
+        pg_hba_blanket_trust=hba[0] if hba else None,
+        pg_hba_role_trusted=hba[1] if hba else None,
         wkhtmltopdf=system.wkhtmltopdf_version(),
         node=system.has_tool("node") or system.has_tool("nodejs"),
         rtlcss=system.has_tool("rtlcss"),
@@ -91,6 +97,24 @@ def gather_facts(dev_role: str = DEFAULT_DB_ROLE, versions: list[str] | None = N
         mailpit_active=system.service_active("mailpit"),
         resolvers=egress.parse_resolvers(system.read_text("/etc/resolv.conf") or ""),
     )
+
+
+def _pg_hba_rows(facts: ProvisionFacts) -> list[tuple[str, str, str]]:
+    """How loopback authentication is set up for the development role. Pure."""
+    label = "PostgreSQL loopback auth"
+    if not facts.postgres_installed:
+        return []
+    if facts.pg_hba_blanket_trust is None:
+        return [("WARN", label, "pg_hba.conf could not be read — run the check with sudo")]
+    if facts.pg_hba_blanket_trust:
+        return [(
+            "WARN", label,
+            "every role may connect over loopback without a password — apply narrows it to "
+            f"{facts.dev_role}",
+        )]
+    if not facts.pg_hba_role_trusted:
+        return [("INFO", label, f"{facts.dev_role} has no loopback trust line — apply adds one")]
+    return [("OK", label, f"trust for {facts.dev_role} only")]
 
 
 def _postgres_version_rows(facts: ProvisionFacts) -> list[tuple[str, str, str]]:
@@ -187,6 +211,8 @@ def provision_rows(facts: ProvisionFacts) -> list[tuple[str, str, str]]:
         rows.append(("WARN", f"Dev role ({facts.dev_role})", detail))
     else:
         rows.append(("MISSING", f"Dev role ({facts.dev_role})", "not found"))
+
+    rows += _pg_hba_rows(facts)
 
     if not facts.wkhtmltopdf:
         rows.append(("MISSING", "wkhtmltopdf", "not installed — PDF reports will fail"))

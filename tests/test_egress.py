@@ -31,7 +31,7 @@ def test_owned_rules_sort_ahead_of_every_other_rule():
 
 def test_odoo_is_rejected_before_the_infrastructure_allowance():
     names = sorted(_names(egress.baseline_rules(RESOLVERS)))
-    odoo = names.index("00-odwg-010-reject-odoo-external.json")
+    odoo = names.index("00-odwg-003-reject-odoo-external.json")
     infra = names.index("00-odwg-020-allow-dev-infrastructure.json")
     localhost = names.index("00-odwg-000-allow-localhost.json")
     assert localhost < odoo < infra
@@ -39,7 +39,7 @@ def test_odoo_is_rejected_before_the_infrastructure_allowance():
 
 def test_rule_shapes():
     rules = {rule["name"]: rule for rule in egress.baseline_rules(RESOLVERS)}
-    odoo = rules["00-odwg-010-reject-odoo-external"]
+    odoo = rules["00-odwg-003-reject-odoo-external"]
     assert odoo["action"] == "reject"
     assert odoo["operator"] == {"operand": "process.command", "data": "odoo-bin",
                                 "type": "regexp", "list": [], "sensitive": False}
@@ -110,7 +110,7 @@ def test_opensnitch_plan_verifies_then_installs_stopped_then_configures():
     joined = "\n".join(cmds)
     for name, sha512 in egress.OPENSNITCH_PACKAGES:
         assert f"echo '{sha512}  /var/cache/odoo_dwg/opensnitch/{name}' | sha512sum -c -" in joined
-    install = next(i for i, c in enumerate(cmds) if "apt-get -y install /var/cache/" in c)
+    install = next(i for i, c in enumerate(cmds) if f"{planners.APT_INSTALL} /var/cache/" in c)
     verifies = [i for i, c in enumerate(cmds) if "sha512sum -c" in c]
     harden = next(i for i, c in enumerate(cmds) if c.startswith("python3 - <<'PYEOF'"))
     start = next(i for i, c in enumerate(cmds) if "systemctl restart opensnitch" in c)
@@ -212,7 +212,7 @@ def test_opensnitch_uninstall_keeps_the_operators_rules():
     cmds = [c.command for c in planners.plan_opensnitch_uninstall()]
     assert cmds[0] == "systemctl disable --now opensnitch"
     assert cmds[1] == f"rm -f /etc/opensnitchd/rules/{egress.RULE_PREFIX}*.json"
-    assert cmds[2] == "apt-get -y purge --autoremove opensnitch python3-opensnitch-ui"
+    assert cmds[2] == f"{planners.APT_PURGE} --autoremove opensnitch python3-opensnitch-ui"
     assert cmds[3] == "modprobe -r nft_queue nfnetlink_queue 2>/dev/null || true"
     assert not any("rm -rf /etc/opensnitchd" in c for c in cmds)
 
@@ -253,4 +253,32 @@ def test_loopback_trust_covers_only_the_development_role():
     # Any blanket trust this tool wrote before is put back to a password method.
     assert r"s#^(host\s+all\s+all\s+(127\.0\.0\.1/32|::1/128)\s+)trust#\1scram-sha-256#" in hba
     # And the role line is added only when it is not already there.
-    assert 'if ! grep -qE "^host\\s+all\\s+odoo' in hba
+    assert "if ! grep -qE " in hba
+    # Whatever the file looks like, the step either ends with the role's trust line
+    # in place or fails: a silent no-op would leave the role unable to connect.
+    assert hba.rstrip().endswith('exit 1; }')
+    assert "could not add the loopback trust line" in hba
+    # Three insertion points: the usual anchor, any host rule, or the end of file.
+    assert hba.count("sed -ri \"0,/^host") == 2
+    assert 'printf "%s\\n%s\\n"' in hba
+
+
+def _operands(operator: dict) -> list[dict]:
+    return operator["list"] if operator["type"] == "list" else [operator]
+
+
+def test_no_rule_that_could_match_odoo_precedes_its_rejection():
+    """First match wins: an allow sorting earlier must be unable to match odoo-bin,
+    either because it names a destination only Odoo may reach anyway (loopback) or
+    because it names one specific system binary."""
+    rules = sorted(egress.baseline_rules(RESOLVERS), key=lambda r: r["name"])
+    reject = next(i for i, r in enumerate(rules) if r["action"] == "reject")
+    assert reject > 0
+    for rule in rules[:reject]:
+        for operand in _operands(rule["operator"]):
+            if operand["operand"] == "process.path":
+                # A literal system path, never a pattern matching a user's binaries.
+                assert operand["type"] == "simple", rule["name"]
+                assert operand["data"].startswith("/usr/lib/systemd/"), rule["name"]
+            else:
+                assert operand["operand"] in ("dest.network", "dest.ip", "dest.port"), rule["name"]

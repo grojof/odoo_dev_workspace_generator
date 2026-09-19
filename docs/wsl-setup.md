@@ -212,8 +212,10 @@ Conventions, checks, and the spec-first flow: [`../CONTRIBUTING.md`](../CONTRIBU
 
 ## What this guide deliberately leaves out
 
-- **No firewall or `fail2ban`.** A WSL instance is not exposed to the network the way a server is; Windows
-  owns the perimeter. Hardening belongs to a production host guide, not to a development one.
+- **No inbound firewall or `fail2ban`.** A WSL instance is not exposed to the network the way a server is;
+  Windows owns the perimeter. Inbound hardening belongs to a production host guide, not to a development
+  one. *Outbound* control is a different matter and is offered by the tool — see
+  [`egress-control.md`](egress-control.md).
 - **No SSH server.** WSL is reached with `wsl -d <name>`. Install `openssh-server` only if you really need
   to reach it from another machine.
 - **No `.tar` rootfs download or manual import.** `wsl --install -d Ubuntu-24.04` is the supported path and

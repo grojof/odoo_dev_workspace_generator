@@ -23,6 +23,10 @@ from .ui import level_tag, level_text, style, title, wrap_plain_block
 def run(command: str, check: bool = False) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         ["bash", "-lc", command],
+        # A step that reads stdin would swallow the operator's keystrokes while
+        # its prompt sits invisible in the captured output (quiet is the
+        # default). Commands are non-interactive by construction.
+        stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -72,7 +76,7 @@ def command_ok(command: str) -> bool:
 
 def has_tool(name: str) -> bool:
     """True when an executable ``name`` is on PATH (uses ``command -v``)."""
-    return command_ok(f"command -v {name} >/dev/null 2>&1")
+    return command_ok(f"command -v {shlex.quote(name)} >/dev/null 2>&1")
 
 
 
@@ -100,9 +104,6 @@ def set_verbose(verbose: bool) -> None:
     global _verbose
     _verbose = verbose
 
-
-def is_verbose() -> bool:
-    return _verbose
 
 
 def _tail(output: str, lines: int = 40) -> str:
@@ -224,7 +225,9 @@ def uv_python_minors() -> list[str]:
 
 def package_installed(name: str) -> bool:
     """True when a dpkg package is installed (``dpkg -s`` reports installed)."""
-    return command_ok(f"dpkg -s {name} 2>/dev/null | grep -q '^Status: install ok installed'")
+    return command_ok(
+        f"dpkg -s {shlex.quote(name)} 2>/dev/null | grep -q '^Status: install ok installed'"
+    )
 
 
 def wkhtmltopdf_version() -> str | None:
@@ -320,6 +323,32 @@ def db_role_exists(role: str, port: int = 5432) -> bool | None:
     if result.returncode != 0:
         return None
     return "1" in result.stdout
+
+
+def pg_hba_loopback_state(role: str, port: int = 5432) -> tuple[bool, bool] | None:
+    """``(blanket_trust, role_trusted)`` for loopback in the server's ``pg_hba.conf``.
+
+    ``blanket_trust`` is a ``host all all 127.0.0.1/32|::1/128 trust`` line — any
+    local user may then connect as any role, ``postgres`` included. ``role_trusted``
+    is the development role's own loopback trust line. None when the file cannot
+    be located or read (it is root-owned), so a caller cannot mistake "unknown"
+    for "already narrow".
+    """
+    if not DB_ROLE_RE.fullmatch(role):
+        return None
+    path = run(
+        f"sudo -n -u postgres psql -p {int(port)} -tAc 'SHOW hba_file;' 2>/dev/null", check=False
+    ).stdout.strip()
+    text = read_text(path) if path else None
+    if not text:
+        return None
+    lines = [line for line in text.splitlines() if not line.lstrip().startswith("#")]
+    blanket = re.compile(r"^host\s+all\s+all\s+(127\.0\.0\.1/32|::1/128)\s+trust\b")
+    own = re.compile(rf"^host\s+all\s+{re.escape(role)}\s+127\.0\.0\.1/32\s+trust\b")
+    return (
+        any(blanket.match(line) for line in lines),
+        any(own.match(line) for line in lines),
+    )
 
 
 # --- migration preflight probes --------------------------------------------

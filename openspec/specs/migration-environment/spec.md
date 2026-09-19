@@ -86,13 +86,15 @@ effect; when `pyvenv.cfg` cannot be read, the ready venv is kept.
 
 ### Requirement: Per-step migration config
 
-The system SHALL write a per-step `odoo.conf` whose `addons_path` includes the target version's Odoo add-ons
-and the OpenUpgrade the OpenUpgrade checkout root (14.0 and later) or the fork's `addons` (13.0 and earlier), and whose database connection targets the shared migration cluster.
+The system SHALL write a per-step `odoo.conf` whose `addons_path` includes the step's per-version custom and
+OCA directories, the OpenUpgrade checkout root (14.0 and later) or the fork's `addons` (13.0 and earlier), and
+the target version's Odoo add-ons, and whose database connection targets the shared migration cluster.
 
-#### Scenario: Config includes the OpenUpgrade scripts path
+#### Scenario: Config includes the OpenUpgrade checkout
 
 - **WHEN** the per-step config for version 18 is rendered
-- **THEN** its `addons_path` references the the OpenUpgrade checkout root (14.0 and later) or the fork's `addons` (13.0 and earlier) directory of the OpenUpgrade 18.0 checkout
+- **THEN** its `addons_path` references the root of the OpenUpgrade 18.0 checkout, from which
+  `openupgrade_framework` and `openupgrade_scripts` both resolve
 
 ### Requirement: Migration environment cleanup
 

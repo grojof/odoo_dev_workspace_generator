@@ -39,13 +39,13 @@ A plan is always previewed and confirmed first. While it runs:
 - **With `--verbose`** every line appears live, which is what you want while watching a long `git clone` or
   `pip install`.
 
-Flags: `--lang {en,es}` (UI language) · `--version` · `-h/--help`.
 
 ## Environment variables
 
 | Variable | Effect |
 |---|---|
 | `ODWG_LANG=en\|es` | UI language without the startup prompt (artifacts are always English) |
+| `ODWG_VERBOSE=1` | Stream every line a plan's commands print, same as `--verbose` |
 
 ## Menus and actions
 
@@ -85,5 +85,6 @@ Every menu shows a numbered list; `0` (or `Back`/`Cancel`) always returns withou
 
 `run_migration.sh <source-dump>` (inside an environment) preflights the host, restores the dump, verifies
 the database before step 1, then runs each step with a `pg_dump` checkpoint after every success — a re-run
-resumes from the last good checkpoint. Any preflight failure exits non-zero with a `[preflight-fail]` line.
+resumes from the last good checkpoint. Any preflight failure exits non-zero with a `[preflight-fail]` line,
+and a checkpoint that cannot be written with a `[fail]` line.
 Details: [migration](migration.md).

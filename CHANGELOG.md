@@ -17,7 +17,8 @@ All notable changes to this project are documented here. The format is based on
     closed.
   - **Baseline `00-odwg-*` rules** that come before any other rule:
     - localhost, DNS, NTP and the VS Code server;
-    - **Odoo (`odoo-bin`) confined to localhost**;
+    - **Odoo (`odoo-bin`) rejected everywhere but localhost** (and DNS on port 53, which every process may
+      use);
     - GitHub, PyPI, `uv`, the Ubuntu archives and npm for the development tools.
   - **Mailpit 1.31.2** runs as a loopback-only service. Workspace and migration `odoo.conf` send mail to it.
   - **Redirect a database's mail to Mailpit** retargets a rehearsal copy's own mail servers and stops fetchmail,
@@ -53,6 +54,29 @@ All notable changes to this project are documented here. The format is based on
   (`es.archive.ubuntu.com`, …).
 
 ### Fixed
+- **A checkpoint that could not be written was reported as written.** `pg_dump`'s failure did not stop the
+  driver — it printed `[checkpoint] <step>`, ran the rest of the chain and exited 0, leaving no recovery
+  point at all. The run now aborts with a `[fail]` line naming the step, and removes the half-written file.
+  `tools/verify_migration_driver.py` executes the generated driver against stub binaries so this class of
+  bug cannot pass a text-only assertion again.
+- **A plan step could swallow the operator's keystrokes.** Steps inherited the terminal's stdin, so an
+  unexpected prompt (debconf, a credential helper) waited invisibly — its output is captured unless
+  `--verbose` is on — and consumed the answer meant for the next question. Steps now run with stdin closed,
+  and every `apt` command runs with `DEBIAN_FRONTEND=noninteractive` so there is no dialog to begin with.
+- **`provision apply` never narrowed `pg_hba.conf` on a host it had already provisioned** — exactly the
+  hosts an earlier version left trusting every role over loopback. The narrowing is now planned whenever the
+  rules are not in the wanted shape, `provision check` reports that shape, and the step fails loudly instead
+  of silently doing nothing when the file has no rule to anchor to.
+- **The firewall's Odoo rejection sorted after two allow rules.** Rules are evaluated in file-name order and
+  the first match wins, so an allow (the VS Code server's) could have matched an `odoo-bin` process first.
+  The rejection is now `00-odwg-003`, ahead of every allow but loopback and DNS.
+- A migration environment's database fields (`working_db`, `db_user`, `db_host`, `db_port`) are validated
+  like a workspace profile's, since a hand-edited environment reaches the generated driver.
+- A profile naming one of the class-level defaults (`base_dir`, `port_step`, …) raised a `TypeError` instead
+  of being ignored like any other unknown key.
+- An OCA link whose path already held a real directory got the symlink nested inside it; the step now
+  replaces the link or fails.
+- A `psql` failure inside the driver's database preflight aborted without saying which check failed.
 - **Shell injection through versions and profiles.** A migration source or target such as `13.0$(…)`, or a
   version, name, `db_host` or OCA repository in a `workspace.json`, passed validation and reached generated
   scripts (`run_migration.sh`, `setup_venv.sh`, `run-odoo*.sh`) or `odoo.conf`. All of them are now validated.

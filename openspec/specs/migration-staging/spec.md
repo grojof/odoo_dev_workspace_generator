@@ -14,6 +14,20 @@ the environment's `addons/odoo<major>/custom` and runs `odoo-module-migrator` fo
 bump on the copy. The operator's original source directory MUST NOT be modified. All copies and tool
 invocations SHALL go through the plan → preview → apply flow.
 
+Every operator-supplied value SHALL be validated before it reaches a plan: the source directory MUST exist,
+each named module MUST be a valid Odoo module name (`^[a-z_][a-z0-9_]*$`) and MUST be present in that
+directory. A value failing any of these SHALL stop the action naming the value, with nothing planned.
+
+#### Scenario: A module name carrying shell syntax is refused
+
+- **WHEN** the operator names `sale; rm -rf ~` among the modules to stage
+- **THEN** the action stops naming that value, and no command is planned
+
+#### Scenario: A module absent from the source directory is refused
+
+- **WHEN** the operator names a module the source directory does not contain
+- **THEN** the action stops naming it, rather than planning a copy of a directory that is not there
+
 #### Scenario: A 13 → 15 chain stages each bump from the previous stage
 
 - **WHEN** staging module `client_sales` for a 13 → 15 chain

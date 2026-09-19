@@ -21,7 +21,8 @@ context: |
 
   Conventions:
     - Python 3.12+, `from __future__ import annotations`, standard library only.
-      Adding a runtime dependency is an ADR-worthy decision.
+      Adding a runtime dependency requires a decision recorded in the
+      change's design.md; there is no separate ADR series.
     - Layered like the sibling app `odoo_instance_manager`: pure `planners`
       build `Command` lists; `system` executes them; `ui`/`prompts` own the
       terminal; `workflows/` wire the sections.

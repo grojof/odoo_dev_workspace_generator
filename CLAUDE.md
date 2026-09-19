@@ -20,7 +20,7 @@ project status — look that up in the files below.
 | Editor integration (official Odoo extension) and its update procedure | [`docs/editor-integration.md`](docs/editor-integration.md) — re-verified by `tools/verify_odools_config.py` |
 | Workspace profile / layout, per-version venv rules | [`docs/configuration-reference.md`](docs/configuration-reference.md), [`docs/workspace-layout.md`](docs/workspace-layout.md) — re-verified by `tools/verify_workspace_versions.py` |
 | Outbound firewall + mail capture, and their update procedure | [`docs/egress-control.md`](docs/egress-control.md) — pins in `odoo_dwg/egress.py`, re-verified by `tools/verify_egress_pins.py` |
-| Provisioning / migration guides | [`docs/provisioning.md`](docs/provisioning.md), [`docs/migration.md`](docs/migration.md) |
+| Provisioning / migration guides | [`docs/provisioning.md`](docs/provisioning.md), [`docs/migration.md`](docs/migration.md) — the generated driver is re-verified by `tools/verify_migration_driver.py` |
 | Contribution rules, checks, commits | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 | User-facing change log & version | [`CHANGELOG.md`](CHANGELOG.md) (`[Unreleased]`), `version` in [`pyproject.toml`](pyproject.toml) |
 
@@ -87,6 +87,7 @@ python tools/verify_support_matrix.py   # re-derive the support matrix from its 
 python tools/verify_odools_config.py    # editor config vs the latest official OdooLS release (network)
 python tools/verify_workspace_versions.py  # build + start Odoo 12-19 in a throwaway workspace (host)
 python tools/verify_egress_pins.py      # OpenSnitch/Mailpit pins vs their signed/published sources (network)
+python tools/verify_migration_driver.py # execute the generated migration driver against stub binaries (host)
 ```
 
 End-to-end validation (cloning Odoo, building venvs, running `odoo-bin`, migrations) happens on a real

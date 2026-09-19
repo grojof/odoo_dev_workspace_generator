@@ -88,8 +88,9 @@ classification, so that the two cannot disagree about whether a chain can run.
 #### Scenario: The driver aborts when the operator's code is missing
 
 - **WHEN** the driver's embedded checks find a module in the blocking class
-- **THEN** it aborts non-zero before restoring or upgrading anything, naming the module, the step and the
-  directory to fill
+- **THEN** it aborts non-zero before any migration step runs — the check reads the restored working
+  database, so the restore has happened and no upgrade has — naming the module, the step and the directory
+  to fill
 
 #### Scenario: A legacy step finds core modules in the fork
 
@@ -116,10 +117,18 @@ The preflight SHALL be exposed as an independent migration-menu action (host sco
 when the operator names an existing database) and the same implementation SHALL be reused by the generate
 flow and the run driver rather than duplicating checks ad hoc.
 
+A database named by the operator MUST be a valid PostgreSQL database name before any query is built with
+it; otherwise the action SHALL stop naming the value.
+
 #### Scenario: Menu action runs without a database
 
 - **WHEN** the operator runs the preflight from the menu without naming a database
 - **THEN** the host-scope checks run and the database-scope checks are reported as skipped, not failed
+
+#### Scenario: An invalid database name is refused
+
+- **WHEN** the operator names `db"; DROP DATABASE x --` as the database to verify
+- **THEN** the action stops naming the value, and no query runs
 
 ### Requirement: Host readiness for a native chain
 
