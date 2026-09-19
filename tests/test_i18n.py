@@ -39,3 +39,64 @@ def test_set_language_normalizes_prefix():
     assert i18n.current_language() == "es"
     i18n.set_language("english")
     assert i18n.current_language() == "en"
+
+
+# --- every operator-facing string has a Spanish entry ------------------------
+
+import ast  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+PACKAGE = Path(__file__).resolve().parent.parent / "odoo_dwg"
+# Calls whose first argument is shown to the operator (translated at a chokepoint).
+_FIRST_ARG = {
+    "t", "tf", "ask_text", "ask_bool", "ask_int", "ask_port", "ask_secret",
+    "prompt_label", "title", "confirm_with_phrase", "choose", "Command",
+}
+
+
+def _call_name(func: ast.expr) -> str | None:
+    if isinstance(func, ast.Name):
+        return func.id
+    return func.attr if isinstance(func, ast.Attribute) else None
+
+
+def _ui_literals() -> dict[str, str]:
+    """Every string literal the UI translates, mapped to where it appears."""
+    found: dict[str, str] = {}
+    for path in sorted(PACKAGE.rglob("*.py")):
+        if path.name == "i18n.py":
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call):
+                continue
+            name = _call_name(node.func)
+            candidates: list[ast.expr] = []
+            if name in _FIRST_ARG and node.args:
+                candidates.append(node.args[0])
+            if name == "level_text" and len(node.args) > 1:
+                candidates.append(node.args[1])
+            if name in ("choose", "render_table"):
+                listed = node.args[1] if name == "choose" and len(node.args) > 1 else (
+                    node.args[0] if name == "render_table" and node.args else None
+                )
+                if isinstance(listed, ast.BinOp):
+                    listed = listed.left
+                if isinstance(listed, ast.List):
+                    candidates += listed.elts
+            for candidate in candidates:
+                if isinstance(candidate, ast.Constant) and isinstance(candidate.value, str):
+                    if candidate.value.strip():
+                        found.setdefault(candidate.value, f"{path.name}:{candidate.lineno}")
+    return found
+
+
+def test_every_ui_string_has_a_spanish_translation():
+    literals = _ui_literals()
+    assert len(literals) > 150  # the extractor still sees the UI
+    missing = {text: where for text, where in literals.items() if text not in i18n._ES}
+    assert not missing, f"add these to i18n._ES_TO_EN: {missing}"
+
+
+def test_catalog_has_one_spanish_text_per_english_key():
+    english = list(i18n._ES_TO_EN.values())
+    assert len(english) == len(set(english))

@@ -109,7 +109,7 @@ def choose(label: str, options: list[str], default_index: int | None = None) -> 
 
     for index, option in enumerate(indexed_options, start=1):
         default_tag = (
-            " (default)"
+            f" {t('(default)')}"
             if default_index is not None and options[default_index] == option
             else ""
         )
