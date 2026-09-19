@@ -265,22 +265,77 @@ def render_vscode_tasks(cfg: WorkspaceConfig) -> str:
     return json.dumps(tasks, indent=2) + "\n"
 
 
+# Debug entry points per version, beyond serving: Odoo's interactive shell, a
+# server that upgrades modules on start, and one module's tests. Each asks what
+# it needs at launch through the ``inputs`` below (``${input:<id>}``).
+LAUNCH_INPUT_DATABASE = "odooDatabase"
+LAUNCH_INPUT_MODULES = "odooModules"
+LAUNCH_INPUT_TEST_MODULE = "odooTestModule"
+
+
+def _launch_inputs(cfg: WorkspaceConfig) -> list[dict]:
+    return [
+        {
+            "id": LAUNCH_INPUT_DATABASE,
+            "type": "promptString",
+            "description": "Odoo database",
+            "default": cfg.name,
+        },
+        {
+            "id": LAUNCH_INPUT_MODULES,
+            "type": "promptString",
+            "description": "Modules to upgrade (comma-separated)",
+        },
+        {
+            "id": LAUNCH_INPUT_TEST_MODULE,
+            "type": "promptString",
+            "description": "Module whose tests to run",
+        },
+    ]
+
+
+def _launch_configuration(cfg: WorkspaceConfig, version: str, name: str, args: list[str]) -> dict:
+    return {
+        "name": name,
+        "type": "debugpy",
+        "request": "launch",
+        "python": str(cfg.venv_dir(version) / "bin" / "python"),
+        "program": str(cfg.odoo_clone_dir(version) / "odoo-bin"),
+        "args": args,
+        "console": "integratedTerminal",
+        "justMyCode": False,
+    }
+
+
 def render_vscode_launch(cfg: WorkspaceConfig) -> str:
+    """Four debug configurations per version: serve, shell, upgrade modules and
+    test one module. All run ``odoo-bin`` from the version's venv under debugpy."""
+    database = f"${{input:{LAUNCH_INPUT_DATABASE}}}"
+    modules = f"${{input:{LAUNCH_INPUT_MODULES}}}"
+    test_module = f"${{input:{LAUNCH_INPUT_TEST_MODULE}}}"
     configurations = []
     for inst in cfg.instances():
-        configurations.append(
-            {
-                "name": f"Odoo {inst.version} ({inst.name})",
-                "type": "debugpy",
-                "request": "launch",
-                "python": str(cfg.venv_dir(inst.version) / "bin" / "python"),
-                "program": str(cfg.odoo_clone_dir(inst.version) / "odoo-bin"),
-                "args": ["-c", str(cfg.config_file(inst.version))],
-                "console": "integratedTerminal",
-                "justMyCode": False,
-            }
-        )
-    return json.dumps({"version": "0.2.0", "configurations": configurations}, indent=2) + "\n"
+        conf = str(cfg.config_file(inst.version))
+        label = f"Odoo {inst.version}"
+        suffix = f"({inst.name})"
+        configurations += [
+            _launch_configuration(cfg, inst.version, f"{label} {suffix}", ["-c", conf]),
+            _launch_configuration(
+                cfg, inst.version, f"{label} shell {suffix}",
+                ["shell", "-c", conf, "-d", database],
+            ),
+            _launch_configuration(
+                cfg, inst.version, f"{label} upgrade modules {suffix}",
+                ["-c", conf, "-d", database, "-u", modules],
+            ),
+            _launch_configuration(
+                cfg, inst.version, f"{label} test module {suffix}",
+                ["-c", conf, "-d", database, "-u", test_module, "--test-enable",
+                 "--test-tags", f"/{test_module}", "--stop-after-init"],
+            ),
+        ]
+    launch = {"version": "0.2.0", "configurations": configurations, "inputs": _launch_inputs(cfg)}
+    return json.dumps(launch, indent=2) + "\n"
 
 
 def render_code_workspace(cfg: WorkspaceConfig) -> str:
@@ -386,6 +441,20 @@ bash scripts/run-odoo{cfg.instances()[0].major}.sh          # launch the {cfg.ve
 
 Each instance's `addons_path` is composed of `addons-custom`, the OCA repos, then the shared Odoo `addons`.
 Open `{cfg.name}.code-workspace` in VSCode for tasks and debug launch configs.{editor_hint}
+
+## Debugging (F5)
+
+`.vscode/launch.json` has four configurations per version, all under the debugger:
+
+| Configuration | Runs | Asks for |
+|---|---|---|
+| `Odoo <version>` | the server | — |
+| `Odoo <version> shell` | `odoo-bin shell`: a Python REPL with `env` bound to a database | database |
+| `Odoo <version> upgrade modules` | the server, upgrading modules on start (`-u`) | database, modules |
+| `Odoo <version> test module` | one module's tests (`--test-enable --test-tags /<module>`), then stops | database, module |
+
+The database prompt offers `{cfg.name}`. Breakpoints in your addons stop in all four, including in migration
+scripts and tests. Odoo 12 runs tests only on a database created with demo data.
 
 The shared Odoo clones are shallow (no history). For `git log`/`git blame` on the Odoo source, run
 `git -C {cfg.repos_dir}/odoo-<version> fetch --unshallow` once.

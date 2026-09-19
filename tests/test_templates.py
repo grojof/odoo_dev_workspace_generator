@@ -50,11 +50,44 @@ def test_vscode_files_are_valid_json():
         json.loads(rendered)  # raises if not valid JSON
 
 
-def test_launch_has_one_config_per_version():
+def test_launch_has_serve_shell_upgrade_and_test_per_version():
     cfg = WorkspaceConfig(name="acme", versions=["17.0", "18.0"])
     cfg.normalize_defaults()
     launch = json.loads(templates.render_vscode_launch(cfg))
-    assert len(launch["configurations"]) == 2
+    names = [c["name"] for c in launch["configurations"]]
+    assert names == [
+        "Odoo 17.0 (odoo17acme)",
+        "Odoo 17.0 shell (odoo17acme)",
+        "Odoo 17.0 upgrade modules (odoo17acme)",
+        "Odoo 17.0 test module (odoo17acme)",
+        "Odoo 18.0 (odoo18acme)",
+        "Odoo 18.0 shell (odoo18acme)",
+        "Odoo 18.0 upgrade modules (odoo18acme)",
+        "Odoo 18.0 test module (odoo18acme)",
+    ]
+    for configuration in launch["configurations"]:
+        assert configuration["type"] == "debugpy"
+        assert configuration["console"] == "integratedTerminal"  # the shell needs a terminal
+        assert configuration["python"].endswith(("/.venv/odoo17/bin/python", "/.venv/odoo18/bin/python"))
+
+
+def test_launch_arguments_and_inputs():
+    cfg = WorkspaceConfig(name="acme", versions=["18.0"])
+    cfg.normalize_defaults()
+    launch = json.loads(templates.render_vscode_launch(cfg))
+    serve, shell, upgrade, test = (c["args"] for c in launch["configurations"])
+    conf = str(cfg.config_file("18.0"))
+    assert serve == ["-c", conf]
+    assert shell == ["shell", "-c", conf, "-d", "${input:odooDatabase}"]
+    assert upgrade == ["-c", conf, "-d", "${input:odooDatabase}", "-u", "${input:odooModules}"]
+    assert test == [
+        "-c", conf, "-d", "${input:odooDatabase}", "-u", "${input:odooTestModule}",
+        "--test-enable", "--test-tags", "/${input:odooTestModule}", "--stop-after-init",
+    ]
+    inputs = {i["id"]: i for i in launch["inputs"]}
+    assert set(inputs) == {"odooDatabase", "odooModules", "odooTestModule"}
+    assert inputs["odooDatabase"]["default"] == "acme"
+    assert all(i["type"] == "promptString" for i in inputs.values())
 
 
 def test_setup_venv_script_uses_the_same_interpreter_as_the_plan():

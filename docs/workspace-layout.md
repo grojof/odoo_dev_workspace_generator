@@ -23,7 +23,7 @@ read-only repo cache** reused across workspaces, and one **per-client workspace*
     ├── .venv/odoo<major>/               # one virtualenv per version
     ├── scripts/setup_venv.sh            # (re)build every venv + install requirements
     ├── scripts/run-odoo<major>.sh       # launch one instance
-    ├── .vscode/                         # tasks / launch / settings / extensions
+    ├── .vscode/                         # tasks / launch (serve, shell, upgrade, test) / settings / extensions
     ├── <name>.code-workspace
     ├── odools.toml                      # official Odoo language server profiles (Odoo >= 14)
     ├── workspace.json                   # saved profile (used by the manage flow)
@@ -62,8 +62,10 @@ This step is host-dependent and is **not** run in CI; it is the manual acceptanc
 
 On Ubuntu 24.04 (host `python3` 3.12), with the interpreter the tool picks by default. The generation plan and
 `setup_venv.sh` apply the same rules. Every row was built and started by
-[`tools/verify_workspace_versions.py`](#re-verifying-every-version): `base` installed with no errors and
-`/web/login` served the login form.
+[`tools/verify_workspace_versions.py`](#re-verifying-every-version).
+- `base` installed with no errors.
+- Each debug configuration in the generated `launch.json` worked: the shell answered an ORM query, a module's
+  tests ran and passed, and the upgrade configuration served the login form.
 
 | Odoo | Python | setuptools rule | setuptools resolved | Requirement changes |
 |---|---|---|---|---|
@@ -110,8 +112,14 @@ python tools/verify_workspace_versions.py --keep       # keep the workspace to i
 
 It generates a throwaway workspace `verifyall` through the tool's own plan, with each version on the
 interpreter the tool picks by default. It previews the plan and applies it only after you type `yes`. For each
-version it reports the venv's Python and setuptools, installs `base` into a new database `verifyall_<major>`
-and requires `/web/login` to serve the login form. Afterwards it removes the workspace, its databases and
+version it reports the venv's Python and setuptools and installs `base` and `barcodes`, with demo data, into a new database
+`verifyall_<major>`. It then runs the generated debug configurations from `.vscode/launch.json` with their
+prompts answered:
+- **shell:** an ORM query piped in must come back.
+- **test module:** `barcodes`' tests must run without failures.
+- **upgrade modules:** the server must serve the `/web/login` form.
+
+Afterwards it removes the workspace, its databases and
 filestores, and only the shared clones it had to create. It needs network, PostgreSQL with the development role
 (`provision apply`) and `uv`, and takes about 15 minutes when nothing is cached.
 

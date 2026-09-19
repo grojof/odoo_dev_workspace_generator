@@ -7,6 +7,15 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Debug configurations for the shell, module upgrades and tests** (change `add-odoo-shell-launch`). Each
+  version's `launch.json` now has four debugpy configurations:
+  - the server;
+  - `odoo-bin shell` with `env` bound to a database;
+  - the server upgrading modules on start (`-u`);
+  - one module's tests (`--test-enable --test-tags /<module> --stop-after-init`).
+
+  VS Code asks for the database and modules when a configuration starts. The generated README lists them, and
+  `tools/verify_workspace_versions.py` now runs them from the generated file on every version.
 - **Official Odoo extension support** (change `use-official-odoo-language-server`). Generated workspaces carry
   an `odools.toml` for the official language server (OdooLS): one profile per Odoo version ≥ 14 (OdooLS
   refuses older ones), using only the four documented minimal keys — `name`, `odoo_path`, `addons_paths`,
