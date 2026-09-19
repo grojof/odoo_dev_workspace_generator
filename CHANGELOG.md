@@ -77,7 +77,8 @@ All notable changes to this project are documented here. The format is based on
   plan and in `setup_venv.sh` alike. The migration already pinned it and is unchanged. Odoo 12/13 workspaces
   also defaulted to the host's Python 3.12 — their maximum is unstated, and an unstated maximum bounded
   nothing — where their pinned `gevent` does not build; they now default to the recommended `uv` 3.8, and
-  the prompt says the host is unproven rather than out of range.
+  the prompt says the host is unproven rather than out of range. And Odoo 12 venvs install `python-ldap==3.1.0`
+  in place of the deprecated `pyldap==2.4.28`, which does not build on `uv`'s Python 3.8.
 - **Generated files can no longer break out of their heredoc.** Every file is written with a quoted
   heredoc whose delimiter was a fixed `EOF`, so a profile value carrying a newline and a line `EOF` (a
   hand-edited `db_host`, `addon_prefix` or OCA repo name) ended the heredoc early and ran the rest as shell

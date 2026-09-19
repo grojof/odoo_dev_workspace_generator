@@ -76,6 +76,23 @@ def setuptools_requirement(version: str) -> str:
     return "setuptools"
 
 
+# Requirements a workspace venv installs in place of one its Odoo branch pins,
+# as ``{major: (dropped project, replacement requirement)}``. Odoo 12 pins
+# ``pyldap==2.4.28``, a fork PyPI marks "DEPRECATED; use python-ldap instead"
+# (merged back as python-ldap 3.0) that does not build on uv's Python 3.8: its
+# setup.py passes runtime_library_dirs, which distutils renders as ``-R`` for
+# that interpreter's ``cc``. python-ldap 3.1.0 is what Odoo 13 pins for the same
+# ``ldap`` module.
+REQUIREMENT_SUBSTITUTES: dict[int, tuple[str, str]] = {
+    12: ("pyldap", "python-ldap==3.1.0"),
+}
+
+
+def requirement_substitute(version: str) -> tuple[str, str] | None:
+    """``(dropped project, replacement)`` for a version's requirements, if any."""
+    return REQUIREMENT_SUBSTITUTES.get(odoo_major(version))
+
+
 def python_tuple(python: str) -> tuple[int, ...]:
     """``"3.10"`` → ``(3, 10)``, so Python versions compare numerically rather
     than as strings (where ``"3.9" > "3.10"``)."""

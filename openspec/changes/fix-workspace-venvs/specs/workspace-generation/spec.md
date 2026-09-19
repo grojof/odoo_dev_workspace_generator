@@ -1,11 +1,13 @@
 ## ADDED Requirements
 
-### Requirement: Workspace venvs install the setuptools their Odoo version needs
+### Requirement: Workspace venvs install the build tooling their Odoo version needs
 
 Each per-instance venv SHALL install a `setuptools` release its Odoo version can run and build with:
 `setuptools<58` for Odoo 13 and earlier (whose `vatnumber==1.2` still uses `use_2to3`), `setuptools<81` for
-Odoo 14 to 16 (which import `pkg_resources` at startup), and an unpinned `setuptools` from Odoo 17. The
-generated venv-setup script SHALL apply the same requirement as the generation plan.
+Odoo 14 to 16 (which import `pkg_resources` at startup), and an unpinned `setuptools` from Odoo 17. Where a
+branch pins a deprecated project that no longer builds, the venv SHALL install its declared successor instead:
+for Odoo 12, `python-ldap==3.1.0` in place of `pyldap`. The generated venv-setup script SHALL apply the same
+requirements as the generation plan.
 
 #### Scenario: A pkg_resources-era workspace starts
 
@@ -16,6 +18,12 @@ generated venv-setup script SHALL apply the same requirement as the generation p
 
 - **WHEN** a workspace with `13.0` is generated
 - **THEN** its venv installs `setuptools<58` before the requirements, and `vatnumber` builds
+
+#### Scenario: Odoo 12 replaces the deprecated pyldap
+
+- **WHEN** a workspace with `12.0` is generated
+- **THEN** its venv installs the branch's requirements without `pyldap` plus `python-ldap==3.1.0`, in the plan
+  and in the generated venv-setup script alike, and the shared clone is not modified
 
 #### Scenario: Current versions are not pinned
 

@@ -615,8 +615,9 @@ def plan_build_venv(
         ),
         Command(
             tf("Install Odoo {} requirements", version),
-            f"{shlex.quote(str(venv / 'bin' / 'pip'))} install -r "
-            f"{shlex.quote(str(odoo / 'requirements.txt'))}",
+            templates.requirements_install_command(
+                str(venv / "bin" / "pip"), str(odoo / "requirements.txt"), version
+            ),
         ),
     ]
     return commands

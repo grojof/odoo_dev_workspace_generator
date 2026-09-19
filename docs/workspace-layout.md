@@ -68,6 +68,10 @@ Each venv installs the `setuptools` its Odoo version needs, and `setup_venv.sh` 
 | 14–16 | `<81` | Odoo imports `pkg_resources` at startup, removed in 81 |
 | ≥ 17 | unpinned | neither |
 
+Odoo 12 also pins `pyldap==2.4.28`, a deprecated fork (PyPI: "use python-ldap instead") that does not build on
+`uv`'s Python 3.8; its venv installs `python-ldap==3.1.0` — what Odoo 13 pins for the same `ldap` module — in its
+place. The shared clone's `requirements.txt` is not modified.
+
 A venv built before this rule (Odoo ≤ 16 on Python 3.12 got setuptools 81+) fails at start with
 `ModuleNotFoundError: No module named 'pkg_resources'`; fix it with
 `.venv/odoo<major>/bin/pip install 'setuptools<81'`, or rebuild the venv.

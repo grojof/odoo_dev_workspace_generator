@@ -92,3 +92,11 @@ def test_setup_venv_script_pins_setuptools_like_the_plan():
     assert "/.venv/odoo13/bin/pip\" install --upgrade pip wheel 'setuptools<58'" in script
     assert "/.venv/odoo15/bin/pip\" install --upgrade pip wheel 'setuptools<81'" in script
     assert "/.venv/odoo18/bin/pip\" install --upgrade pip wheel 'setuptools'" in script
+
+
+def test_setup_venv_script_applies_the_same_requirement_substitute():
+    cfg = WorkspaceConfig(name="acme", versions=["12.0", "18.0"])
+    cfg.normalize_defaults()
+    script = templates.render_setup_venv_sh(cfg)
+    assert script.count("grep -v -i -E '^pyldap") == 1
+    assert "install -r /dev/stdin python-ldap==3.1.0" in script

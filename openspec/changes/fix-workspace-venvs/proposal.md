@@ -8,7 +8,9 @@ the other end showed a second defect of the same kind: an Odoo 13 workspace venv
 because `vatnumber==1.2` still passes `use_2to3`, which setuptools removed in 58. And building every version
 on the reference host showed a third: Odoo 12 and 13 defaulted to the host's Python 3.12, because their
 maximum is unstated and an unstated maximum bounded nothing, yet their pinned `gevent` does not build on 3.12
-(`CompileError: src/gevent/libev/corecext.pyx`).
+(`CompileError: src/gevent/libev/corecext.pyx`). On the recommended 3.8, Odoo 12 still failed on one
+requirement: `pyldap==2.4.28`, a fork PyPI marks "DEPRECATED; use python-ldap instead", whose `setup.py`
+passes `runtime_library_dirs` that distutils renders as `-R` for `uv`'s `cc`, which the compiler rejects.
 
 ## What Changes
 
@@ -18,6 +20,8 @@ maximum is unstated and an unstated maximum bounded nothing, yet their pinned `g
 - When a version states no Python maximum, the host `python3` is the default only up to the matrix's
   recommendation; above it the recommendation (`uv`) is the default, and the prompt says the host is unproven
   rather than out of range. The operator can still keep the host.
+- Odoo 12 workspace venvs install `python-ldap==3.1.0` (what Odoo 13 pins for the same `ldap` module) in place of
+  `pyldap`, declared once in `models.py` (`REQUIREMENT_SUBSTITUTES`) and applied by the plan and `setup_venv.sh`.
 - Migration environments are unchanged: they already pin `setuptools<81` and carry the 13.0 build pin in their
   constraints file.
 
@@ -34,7 +38,8 @@ _None._
 
 ## Impact
 
-- Code: `odoo_dwg/models.py`, `odoo_dwg/planners.py`, `odoo_dwg/templates.py`, `odoo_dwg/prompts.py`.
+- Code: `odoo_dwg/models.py`, `odoo_dwg/planners.py`, `odoo_dwg/templates.py`, `odoo_dwg/prompts.py`
+  (and the shared install-command builder moves to `templates.py`).
 - Tests: `tests/test_planners.py`, `tests/test_templates.py`, `tests/test_support_matrix.py`,
   `tests/test_prompts.py`.
 - Existing workspaces are fixed by regenerating the venv, or by running

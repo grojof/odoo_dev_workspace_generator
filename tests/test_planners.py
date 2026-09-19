@@ -227,3 +227,12 @@ def test_build_venv_pins_setuptools_per_era():
     for version, requirement in expected.items():
         upgrade = planners.plan_build_venv(_cfg(versions=[version]), version)[1].command
         assert upgrade.endswith(f"install --upgrade pip wheel {requirement}"), upgrade
+
+
+def test_odoo_12_installs_python_ldap_instead_of_the_deprecated_pyldap():
+    install = planners.plan_build_venv(_cfg(versions=["12.0"]), "12.0")[2].command
+    assert install.startswith("grep -v -i -E '^pyldap([=<>!~; ]|$)' ")
+    assert install.endswith("install -r /dev/stdin python-ldap==3.1.0")
+    # Other versions install their requirements untouched.
+    other = planners.plan_build_venv(_cfg(versions=["13.0"]), "13.0")[2].command
+    assert "grep" not in other and other.endswith("/odoo-13.0/requirements.txt")

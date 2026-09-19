@@ -19,7 +19,15 @@ no `pyproject.toml` and is built against the venv's own setuptools (observed: th
   no newer than the recommendation. Declaring a derived maximum for 12/13 was rejected: their branches carry no
   interpreter buckets to derive one from, and the support matrix does not invent bounds.
 
+- **Substitute, don't patch, the deprecated `pyldap`.** Its failure is in its own `setup.py`, not in anything
+  the tool controls, and pyldap's last release is itself an empty package requiring `python-ldap`. The branch's
+  requirements are streamed through `grep -v` into `pip install -r /dev/stdin` together with the replacement, so
+  the clone stays untouched and one resolution installs both. Rejected: setting `CC=gcc` (distutils reads the
+  interpreter's build-time `CC`, not the environment — tried, still `-R`).
+
 ## Risks / Trade-offs
 
+- `python-ldap` 3 is not byte-for-byte `pyldap` 2.4; only Odoo 12's optional `auth_ldap` imports it. → Import
+  checked; an LDAP login against a real directory is not exercised.
 - A requirement of Odoo ≤ 13 that needs setuptools ≥ 58 to build would now fail. → Checked by building every
   version's venv from 12 to 19 on the reference host and starting Odoo on each.

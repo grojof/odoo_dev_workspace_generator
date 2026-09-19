@@ -13,6 +13,7 @@ pages (see docs/).
 from __future__ import annotations
 
 import json
+import shlex
 
 from .models import (
     LEGACY_LAYOUT_MAX_MAJOR,
@@ -23,6 +24,7 @@ from .models import (
     WorkspaceConfig,
     migration_interpreter,
     odoo_major,
+    requirement_substitute,
     setuptools_requirement,
     version_support,
 )
@@ -62,6 +64,21 @@ def render_odoo_conf(cfg: WorkspaceConfig, version: str) -> str:
         "admin_passwd = admin",
     ]
     return "\n".join(lines) + "\n"
+
+
+def requirements_install_command(pip: str, requirements: str, version: str) -> str:
+    """``pip install -r`` of a branch's requirements, with any substitute applied:
+    the dropped project's line is filtered out and its replacement installed in
+    the same resolution (see ``models.REQUIREMENT_SUBSTITUTES``)."""
+    substitute = requirement_substitute(version)
+    if substitute is None:
+        return f"{shlex.quote(pip)} install -r {shlex.quote(requirements)}"
+    dropped, replacement = substitute
+    pattern = shlex.quote(f"^{dropped}([=<>!~; ]|$)")
+    return (
+        f"grep -v -i -E {pattern} {shlex.quote(requirements)} | "
+        f"{shlex.quote(pip)} install -r /dev/stdin {shlex.quote(replacement)}"
+    )
 
 
 def render_setup_venv_sh(
@@ -104,7 +121,9 @@ def render_setup_venv_sh(
                     *create,
                     f'"{venv}/bin/pip" install --upgrade pip wheel '
                     f"'{setuptools_requirement(inst.version)}'",
-                    f'"{venv}/bin/pip" install -r "{odoo}/requirements.txt"',
+                    requirements_install_command(
+                        f"{venv}/bin/pip", f"{odoo}/requirements.txt", inst.version
+                    ),
                     "",
                 ]
             )
