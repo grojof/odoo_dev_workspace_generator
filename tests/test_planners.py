@@ -19,6 +19,28 @@ def test_write_text_file_command_is_heredoc_plus_chmod():
     assert cmds[1].command.startswith("chmod 640 ")
 
 
+def test_heredoc_delimiter_never_matches_a_content_line():
+    assert planners.heredoc_delimiter("hello\n") == "EOF"
+    # A line equal to the delimiter would end the heredoc and run what follows.
+    assert planners.heredoc_delimiter("a\nEOF\nEOF_\n") == "EOF__"
+    # Only whole lines matter: EOF inside a line cannot close the heredoc.
+    assert planners.heredoc_delimiter("x EOF y\nEOFx\n") == "EOF"
+
+
+def test_write_text_file_command_contains_hostile_content():
+    # A profile value carrying a newline and the default delimiter, as a
+    # hand-edited workspace.json could.
+    content = "db_host = 127.0.0.1\nEOF\nrm -rf ~\n"
+    command = planners.write_text_file_command("/tmp/x.conf", content)[0].command
+    header, _, rest = command.partition("\n")
+    delimiter = header.split("<<")[1].strip("'")
+    body_lines = rest.split("\n")
+    # The heredoc ends only at its final line, so every content line is data.
+    assert body_lines[-1] == delimiter
+    assert delimiter not in body_lines[:-1]
+    assert "\n".join(body_lines[:-1]) == content
+
+
 def test_repo_cache_clones_each_version_and_oca():
     cfg = _cfg(versions=["17.0", "18.0"], oca_repos=["web"])
     cmds = planners.plan_repo_cache(cfg)  # default exists = nothing present

@@ -25,11 +25,27 @@ def _never(_path: Path) -> bool:
     return False
 
 
+def heredoc_delimiter(content: str, base: str = "EOF") -> str:
+    """A heredoc delimiter that no line of ``content`` equals.
+
+    A quoted heredoc copies its body literally — no expansion — so the only way
+    for content to reach the shell is a line equal to the delimiter, which ends
+    the heredoc early and runs whatever follows. Profile values (a host, a prefix,
+    an OCA repo name) end up in generated files, so the delimiter must be chosen
+    against the content rather than assumed absent."""
+    lines = set(content.splitlines())
+    delimiter = base
+    while delimiter in lines:
+        delimiter += "_"
+    return delimiter
+
+
 def write_text_file_command(path: Path | str, content: str, mode: str = "644") -> list[Command]:
     """Emit a file via a quoted heredoc plus a ``chmod`` — mirrors the sibling app."""
     target = str(path)
+    end = heredoc_delimiter(content)
     return [
-        Command(tf("Write {}", target), f"cat > {shlex.quote(target)} <<'EOF'\n{content}\nEOF"),
+        Command(tf("Write {}", target), f"cat > {shlex.quote(target)} <<'{end}'\n{content}\n{end}"),
         Command(tf("Set mode {} on {}", mode, target), f"chmod {mode} {shlex.quote(target)}"),
     ]
 
