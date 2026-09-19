@@ -66,7 +66,7 @@ def _apply() -> None:
     commands: list = []
     if facts.build_deps_missing:
         commands += planners.plan_build_deps()
-    if not facts.postgres_installed or not facts.dev_role_exists:
+    if not facts.postgres_installed or facts.dev_role_exists is False:
         commands += planners.plan_postgresql(role)
     if not facts.wkhtmltopdf or "with patched qt" not in facts.wkhtmltopdf.lower():
         wkhtmltopdf = planners.plan_wkhtmltopdf(_DEV_WKHTMLTOPDF_MAJOR, facts.os_codename)

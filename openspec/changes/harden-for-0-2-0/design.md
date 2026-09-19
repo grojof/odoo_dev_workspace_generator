@@ -42,8 +42,25 @@ logic, only the skip was implemented, never the restore.
   true) with its branch, and the unused prompt and system helpers.
 - **Backups** are stamped with the workflow's clock and passed into the pure planner.
 
+- **The coverage helper takes its input from the environment.** A heredoc is the program on stdin, so
+  anything piped in is lost; the empty list now fails instead of passing. Verified by running the generated
+  driver with stub PostgreSQL tools: a custom module missing from every source blocks the chain.
+- **A fresh run owns the checkpoint directory.** Deleting only `00_source.dump` used to leave step dumps that
+  were then skipped. A resume also deletes everything after the first gap, because a step after a gap would
+  run on the wrong database. Both reproduced with the stubs before and after.
+- **Reporting.** `apply_commands` captures instead of streaming by default: one line per step, the warning
+  lines a step printed, and the tail of a failed step's output. `--verbose` keeps the old behaviour, which is
+  what a long `git clone` deserves.
+- **Host changes are narrowed** rather than documented away: `trust` for the development role only (the
+  generic loopback lines are put back to `scram-sha-256`), the DNS rule carries `dest.port 53`, and root
+  downloads use a root-only directory instead of a predictable `/tmp` path.
+
 ## Risks / Trade-offs
 
 - **A stricter profile can refuse one that loaded before**, for example one with `"18"`. → Reported with the
   field name; the CHANGELOG marks it BREAKING.
 - **Hashing a large dump adds seconds to each run.** → Accepted; it prevents resuming onto the wrong data.
+- **Narrowing `trust` changes an already-provisioned host** on the next `provision apply`: other roles then
+  need a password over loopback. → The tool only uses the development role, and the CHANGELOG says so.
+- **Quiet output hides progress during a long step.** → The step line is printed before it starts, warnings
+  still surface, and `--verbose` is one flag away.

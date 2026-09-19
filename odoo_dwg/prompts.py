@@ -265,7 +265,11 @@ def choose_interpreter(
 
     keep_host = tf("Keep the host python3 ({})", host_python or "?")
     options = [tf("Build with uv Python {} (recommended)", recommended)] if uv_ready else []
-    options += [keep_host, t("Choose another Python version"), t("Cancel")]
+    # Offering the host interpreter when there is none would read as a choice and
+    # then cancel.
+    options += ([keep_host] if host_python else []) + [
+        t("Choose another Python version"), t("Cancel")
+    ]
     answer = choose(tf("Interpreter for Odoo {}", version), options, default_index=None)
 
     if answer in ("", t("Cancel")):

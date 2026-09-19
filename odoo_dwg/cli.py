@@ -16,6 +16,7 @@ import sys
 from . import __version__
 from .i18n import set_language, t, tf
 from .prompts import choose, clear_screen
+from .system import set_verbose
 from .workflows import migration_menu, provision_menu, workspace_menu
 
 _LANG_ENV = "ODWG_LANG"
@@ -102,6 +103,14 @@ def _build_parser() -> argparse.ArgumentParser:
         default=argparse.SUPPRESS,
         help="UI language (default: env/prompt).",
     )
+    common.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Stream every line a plan's commands print (default: one line per step, "
+             "plus warnings and the output of a step that fails). Also ODWG_VERBOSE=1.",
+    )
 
     parser = argparse.ArgumentParser(
         prog="odoo-dwg",
@@ -122,6 +131,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     lang = getattr(args, "lang", None)
+    set_verbose(getattr(args, "verbose", False) or os.environ.get("ODWG_VERBOSE", "") == "1")
 
     if args.section is None:
         _select_language(lang)

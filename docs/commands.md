@@ -22,6 +22,23 @@ additionally require typing an exact phrase.
 | `python3 -m odoo_dwg migrate` | Migration mode directly |
 | `odoo-dwg …` | Console-script equivalent (after `pip install -e .`) |
 
+Both flags work before or after the subcommand:
+
+| Flag | Effect |
+|---|---|
+| `--lang {en,es}` | UI language, instead of the prompt (also `ODWG_LANG`) |
+| `-v`, `--verbose` | Stream every line a plan's commands print (also `ODWG_VERBOSE=1`) |
+
+## How a plan reports while it runs
+
+A plan is always previewed and confirmed first. While it runs:
+
+- **By default** each step is one line — `[3/12] Clone Odoo 18.0 … [OK]` — plus any line a step printed that
+  mentions a warning, a deprecation or an error.
+- **A step that fails** prints the end of its output (the last 40 lines), then the plan stops.
+- **With `--verbose`** every line appears live, which is what you want while watching a long `git clone` or
+  `pip install`.
+
 Flags: `--lang {en,es}` (UI language) · `--version` · `-h/--help`.
 
 ## Environment variables

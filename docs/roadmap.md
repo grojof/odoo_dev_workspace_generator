@@ -1,6 +1,6 @@
 ---
 type: explanation
-title: "Roadmap (F0–F4) and backlog"
+title: "Roadmap and backlog"
 description: "Phased delivery plan and the parked backlog for the Odoo dev/migration workspace generator."
 audience: [contributor]
 updated: 2026-09-19
@@ -9,6 +9,10 @@ updated: 2026-09-19
 # Roadmap
 
 **Released: v0.1.0 (2026-09-19).** F0–F3 are complete; see [`CHANGELOG.md`](../CHANGELOG.md).
+
+**In flight for 0.2.0:** the outbound firewall and mail capture landed (change `add-egress-control`), and
+`harden-for-0-2-0` is closing what two pre-release audits found — input validation, the migration driver's
+resume, legacy-step coverage, probes that never prompt, and a quiet/verbose plan output.
 
 Delivery is phased so each phase is independently useful and verifiable. Non-trivial work is proposed and
 tracked through OpenSpec (`/opsx:*`); every phase below was accepted end-to-end on WSL Ubuntu 24.04.

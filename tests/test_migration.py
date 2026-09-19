@@ -317,3 +317,41 @@ def test_gevent_repair_matches_any_310_patch_level():
     assert repairs("3.10.14") == repairs("3.10")
     assert "gevent==22.10.2" in repairs("3.10")
     assert repairs("3.12") == []
+
+
+# --- the generated driver's checkpoint discipline ----------------------------
+
+
+def _driver(source="15.0", target="17.0") -> str:
+    return templates.render_run_migration_sh(MigrationEnv(source=source, target=target))
+
+
+def test_coverage_gets_its_modules_from_the_environment_not_stdin():
+    """The helper's program *is* python's stdin (a heredoc), so a piped module
+    list would be lost and every module would silently pass."""
+    sh = _driver()
+    assert 'ODWG_MODULES_TSV="$modules_tsv" coverage_step' in sh
+    assert "| coverage_step" not in sh
+    assert 'modules_tsv = os.environ.get("ODWG_MODULES_TSV", "")' in sh
+    assert "sys.stdin" not in sh
+    # An empty list is a failure, not a pass.
+    assert "no module list to check" in sh
+
+
+def test_a_fresh_run_owns_the_checkpoint_directory():
+    sh = _driver()
+    assert 'rm -f "$CK"/*.dump "$CK"/*.dump.tmp "$CK/source.sha256"' in sh
+
+
+def test_resuming_drops_everything_after_the_first_gap():
+    sh = _driver()
+    assert 'if [ "$gap" = 0 ] && have_ck "$step"; then' in sh
+    assert 'rm -f "$CK/$step.dump"' in sh
+
+
+def test_checkpoints_and_the_source_hash_are_written_atomically():
+    sh = _driver()
+    assert 'pg_dump -Fc "$DB" > "$CK/$1.dump.tmp" && mv "$CK/$1.dump.tmp" "$CK/$1.dump"' in sh
+    assert '"$CK/source.sha256.tmp" && mv "$CK/source.sha256.tmp" "$CK/source.sha256"' in sh
+    # The hash lands before the checkpoint it describes.
+    assert sh.index("source.sha256.tmp") < sh.index("checkpoint 00_source")

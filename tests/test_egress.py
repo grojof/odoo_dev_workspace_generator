@@ -66,7 +66,9 @@ def test_resolvers_come_from_resolv_conf_without_loopback():
            "nameserver 10.255.255.254\nsearch lan\nnameserver 1.1.1.1\n"
     assert egress.parse_resolvers(text) == ["10.255.255.254", "1.1.1.1"]
     rules = {rule["name"]: rule for rule in egress.baseline_rules(["10.255.255.254", "1.1.1.1"])}
-    dns = re.compile(rules["00-odwg-001-allow-dns-resolvers"]["operator"]["data"])
+    addresses = next(item for item in rules["00-odwg-001-allow-dns-resolvers"]["operator"]["list"]
+                     if item["operand"] == "dest.ip")
+    dns = re.compile(addresses["data"])
     assert dns.fullmatch("1.1.1.1") and not dns.fullmatch("1.1.1.12")
     # With no non-loopback resolver there is no resolver rule at all.
     assert "00-odwg-001-allow-dns-resolvers" not in {r["name"] for r in egress.baseline_rules([])}
@@ -107,8 +109,8 @@ def test_opensnitch_plan_verifies_then_installs_stopped_then_configures():
     cmds = [c.command for c in planners.plan_opensnitch(RESOLVERS)]
     joined = "\n".join(cmds)
     for name, sha512 in egress.OPENSNITCH_PACKAGES:
-        assert f"echo '{sha512}  /tmp/odwg-opensnitch/{name}' | sha512sum -c -" in joined
-    install = next(i for i, c in enumerate(cmds) if "apt-get -y install /tmp/" in c)
+        assert f"echo '{sha512}  /var/cache/odoo_dwg/opensnitch/{name}' | sha512sum -c -" in joined
+    install = next(i for i, c in enumerate(cmds) if "apt-get -y install /var/cache/" in c)
     verifies = [i for i, c in enumerate(cmds) if "sha512sum -c" in c]
     harden = next(i for i, c in enumerate(cmds) if c.startswith("python3 - <<'PYEOF'"))
     start = next(i for i, c in enumerate(cmds) if "systemctl restart opensnitch" in c)
@@ -133,7 +135,7 @@ def test_opensnitch_plan_skips_the_install_when_the_pinned_version_is_present():
 def test_mailpit_plan_verifies_and_runs_on_loopback():
     cmds = [c.command for c in planners.plan_mailpit()]
     joined = "\n".join(cmds)
-    assert f"echo '{egress.MAILPIT_SHA256}  /tmp/odwg-mailpit/mailpit-linux-amd64.tar.gz'" in joined
+    assert f"echo '{egress.MAILPIT_SHA256}  /var/cache/odoo_dwg/mailpit/mailpit-linux-amd64.tar.gz'" in joined
     assert "sha256sum -c -" in joined
     unit = egress.render_mailpit_unit()
     assert "--smtp 127.0.0.1:1025 --listen 127.0.0.1:8025" in unit
@@ -221,3 +223,34 @@ def test_mailpit_uninstall_removes_unit_binary_and_mail():
     assert "rm -f /etc/systemd/system/mailpit.service && systemctl daemon-reload" in joined
     assert "rm -f /usr/local/bin/mailpit" in joined
     assert "rm -rf /var/lib/mailpit /var/lib/private/mailpit" in joined
+
+
+def test_root_downloads_land_in_a_root_owned_directory():
+    """Never a predictable /tmp path: a local user could own it and swap a file
+    between its checksum and its install."""
+    for cmds in ([c.command for c in planners.plan_opensnitch(RESOLVERS)],
+                 [c.command for c in planners.plan_mailpit()],
+                 [c.command for c in planners.plan_wkhtmltopdf(18, "noble")]):
+        downloads = [c for c in cmds if "curl -fSL -o " in c]
+        assert downloads and all("/var/cache/odoo_dwg/" in c for c in downloads), cmds
+        assert not any("/tmp/" in c for c in cmds), cmds
+        assert any("mkdir -m 700 -p /var/cache/odoo_dwg" in c for c in cmds), cmds
+
+
+def test_the_dns_rule_is_limited_to_the_dns_port():
+    rule = {r["name"]: r for r in egress.baseline_rules(["10.255.255.254"])}[
+        "00-odwg-001-allow-dns-resolvers"]
+    assert rule["operator"]["type"] == "list"  # every item must match
+    operands = {item["operand"]: item["data"] for item in rule["operator"]["list"]}
+    assert operands["dest.port"] == "53"
+    assert "10\\.255\\.255\\.254" in operands["dest.ip"]
+
+
+def test_loopback_trust_covers_only_the_development_role():
+    """A blanket loopback trust would let any local user connect as postgres."""
+    hba = next(c.command for c in planners.plan_postgresql("odoo") if "PGHBA=" in c.command)
+    assert "host    all             odoo" in hba and "trust" in hba
+    # Any blanket trust this tool wrote before is put back to a password method.
+    assert r"s#^(host\s+all\s+all\s+(127\.0\.0\.1/32|::1/128)\s+)trust#\1scram-sha-256#" in hba
+    # And the role line is added only when it is not already there.
+    assert 'if ! grep -qE "^host\\s+all\\s+odoo' in hba

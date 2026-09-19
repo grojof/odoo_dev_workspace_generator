@@ -45,3 +45,22 @@ Both SHALL be reported as optional.
 
 - **WHEN** OpenSnitch runs with `DefaultAction` set to `allow`
 - **THEN** the check reports the setting and that it differs from the hardened `deny`
+
+### Requirement: Read-only host readiness report
+
+The system SHALL provide a `provision check` that inspects the host and renders a capability table of
+(capability, state, detail) where state is one of OK / MISSING / WARN / INFO, covering the host OS release,
+the Odoo build dependencies, PostgreSQL (presence, service, development role, and server version against the
+matrix floor), wkhtmltopdf, Node + rtlcss, the system Python, and `uv` (migration steps and out-of-range
+workspace interpreters). `check` MUST NOT modify the host in any way.
+
+#### Scenario: Report on a host missing prerequisites
+
+- **WHEN** `provision check` runs on a host without PostgreSQL and without the build dependencies
+- **THEN** it prints a table marking those capabilities MISSING and makes no changes to the host
+
+#### Scenario: Report on a ready host
+
+- **WHEN** every prerequisite is already present
+- **THEN** no capability is reported MISSING, informational rows (the host interpreter, the optional
+  components) are still shown, and nothing is installed

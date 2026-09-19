@@ -9,6 +9,7 @@ import pytest
 
 from odoo_dwg import cli
 from odoo_dwg.models import HOST_PYTHON, UV_PYTHON, WorkspaceConfig
+from odoo_dwg.ui import strip_ansi
 from odoo_dwg.workflows import common, workspace
 
 
@@ -136,3 +137,62 @@ def test_cli_reports_errors_instead_of_a_traceback(monkeypatch, capsys, error):
     monkeypatch.setattr(cli, "workspace_menu", boom)
     assert cli.main(["workspace", "--lang", "en"]) == 1
     assert "The operation did not complete" in capsys.readouterr().out
+
+
+# --- how a plan reports while it runs -----------------------------------------
+
+
+class _Result:
+    def __init__(self, code=0, out=""):
+        self.returncode, self.stdout, self.stderr = code, out, ""
+
+
+def _plan():
+    from odoo_dwg.models import Command
+
+    return [Command("Clone something", "git clone x"),
+            Command("Build something", "make"),
+            Command("Break something", "false")]
+
+
+@pytest.fixture()
+def quiet():
+    from odoo_dwg import system
+
+    system.set_verbose(False)
+    yield system
+    system.set_verbose(False)
+
+
+def test_quiet_shows_one_line_per_step_and_keeps_warnings(quiet, monkeypatch, capsys):
+    outputs = {"git clone x": "Receiving objects: 100%\n",
+               "make": "compiling\nWARNING: deprecated option\ndone\n"}
+    monkeypatch.setattr(quiet, "run", lambda cmd, check=False: _Result(out=outputs.get(cmd, "")))
+    monkeypatch.setattr(quiet, "run_streaming", lambda cmd: pytest.fail("quiet must not stream"))
+    quiet.apply_commands(_plan()[:2])
+    out = strip_ansi(capsys.readouterr().out)
+    assert "[1/2] Clone something … " in out and "[2/2] Build something … " in out
+    assert "WARNING: deprecated option" in out  # kept
+    assert "Receiving objects" not in out  # ordinary chatter is not
+
+
+def test_a_failing_step_prints_its_output_and_stops(quiet, monkeypatch, capsys):
+    def run(cmd, check=False):
+        return _Result(1, "context line\nboom: no such file\n") if cmd == "false" else _Result()
+
+    monkeypatch.setattr(quiet, "run", run)
+    with pytest.raises(RuntimeError, match="Failed running: false"):
+        quiet.apply_commands(_plan())
+    out = strip_ansi(capsys.readouterr().out)
+    assert "boom: no such file" in out and "Command finished with code 1" in out
+
+
+def test_verbose_streams_every_line(quiet, monkeypatch, capsys):
+    streamed = []
+    monkeypatch.setattr(quiet, "run", lambda cmd, check=False: pytest.fail("verbose must stream"))
+    monkeypatch.setattr(quiet, "run_streaming",
+                        lambda cmd: streamed.append(cmd) or _Result(out="live output\n"))
+    quiet.set_verbose(True)
+    quiet.apply_commands(_plan()[:1])
+    assert streamed == ["git clone x"]
+    assert "[1/1] Clone something" in strip_ansi(capsys.readouterr().out)

@@ -671,6 +671,9 @@ def _render_coverage_helper() -> str:
         [
             "coverage_step() {",
             '  local version="$1" apriori="$2" customdir="$3"; shift 3',
+            # The module list travels in the environment, never on stdin: the
+            # heredoc below *is* python's stdin, so anything piped in is lost and
+            # the check would silently pass with nothing to check.
             "  python3 - \"$version\" \"$apriori\" \"$customdir\" \"$@\" <<'PYCOV'",
             "import ast, os, sys",
             "version, apriori, customdir, *sources = sys.argv[1:]",
@@ -700,7 +703,11 @@ def _render_coverage_helper() -> str:
             "def resolves(name):",
             "    return any(os.path.isdir(os.path.join(src, name)) for src in sources)",
             "blocking, dropped = [], []",
-            "for line in sys.stdin.read().splitlines():",
+            'modules_tsv = os.environ.get("ODWG_MODULES_TSV", "")',
+            "if not modules_tsv.strip():",
+            '    print("[coverage] %s: no module list to check" % version, file=sys.stderr)',
+            "    sys.exit(1)",
+            "for line in modules_tsv.splitlines():",
             '    name, _, author = line.strip().partition("\\t")',
             "    if not name or resolves(name):",
             "        continue",
@@ -750,8 +757,8 @@ def _render_preflight_db(env: MigrationEnv) -> str:
         custom = shlex.quote(str(env.addons_custom_dir(version)))
         lines += [
             f"  # coverage: step {version}",
-            f'  echo "$modules_tsv" | coverage_step {version} {apriori} {custom} {sources} '
-            "|| blocking=1",
+            f'  ODWG_MODULES_TSV="$modules_tsv" coverage_step {version} {apriori} {custom} '
+            f"{sources} || blocking=1",
         ]
     lines += [
         '  [ "$blocking" = 0 ] || fail "addons coverage incomplete (see [coverage] lines above)"',
@@ -789,7 +796,10 @@ fail() {{ echo "[preflight-fail] $1" >&2; exit 1; }}
 {_render_preflight_db(env)}
 
 have_ck() {{ [ -f "$CK/$1.dump" ]; }}
-checkpoint() {{ pg_dump -Fc "$DB" > "$CK/$1.dump"; echo "[checkpoint] $1"; }}
+# Written through a temp file: an interrupted dump must never look like a
+# finished checkpoint the next run would trust.
+checkpoint() {{ pg_dump -Fc "$DB" > "$CK/$1.dump.tmp" && mv "$CK/$1.dump.tmp" "$CK/$1.dump"; \
+  echo "[checkpoint] $1"; }}
 
 preflight_host
 
@@ -802,22 +812,33 @@ restore_ck() {{
 
 SRC_SHA=$(sha256sum "$SRC_DUMP" | cut -d' ' -f1)
 if ! have_ck 00_source; then
+  # A fresh run owns the checkpoint directory: step dumps left by an earlier run
+  # belong to another attempt and would be skipped as if they were this one's.
+  rm -f "$CK"/*.dump "$CK"/*.dump.tmp "$CK/source.sha256"
   echo "[init] restoring source dump into working DB '$DB'"
   dropdb --if-exists "$DB"
   createdb "$DB"
   pg_restore --no-owner --dbname "$DB" "$SRC_DUMP"
   preflight_db
+  echo "$SRC_SHA" > "$CK/source.sha256.tmp" && mv "$CK/source.sha256.tmp" "$CK/source.sha256"
   checkpoint 00_source
-  echo "$SRC_SHA" > "$CK/source.sha256"
 else
   if [ "$(cat "$CK/source.sha256" 2>/dev/null)" != "$SRC_SHA" ]; then
-    fail "checkpoints in $CK belong to another source dump — remove them to start over"
+    fail "checkpoints in $CK came from another source dump — remove that whole directory to start over"
   fi
   # A failed step leaves the working DB half-migrated: resume from the newest
   # checkpoint, not from whatever the DB holds now.
   LAST=00_source
+  gap=0
   for step in {' '.join(env.chain())}; do
-    if have_ck "$step"; then LAST="$step"; else break; fi
+    if [ "$gap" = 0 ] && have_ck "$step"; then
+      LAST="$step"
+    else
+      # Past the first gap nothing is trustworthy: those dumps came from another
+      # attempt, and a step after a gap would run on the wrong database.
+      gap=1
+      rm -f "$CK/$step.dump"
+    fi
   done
   if [ "$LAST" = "{env.target}" ]; then
     echo "[init] every step already has a checkpoint"

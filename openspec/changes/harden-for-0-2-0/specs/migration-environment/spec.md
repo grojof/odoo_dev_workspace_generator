@@ -124,3 +124,13 @@ the dev workspace's job.
 
 - **WHEN** the operator pins a step to `3.x` or `3.10; rm -rf ~`
 - **THEN** the flow refuses it as an invalid Python version and pins nothing
+
+### Requirement: Per-step migration config
+
+The system SHALL write a per-step `odoo.conf` whose `addons_path` includes the target version's Odoo add-ons
+and the OpenUpgrade the OpenUpgrade checkout root (14.0 and later) or the fork's `addons` (13.0 and earlier), and whose database connection targets the shared migration cluster.
+
+#### Scenario: Config includes the OpenUpgrade scripts path
+
+- **WHEN** the per-step config for version 18 is rendered
+- **THEN** its `addons_path` references the the OpenUpgrade checkout root (14.0 and later) or the fork's `addons` (13.0 and earlier) directory of the OpenUpgrade 18.0 checkout

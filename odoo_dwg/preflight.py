@@ -69,7 +69,7 @@ def gather_host_facts(env: MigrationEnv, dump_path: str | None = None) -> HostFa
     """Probe the host for this chain's requirements (I/O)."""
     facts = HostFacts(
         uv=system.has_tool("uv"),
-        postgres_running=system.postgres_running(),
+        postgres_running=system.postgres_running(env.db_port),
         dev_role=env.db_user,
         dump_path=dump_path,
         addons_layout_present=all(
@@ -78,7 +78,7 @@ def gather_host_facts(env: MigrationEnv, dump_path: str | None = None) -> HostFa
         ),
     )
     if facts.postgres_running:
-        facts.dev_role_exists = system.db_role_exists(env.db_user)
+        facts.dev_role_exists = system.db_role_exists(env.db_user, env.db_port)
     if dump_path:
         facts.dump_readable = Path(dump_path).is_file()
         if facts.dump_readable:
@@ -221,6 +221,15 @@ def gather_coverage(
     return coverage
 
 
+def _same_major(base_version: str, declared_source: str) -> bool:
+    """Whether a database's ``base`` version is the declared source's major. An
+    unparseable version (a non-Odoo database) is simply not a match."""
+    try:
+        return odoo_major(base_version) == odoo_major(declared_source)
+    except ValueError:
+        return False
+
+
 def preflight_rows(
     host: HostFacts,
     db: DbFacts | None = None,
@@ -267,7 +276,7 @@ def preflight_rows(
 
     if db.base_version is None:
         rows.append(("MISSING", "Database version", "cannot read ir_module_module (is it an Odoo database?)"))
-    elif odoo_major(db.base_version) == odoo_major(db.declared_source):
+    elif _same_major(db.base_version, db.declared_source):
         rows.append(("OK", "Database version", f"base {db.base_version} matches source {db.declared_source}"))
     else:
         rows.append(("MISSING", "Database version",

@@ -138,8 +138,14 @@ def baseline_rules(resolvers: list[str]) -> list[dict]:
     if resolvers:
         pattern = "^(" + "|".join(re.escape(ip) for ip in resolvers) + ")$"
         rules.append(
-            _rule("001-allow-dns-resolvers", "DNS servers from /etc/resolv.conf.", "allow",
-                  _op("dest.ip", pattern, "regexp"))
+            # A "list" operator ANDs its items: the resolver addresses *and* the
+            # DNS port. Without the port this would open every port of the
+            # resolver — on WSL, the Windows host — to every process, Odoo
+            # included.
+            _rule("001-allow-dns-resolvers", "DNS servers from /etc/resolv.conf, port 53 only.",
+                  "allow",
+                  {"operand": "list", "data": "", "type": "list", "sensitive": False,
+                   "list": [_op("dest.ip", pattern, "regexp"), _op("dest.port", "53")]})
         )
     rules += [
         _rule("002-allow-ntp", "System clock synchronisation.", "allow",

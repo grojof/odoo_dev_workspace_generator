@@ -17,7 +17,7 @@ import subprocess
 
 from .i18n import t, tf
 from .models import DB_ROLE_RE, DEFAULT_DB_ROLE, Command  # noqa: F401 (re-exported)
-from .ui import level_text, style, title, wrap_plain_block
+from .ui import level_tag, level_text, style, title, wrap_plain_block
 
 
 def run(command: str, check: bool = False) -> subprocess.CompletedProcess[str]:
@@ -88,11 +88,59 @@ def preview_commands(commands: list[Command]) -> None:
             print(style(f"{indent}{chunk}", "dim"))
 
 
+# Lines worth showing even when a step succeeds.
+_NOTEWORTHY = re.compile(r"\b(warn|warning|deprecat|error|fail|failed)\b", re.IGNORECASE)
+_MAX_NOTEWORTHY = 10
+_verbose = False
+
+
+def set_verbose(verbose: bool) -> None:
+    """Whether applying a plan streams every line (``--verbose``) or prints one
+    line per step, keeping only warnings and the output of a step that fails."""
+    global _verbose
+    _verbose = verbose
+
+
+def is_verbose() -> bool:
+    return _verbose
+
+
+def _tail(output: str, lines: int = 40) -> str:
+    """The end of a failed step's output, indented — where the reason usually is."""
+    kept = (output.strip() or "(no output)").splitlines()
+    shown = kept[-lines:]
+    prefix = "" if len(kept) <= lines else f"    … {len(kept) - lines} earlier line(s)\n"
+    return prefix + "\n".join(f"    {line}" for line in shown)
+
+
+def _noteworthy(output: str) -> list[str]:
+    lines = [line.rstrip() for line in output.splitlines() if _NOTEWORTHY.search(line)]
+    return lines[:_MAX_NOTEWORTHY]
+
+
 def apply_commands(commands: list[Command], stop_on_error: bool = True) -> None:
+    """Run a previewed plan, reporting per step.
+
+    Quiet (the default): one line per step, plus any warning a step printed. A
+    step that fails prints everything it produced, so nothing needed to diagnose
+    it is lost. Verbose: every line, live, which is what long steps (git clone,
+    pip install) look like while they work."""
+    total = len(commands)
     for index, item in enumerate(commands, start=1):
-        print(f"\n{style(f'[{index}/{len(commands)}]', 'blue', 'bold')} {t(item.description)}")
-        # Stream output live so long steps (git clone/pip install) aren't silent.
-        result = run_streaming(item.command)
+        label = f"{style(f'[{index}/{total}]', 'blue', 'bold')} {t(item.description)}"
+        if _verbose:
+            print(f"\n{label}")
+            result = run_streaming(item.command)
+        else:
+            print(f"{label} … ", end="", flush=True)
+            result = run(item.command)
+            print(level_tag("OK") if result.returncode == 0 else level_tag("ERROR"))
+            output = (result.stdout or "") + (result.stderr or "")
+            if result.returncode == 0:
+                for line in _noteworthy(output):
+                    print(f"    {line}")
+            else:
+                print(_tail(output))
         if result.returncode != 0:
             print(level_text("ERROR", tf("Command finished with code {}.", result.returncode)))
             if stop_on_error:
@@ -295,7 +343,8 @@ def psql_scalar(
     failure. Queries are caller-built from validated identifiers; the operator-
     shaped values (db/host/user and the query itself) are shell-quoted here."""
     command = (
-        f"psql -h {shlex.quote(host)} -p {int(port)} -U {shlex.quote(user)} "
+        # -w: fail instead of prompting when the host is not on trust auth.
+        f"psql -w -h {shlex.quote(host)} -p {int(port)} -U {shlex.quote(user)} "
         f"-d {shlex.quote(db)} -tAc {shlex.quote(query)} 2>/dev/null"
     )
     result = run(command, check=False)

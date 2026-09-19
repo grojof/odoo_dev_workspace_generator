@@ -41,7 +41,7 @@ All but `verify_workspace_versions.py` only read from the network. That one chan
 plan, asks before applying (or not, with `--yes`), and removes what it created. See
 [`docs/workspace-layout.md`](docs/workspace-layout.md#re-verifying-every-version) for when to run it.
 
-It exits non-zero on drift and never edits the declared matrix: fixing drift means editing
+`verify_support_matrix.py` exits non-zero on drift and never edits the declared matrix: fixing drift means editing
 `odoo_dwg/models.py` and `docs/support-matrix.md` together. The editor check has its own procedure for
 acting on what it reports: [`docs/editor-integration.md`](docs/editor-integration.md). There is no scheduled job running it — make it a
 habit before touching the matrix, and every few months otherwise, since a bound drifts when *Odoo* changes,

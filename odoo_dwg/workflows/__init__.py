@@ -2,8 +2,8 @@
 migration mode. Each function owns its menu, plan assembly, and discovery, over
 the shared primitives in ``system``/``prompts``/``ui``.
 
-F0 ships thin, honest stubs so the menu and CLI are navigable end to end; the
-real capabilities land in F1 (workspace), F2 (provision), and F3 (migration).
+``common`` holds what more than one menu uses: applying a previewed plan, and
+redirecting a rehearsal database's mail to the local capture.
 """
 
 from __future__ import annotations

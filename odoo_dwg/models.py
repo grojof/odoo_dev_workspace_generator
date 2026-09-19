@@ -34,6 +34,8 @@ DB_ROLE_RE = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 # addons/web/controllers/main.py on 14, database.py on 19).
 DB_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]+$")
 
+# An Odoo module (add-on) directory name: a Python identifier, as Odoo imports it.
+MODULE_NAME_RE = re.compile(r"^[a-z_][a-z0-9_]{0,63}$")
 # An OCA repository name as it appears in github.com/OCA/<repo>: never a path.
 OCA_REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
 # A PostgreSQL host: a DNS name or an IPv4/IPv6 literal, nothing a shell or an
@@ -791,6 +793,8 @@ class WorkspaceConfig:
     def from_dict(cls, data: dict) -> WorkspaceConfig:
         """Build a config from a parsed JSON dict, ignoring unknown keys so old
         profiles keep loading (forward-compatible)."""
+        if not isinstance(data, dict):
+            raise ValueError(f"a workspace profile must be a JSON object, not {type(data).__name__}.")
         known = {f for f in cls.__dataclass_fields__}  # noqa: C416
         return cls(**{k: v for k, v in data.items() if k in known})
 

@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .. import analysis, planners, preflight, templates
 from ..i18n import t, tf
-from ..models import Command, MigrationEnv
+from ..models import DB_NAME_RE, MODULE_NAME_RE, Command, MigrationEnv
 from ..planners import write_text_file_command
 from ..prompts import ask_bool, ask_text, choose, confirm_with_phrase
 from ..system import apply_commands, list_dirs, preview_commands
@@ -135,6 +135,9 @@ def _preflight_check() -> None:
         return
     dump = ask_text("Source dump file to verify (empty to skip)", "", required=False)
     db = ask_text("Existing database to verify (empty to skip)", "", required=False)
+    if db and not DB_NAME_RE.fullmatch(db):
+        print(level_text("ERROR", tf("Invalid database name: {}", db)))
+        return
 
     host = preflight.gather_host_facts(env, dump or None)
     db_facts = preflight.gather_db_facts(env, db) if db else None
@@ -237,6 +240,10 @@ def _stage_modules() -> None:
     available = list_dirs(str(source_dir))
     raw = ask_text("Modules to stage (comma-separated, empty = all)", "", required=False)
     modules = [m.strip() for m in raw.split(",") if m.strip()] or available
+    malformed = [m for m in modules if not MODULE_NAME_RE.fullmatch(m)]
+    if malformed:
+        print(level_text("ERROR", tf("Not an Odoo module name: {}", ", ".join(malformed))))
+        return
     unknown = [m for m in modules if m not in available]
     if unknown:
         print(level_text("ERROR", tf("Not found in the source directory: {}", ", ".join(unknown))))

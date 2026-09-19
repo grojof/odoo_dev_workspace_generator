@@ -264,9 +264,11 @@ def _plan_added_version(cfg: WorkspaceConfig, version: str) -> bool:
             return False
         interpreters.update(chosen)
     commands = planners.plan_repo_cache(cfg, exists=_exists) + planners.plan_workspace_links(cfg)
-    commands += planners.plan_refresh_files(cfg, interpreters, _read, _stamp())
+    # The venv is built before the files are refreshed, so a failed build leaves
+    # the workspace's profile listing only the versions it really has.
     if not cfg.venv_dir(version).exists():
         commands += planners.plan_build_venv(cfg, version, interpreter=interpreters[version])
+    commands += planners.plan_refresh_files(cfg, interpreters, _read, _stamp())
     return _apply_if_confirmed(commands)
 
 

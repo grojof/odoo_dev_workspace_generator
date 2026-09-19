@@ -16,10 +16,19 @@
       including the legacy step.
 - [x] 2.3 A migration venv is rebuilt when its interpreter changes. Tests.
 
+## 3. Reporting
+
+- [x] 3.0 One line per step by default, keeping warnings and the tail of a failed step; `--verbose` and
+      `ODWG_VERBOSE=1` stream everything. Tests.
+
 ## 3. Host
 
 - [x] 3.1 PostgreSQL probes never prompt; an unknown role is WARN. Tests.
 - [x] 3.2 `policy-rc.d` is removed via `trap`, and a leftover of the tool's own is recognised
+- [x] 3.4 Coverage input through the environment; fresh runs own the checkpoint directory; gaps dropped;
+      atomic checkpoint and hash writes. Tests, plus the generated driver run against stubs.
+- [x] 3.5 `trust` for the development role only; the DNS rule on port 53; root downloads in
+      `/var/cache/odoo_dwg`; both OpenSnitch packages checked
 - [x] 3.3 Regional Ubuntu mirrors, atomic config write, no caching of a missing apriori, the wkhtmltopdf skip
       message, staging `git` failures surfaced, stamped backups, 3.10 patch levels
 
@@ -40,4 +49,6 @@
 - [ ] 6.2 Run the generated driver with shimmed PostgreSQL tools and a failing step. Confirm that it restores
       the newest checkpoint, resumes at the failed step, and refuses a different dump. Confirm the injections
       are refused from the real menus.
-- [ ] 6.3 Two fresh independent audits (docs and code) agree nothing is left for 0.2.0
+- [x] 6.3 Two fresh independent audits (docs and code). They found the coverage-check and checkpoint defects
+      above, one firewall rule too wide, and doc/spec drifts — all fixed here.
+- [ ] 6.4 Re-run the checks and the verifiers after the second round

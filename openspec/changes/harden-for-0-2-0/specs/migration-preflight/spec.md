@@ -67,3 +67,16 @@ classification, so that the two cannot disagree about whether a chain can run.
 - **WHEN** the chain includes the 13.0 step and the database has `base` and `web` installed
 - **THEN** both resolve in the 13.0 fork (`odoo/addons` and `addons`) and neither is reported missing, in the
   interactive preflight and in the driver alike
+
+### Requirement: Custom modules are flagged for per-version adaptation
+
+Modules found in a step's per-version custom dir SHALL additionally be
+flagged with a warning that presence is necessary but not sufficient: each target version requires the
+module's code *adapted to that version's breaking changes* and, when data/schema is involved, its own
+`migrations/` scripts. The report SHALL reference the staging workflow (see the `migration-staging`
+capability) as the prepared path for this work.
+
+#### Scenario: A present custom module still carries the adaptation warning
+
+- **WHEN** module `client_sales` exists in `addons/odoo17/custom` and coverage passes for step 17.0
+- **THEN** the report still lists `client_sales` as custom with a note that its 17.0 code must be adapted (e.g. view `attrs` removal) and reviewed

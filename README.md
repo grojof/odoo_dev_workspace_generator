@@ -57,6 +57,7 @@ Common invocations:
 
 ```bash
 python3 -m odoo_dwg workspace       # create/manage per-client workspaces
+python3 -m odoo_dwg -v provision    # --verbose: stream every command's output
 python3 -m odoo_dwg provision       # check first — read-only readiness table:
 #   State  Capability               Detail
 #   OK     PostgreSQL               installed and running

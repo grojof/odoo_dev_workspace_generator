@@ -16,6 +16,13 @@ ignored silently once a checkpoint exists.
 **Wrong coverage for the ≤ 13 steps.** Both the interactive preflight and the driver look for core modules
 where a legacy (≤ 13) OpenUpgrade fork does not keep them, and for `apriori.py` in the ≥ 14 location.
 
+**The driver's coverage check never blocked.** Its helper is a heredoc, which *is* python's stdin, so the
+piped module list arrived empty and no module was ever checked. A chain could start with custom modules
+missing — the exact failure that check exists to prevent.
+
+**Checkpoints from another attempt were trusted.** A fresh restore left earlier step dumps in place, so every
+step was skipped and the run reported a migration "complete" that had not happened.
+
 **Other defects.**
 - A pinned migration interpreter is ignored once a venv is marked ready.
 - PostgreSQL probes shell out to `sudo -u postgres`, which prompts mid-flow or reports false MISSING.
@@ -23,6 +30,11 @@ where a legacy (≤ 13) OpenUpgrade fork does not keep them, and for `apriori.py
 - **Add a version** mutates the loaded profile before validating or applying.
 - An interrupted OpenSnitch install can leave `policy-rc.d` behind, so services no longer start after `apt`.
 - The infrastructure rule rejects regional Ubuntu mirrors.
+- The firewall's DNS rule allows the resolver's every port, to every process.
+- Loopback `trust` covers every role, so any local user can connect as the `postgres` superuser.
+- Root downloads land in predictable `/tmp` paths another local user could own.
+
+**And applying a plan prints everything**, so the steps are lost in the output of `git clone` and `pip`.
 
 The docs and specs carry about twenty drifts, and some code is dead or sits in the wrong layer.
 
@@ -62,7 +74,15 @@ The docs and specs carry about twenty drifts, and some code is dead or sits in t
   - Regression tests for every injection vector, the driver's resume logic and legacy coverage.
   - Tests for the interactive workflows: loading, adding a version, refresh interpreters, phrase gating and CLI
     error handling.
-- **Docs and specs.** Every drift the audit listed is fixed, and `SECURITY.md` covers the egress components.
+- **The driver's coverage check works**: the module list travels in the environment, and an empty list is a
+  failure. A fresh run owns its checkpoint directory, a resume drops everything after the first gap, and
+  checkpoints and the source hash are written through temp files.
+- **Narrower host changes**: loopback `trust` only for the development role, the DNS rule only on port 53,
+  and root downloads in a root-only `/var/cache/odoo_dwg`.
+- **A plan reports one line per step**, keeping warnings and printing the end of a failed step's output.
+  `--verbose` (or `ODWG_VERBOSE=1`) streams everything, as before.
+- **Docs and specs.** Every drift both audits listed is fixed, and `SECURITY.md` covers the egress
+  components.
 
 ## Capabilities
 

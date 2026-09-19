@@ -299,10 +299,17 @@ def plan_postgresql(role: str) -> list[Command]:
             f"sudo -u postgres psql -v ON_ERROR_STOP=1 -c {shlex.quote(role_sql)}",
         ),
         Command(
-            tf("Trust loopback connections for local development (pg_hba)"),
-            'PGHBA=$(sudo -u postgres psql -tAc "SHOW hba_file;") && '
-            'sed -ri "s#^(host\\s+all\\s+all\\s+127\\.0\\.0\\.1/32\\s+)\\S+#\\1trust#" "$PGHBA" && '
-            'sed -ri "s#^(host\\s+all\\s+all\\s+::1/128\\s+)\\S+#\\1trust#" "$PGHBA"',
+            tf("Trust loopback connections of {} for local development (pg_hba)", role),
+            # Only the development role, not every role: a blanket loopback trust
+            # would let any local user connect as the postgres superuser. Any
+            # earlier blanket trust this tool wrote is put back to scram-sha-256.
+            'PGHBA=$(sudo -u postgres psql -tAc "SHOW hba_file;"); '
+            'sed -ri "s#^(host\\s+all\\s+all\\s+(127\\.0\\.0\\.1/32|::1/128)\\s+)trust#\\1scram-sha-256#" '
+            '"$PGHBA"; '
+            f'if ! grep -qE "^host\\s+all\\s+{role}\\s+127\\.0\\.0\\.1/32\\s+trust" "$PGHBA"; then '
+            f'sed -ri "0,/^host\\s+all\\s+all\\s+127\\.0\\.0\\.1\\/32/s##'
+            f'host    all             {role}             127.0.0.1/32            trust\\n'
+            f'host    all             {role}             ::1/128                 trust\\n&#" "$PGHBA"; fi',
         ),
         Command(tf("Reload PostgreSQL"), "systemctl reload postgresql"),
     ]
@@ -318,10 +325,12 @@ def plan_wkhtmltopdf(major: int, codename: str) -> list[Command]:
     if asset is None:
         return []
     url, filename, sha256 = asset
-    tmp = f"/tmp/{filename}"
+    tmp = f"{_ROOT_WORK_DIR}/{filename}"
     return [
         Command(tf("Ensure curl is available"),
                 "command -v curl >/dev/null 2>&1 || (apt-get update && apt-get -y install curl)"),
+        Command(tf("Create download directory {}", _ROOT_WORK_DIR),
+                f"mkdir -m 700 -p {shlex.quote(_ROOT_WORK_DIR)}"),
         Command(tf("Download patched wkhtmltopdf ({})", filename),
                 f"curl -fSL -o {shlex.quote(tmp)} {shlex.quote(url)}"),
         Command(tf("Verify wkhtmltopdf SHA-256 (abort on mismatch)"),
@@ -347,6 +356,9 @@ def plan_node_rtlcss() -> list[Command]:
 
 # --- egress control and mail capture (optional) ----------------------------
 
+# Root downloads go here, never /tmp: a local user could pre-create a predictable
+# /tmp path they own and swap a verified file before it is installed.
+_ROOT_WORK_DIR = "/var/cache/odoo_dwg"
 _POLICY_RC = "/usr/sbin/policy-rc.d"
 _POLICY_MARK = "odoo_dwg: keep opensnitch stopped until it is configured"
 
@@ -361,12 +373,13 @@ def plan_opensnitch(resolvers: list[str], installed_version: str | None = None) 
     version is already installed, only the configuration, rules and restart run."""
     commands: list[Command] = []
     if not (installed_version or "").startswith(egress.OPENSNITCH_VERSION):
-        workdir = "/tmp/odwg-opensnitch"
+        workdir = f"{_ROOT_WORK_DIR}/opensnitch"
         debs = [f"{workdir}/{name}" for name, _sha in egress.OPENSNITCH_PACKAGES]
         commands += [
             Command(tf("Ensure curl is available"),
                     "command -v curl >/dev/null 2>&1 || (apt-get update && apt-get -y install curl)"),
-            Command(tf("Create download directory {}", workdir), f"mkdir -p {shlex.quote(workdir)}"),
+            Command(tf("Create download directory {}", workdir),
+                    f"rm -rf {shlex.quote(workdir)} && mkdir -m 700 -p {shlex.quote(workdir)}"),
         ]
         for (name, sha512), deb in zip(egress.OPENSNITCH_PACKAGES, debs, strict=True):
             commands += [
@@ -420,12 +433,13 @@ def plan_mailpit(installed_version: str | None = None) -> list[Command]:
     version is already installed."""
     commands: list[Command] = []
     if installed_version != egress.MAILPIT_VERSION:
-        workdir = "/tmp/odwg-mailpit"
+        workdir = f"{_ROOT_WORK_DIR}/mailpit"
         archive = f"{workdir}/mailpit-linux-amd64.tar.gz"
         commands += [
             Command(tf("Ensure curl is available"),
                     "command -v curl >/dev/null 2>&1 || (apt-get update && apt-get -y install curl)"),
-            Command(tf("Create download directory {}", workdir), f"mkdir -p {shlex.quote(workdir)}"),
+            Command(tf("Create download directory {}", workdir),
+                    f"rm -rf {shlex.quote(workdir)} && mkdir -m 700 -p {shlex.quote(workdir)}"),
             Command(tf("Download Mailpit {}", egress.MAILPIT_VERSION),
                     f"curl -fSL -o {shlex.quote(archive)} {shlex.quote(egress.MAILPIT_URL)}"),
             Command(tf("Verify Mailpit SHA-256 (abort on mismatch)"),

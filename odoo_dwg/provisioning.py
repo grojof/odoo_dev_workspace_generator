@@ -59,9 +59,13 @@ def gather_facts(dev_role: str = DEFAULT_DB_ROLE, versions: list[str] | None = N
     floor to the Odoo versions in play; empty means every supported version."""
     release = system.detect_os_release()
     running = system.postgres_running()
-    role_exists = system.db_role_exists(dev_role) if running else False
+    # Not running: the role cannot be told apart from an unreachable server.
+    role_exists = system.db_role_exists(dev_role) if running else None
     uv_present = system.has_tool("uv")
+    # Both packages matter: with only the daemon installed, the UI must still be.
     opensnitch_version = system.deb_version("opensnitch")
+    if opensnitch_version and not system.deb_version("python3-opensnitch-ui"):
+        opensnitch_version = None
     return ProvisionFacts(
         os_id=release.get("ID", ""),
         os_version_id=release.get("VERSION_ID", ""),
@@ -178,7 +182,9 @@ def provision_rows(facts: ProvisionFacts) -> list[tuple[str, str, str]]:
     if facts.dev_role_exists:
         rows.append(("OK", f"Dev role ({facts.dev_role})", "present"))
     elif facts.dev_role_exists is None:
-        rows.append(("WARN", f"Dev role ({facts.dev_role})", "could not check without sudo — run it with sudo, or connect as the role once"))
+        detail = ("could not be checked: PostgreSQL is not running" if not facts.postgres_running
+                  else "could not be checked without sudo — run with sudo, or log in as the role once")
+        rows.append(("WARN", f"Dev role ({facts.dev_role})", detail))
     else:
         rows.append(("MISSING", f"Dev role ({facts.dev_role})", "not found"))
 

@@ -163,8 +163,8 @@ python3 -m odoo_dwg provision       # menu → "Check host readiness"
 ```
 
 The table shows what is missing: build dependencies, PostgreSQL and its development role, wkhtmltopdf,
-and optionally Node and `uv`. Then run **Apply** from the same menu: it asks for `sudo`, shows the
-full plan, and only runs it after you confirm.
+and optionally `uv`, rtlcss, the outbound firewall and the mail capture. **Apply** needs root, so start it as
+`sudo python3 -m odoo_dwg provision`; it shows the full plan and only runs it after you confirm.
 
 ```
 +-------+-------------------------+------------------------------------------+

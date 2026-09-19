@@ -30,6 +30,16 @@ All notable changes to this project are documented here. The format is based on
   - `tools/verify_egress_pins.py` re-checks the pins, the signature and the signing key against upstream.
 
 ### Changed
+- **A plan now reports one line per step** while it runs, keeping any warning a step printed, and printing the
+  end of a failed step's output before it stops. `--verbose` (or `ODWG_VERBOSE=1`) streams every line as
+  before.
+- **Loopback `trust` is granted to the development role only.** A blanket trust let any local user connect as
+  the `postgres` superuser. Re-run `provision apply` to narrow an existing host; other roles then need a
+  password over loopback.
+- **Root downloads go to `/var/cache/odoo_dwg`,** created fresh and root-only, instead of a predictable `/tmp`
+  path another local user could own between the checksum and the install.
+- **The firewall's DNS rule is limited to port 53.** It allowed the resolver's every port to every process,
+  which on WSL is the Windows host.
 - **Profiles are validated whenever they are loaded**, including when a workspace is managed. Versions must be
   exactly one of `12.0` … `19.0`; OCA repository names, `db_host`, ports and Python versions are checked too.
   **BREAKING** only for profiles that relied on looser values such as `"18"`.
@@ -61,6 +71,21 @@ All notable changes to this project are documented here. The format is based on
 - **An interrupted OpenSnitch install could leave `/usr/sbin/policy-rc.d` behind,** which stopped every
   service from starting after later `apt` installs. It is removed on any exit, and a leftover of the tool's
   own is recognised.
+- **The migration driver's coverage check never blocked.** Its helper reads a heredoc as its program, so the
+  piped module list arrived empty and every module passed. A chain could start with custom modules missing.
+  The list now travels in the environment, and an empty list is a failure.
+- **Checkpoints from an earlier attempt were trusted.** A fresh run kept step dumps belonging to another dump
+  and skipped those steps, reporting a migration "complete" that never ran. A fresh run now owns the
+  checkpoint directory, a resume drops everything after the first gap, and checkpoints are written through a
+  temp file so an interrupted dump is never mistaken for a finished one.
+- **The role was reported MISSING when PostgreSQL was not running,** although it had not been checked.
+- **`psql` could prompt** during the migration preflight; it now fails instead.
+- **A `workspace.json` that is not a JSON object** raised a traceback.
+- **The database named in the preflight, and staged module names, were not validated.**
+- **An unparseable database version ended the whole preflight** instead of reporting one row.
+- **`Add a version` wrote the profile before building the venv,** so a failed build left the version listed.
+- **The interpreter prompt offered "keep the host python3"** on a host without one, which then cancelled.
+- **Only the OpenSnitch daemon's version was checked,** so a missing UI package was never installed.
 - **Smaller fixes:**
   - the OpenSnitch configuration is written atomically;
   - a missing `apriori.py` is no longer cached for the whole session;

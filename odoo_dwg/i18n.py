@@ -203,7 +203,7 @@ _ES_TO_EN: dict[str, str] = {
     "Instalar PostgreSQL": "Install PostgreSQL",
     "Habilitar e iniciar PostgreSQL": "Enable and start PostgreSQL",
     "Crear el rol de desarrollo {} (si falta)": "Create development role {} (if missing)",
-    "Confiar en conexiones loopback para desarrollo local (pg_hba)": "Trust loopback connections for local development (pg_hba)",
+    "Confiar en las conexiones loopback de {} para desarrollo local (pg_hba)": "Trust loopback connections of {} for local development (pg_hba)",
     "Recargar PostgreSQL": "Reload PostgreSQL",
     "Asegurar que curl está disponible": "Ensure curl is available",
     "Descargar wkhtmltopdf parcheado ({})": "Download patched wkhtmltopdf ({})",
@@ -283,6 +283,7 @@ _ES_TO_EN: dict[str, str] = {
     'No hay ningún wkhtmltopdf parcheado y verificado fijado para {} — instálalo a mano (github.com/wkhtmltopdf/packaging) o los informes PDF saldrán degradados.': 'No verified patched wkhtmltopdf is pinned for {} — install it by hand (github.com/wkhtmltopdf/packaging) or PDF reports will be degraded.',
     'No se puede usar el perfil {}: {}': 'Cannot use the profile {}: {}',
     '{} corresponde a otro workspace ({}).': '{} names another workspace ({}).',
+    "No es un nombre de módulo de Odoo: {}": "Not an Odoo module name: {}",
 }
 
 # Runtime lookup: English (the in-code source) → Spanish.
