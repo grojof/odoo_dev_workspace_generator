@@ -9,10 +9,12 @@ Describes a per-client development workspace as a validated JSON profile, and de
 ### Requirement: Workspace profile schema and loading
 
 The system SHALL describe a workspace with a JSON profile that deserializes into a `WorkspaceConfig`
-containing at least a `name`, a non-empty list of Odoo `versions`, and optional `addon_prefix`,
-`http_port_base`, `db_host`, `db_port`, `db_user`, and optional OCA repository entries. Loading a profile
-SHALL ignore unknown keys so that older profiles keep loading (forward-compatible), and SHALL round-trip
-(load → serialize) without losing known fields.
+containing:
+- a `name` and a non-empty list of Odoo `versions` (required);
+- optional `http_port_base`, `db_host`, `db_port`, `db_user` and OCA repository entries.
+
+Loading a profile SHALL ignore unknown keys, so that older profiles keep loading; a former `addon_prefix` key,
+for example, is ignored. It SHALL round-trip (load → serialize) without losing known fields.
 
 #### Scenario: Load a minimal profile
 
@@ -26,10 +28,18 @@ SHALL ignore unknown keys so that older profiles keep loading (forward-compatibl
 
 ### Requirement: Profile validation
 
-The system SHALL validate a profile before it is used to generate or manage a workspace. The workspace `name`
-MUST match `^[a-z][a-z0-9_]{0,31}$` (filesystem- and PostgreSQL-safe), at least one Odoo version MUST be
-present, and every version MUST be a parseable Odoo version string (e.g. `18.0`). Validation failure SHALL
-raise an error naming the offending field, and no filesystem changes SHALL occur.
+The system SHALL validate a profile before it is used to generate or manage a workspace. Every value that
+reaches a path, a generated script or `odoo.conf` SHALL be checked:
+- the `name` MUST match `^[a-z][a-z0-9_]{0,31}$`;
+- at least one version MUST be present, and every version MUST be exactly one of the supported `NN.0`
+  strings (12.0–19.0);
+- every OCA repository name MUST match `^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$` and MUST NOT contain `..`;
+- `db_host` MUST be a host name or an IP address;
+- `db_port` MUST be an integer from 1 to 65535, and `http_port_base` an integer from 1 to 64000;
+- `db_user` MUST be a plain PostgreSQL role.
+
+A malformed value, including one of the wrong JSON type, SHALL be reported as a validation error naming the
+field, never raised as a crash. No filesystem change SHALL occur.
 
 #### Scenario: Reject an invalid workspace name
 
@@ -40,6 +50,16 @@ raise an error naming the offending field, and no filesystem changes SHALL occur
 
 - **WHEN** a profile with `versions = ["nope"]` is validated
 - **THEN** validation fails with an error identifying the version
+
+#### Scenario: Reject a version carrying shell syntax
+
+- **WHEN** a profile lists `18.0$(touch /tmp/p)`, `18` or `20.0` as a version
+- **THEN** validation fails naming the version, and no script or config is written
+
+#### Scenario: Reject path traversal and odoo.conf injection
+
+- **WHEN** a profile has an OCA repository `../../etc`, or a `db_host` containing a newline
+- **THEN** validation fails naming that field
 
 ### Requirement: Deterministic derived conventions
 

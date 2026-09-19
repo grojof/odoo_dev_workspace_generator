@@ -18,11 +18,19 @@ The system SHALL discover existing workspaces by listing the directories under `
 
 ### Requirement: Manage-only operations act on existing resources with confirmation
 
-The system SHALL provide manage-only operations on an existing workspace — at minimum: regenerate/repair a
-per-instance venv, refresh the shared repositories, and add an Odoo version to the workspace. Each operation
-MUST act only on an already-existing workspace, MUST assemble a previewed plan, and MUST require confirmation
-before any host-mutating step; a destructive step (e.g. removing and rebuilding a venv) MUST require an
-explicit confirmation.
+The system SHALL provide manage-only operations on an existing workspace. At minimum:
+- regenerate or repair a per-instance venv;
+- refresh the shared repositories;
+- add an Odoo version to the workspace.
+
+Each operation:
+- MUST act only on an already-existing workspace, whose `workspace.json` SHALL be validated as a profile
+  before anything is planned;
+- MUST assemble a previewed plan;
+- MUST require confirmation before any host-mutating step, and explicit confirmation for a destructive one
+  (e.g. removing and rebuilding a venv).
+
+Adding a version SHALL leave the loaded profile unchanged until its plan has been applied.
 
 #### Scenario: Regenerate a venv requires confirmation
 
@@ -33,6 +41,16 @@ explicit confirmation.
 
 - **WHEN** the user adds version `19.0` to an existing workspace and `19.0` is already in the shared cache
 - **THEN** the plan adds `config/odoo19.conf` and the `.venv/odoo19` venv without re-cloning `19.0`
+
+#### Scenario: A declined addition changes nothing
+
+- **WHEN** the user adds version `19.0` and declines or fails the plan
+- **THEN** the workspace's profile still lists only its previous versions, for every later action
+
+#### Scenario: A manipulated profile is refused
+
+- **WHEN** an existing workspace's `workspace.json` contains a version with shell syntax
+- **THEN** management reports the invalid profile and plans nothing
 
 #### Scenario: Management refuses a missing workspace
 
@@ -51,7 +69,7 @@ from the workspace's `workspace.json`:
 - the profile.
 
 Only files whose content would change SHALL be written. An existing file that changes SHALL first be copied
-to `<file>.bak`. The interpreter of each version SHALL be read from its venv's `pyvenv.cfg`, so the files
+to `<file>.bak-<date>`. The interpreter of each version SHALL be read from its venv's `pyvenv.cfg`, so the files
 describe and rebuild the venvs as they are; a version without a venv SHALL get the default interpreter. The
 action SHALL NOT touch addons, venvs, clones or databases, and SHALL be previewed and confirmed. **Add a
 version** SHALL write files the same way.

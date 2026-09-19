@@ -5,6 +5,7 @@
 Verifies, before a migration runs and again from inside the driver, that the host, the PostgreSQL server, the source dump and the database itself can actually carry the chain — naming exactly what is missing, including which addons directory to fill, rather than failing mid-upgrade.
 
 ## Requirements
+
 ### Requirement: Source dump integrity check
 
 The preflight SHALL verify the supplied source dump: the file exists and is readable, and
@@ -31,11 +32,16 @@ any migration step runs.
 ### Requirement: Per-step addons coverage
 
 For every module installed in the database, the preflight SHALL verify that each step of the chain can find
-the module somewhere in that step's `addons_path` (target core, OpenUpgrade, the environment's per-version
-OCA dir, or the per-version custom dir).
+the module somewhere that step resolves modules from:
+- its `addons_path`: the per-version custom and OCA dirs, OpenUpgrade, and the target core;
+- the core add-ons `odoo-bin` adds itself.
+
+For a step up to 13.0 those are the OpenUpgrade fork's own `addons` and `odoo/addons`; no separate Odoo
+clone exists.
 
 Before reporting a module as missing, the check SHALL consult that step's OpenUpgrade checkout for the
-renames and merges it declares, and SHALL treat a module whose declared successor resolves in that step's
+renames and merges it declares (`openupgrade_scripts/apriori.py` from 14.0,
+`odoo/addons/openupgrade_records/lib/apriori.py` in a ≤ 13 fork), and SHALL treat a module whose declared successor resolves in that step's
 sources as covered.
 
 A module that resolves nowhere and that OpenUpgrade does not account for SHALL be classified by its recorded
@@ -85,9 +91,15 @@ classification, so that the two cannot disagree about whether a chain can run.
 - **THEN** it aborts non-zero before restoring or upgrading anything, naming the module, the step and the
   directory to fill
 
+#### Scenario: A legacy step finds core modules in the fork
+
+- **WHEN** the chain includes the 13.0 step and the database has `base` and `web` installed
+- **THEN** both resolve in the 13.0 fork (`odoo/addons` and `addons`) and neither is reported missing, in the
+  interactive preflight and in the driver alike
+
 ### Requirement: Custom modules are flagged for per-version adaptation
 
-Modules classified as custom (found in the per-version custom dir, or found nowhere) SHALL additionally be
+Modules found in a step's per-version custom dir SHALL additionally be
 flagged with a warning that presence is necessary but not sufficient: each target version requires the
 module's code *adapted to that version's breaking changes* and, when data/schema is involved, its own
 `migrations/` scripts. The report SHALL reference the staging workflow (see the `migration-staging`

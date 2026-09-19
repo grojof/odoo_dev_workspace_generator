@@ -8,13 +8,27 @@ Generates a self-contained OpenUpgrade environment for a source → target chain
 
 ### Requirement: Per-version clones from the shared cache
 
-The system SHALL clone, for each target version in the chain, `odoo/odoo` and `OCA/OpenUpgrade` on the
-matching version branch into the shared repo cache, reusing an existing clone rather than re-cloning.
+The system SHALL clone, for each target version in the chain, `OCA/OpenUpgrade` on the matching version
+branch into the shared repo cache, and `odoo/odoo` too from 14.0 on, reusing an existing clone rather than
+re-cloning. A step up to 13.0 clones no separate Odoo: its OpenUpgrade branch is a full Odoo fork.
+
+The chain's source and target SHALL be validated as supported `NN.0` versions before anything is planned,
+because both reach the generated driver.
 
 #### Scenario: OpenUpgrade branch matches the Odoo version
 
 - **WHEN** the environment is generated for a chain that includes version 16
 - **THEN** the plan clones `OCA/OpenUpgrade` on branch `16.0` alongside `odoo/odoo` `16.0`, skipping any clone already present
+
+#### Scenario: A legacy step clones only the fork
+
+- **WHEN** the environment is generated for a chain that includes version 13
+- **THEN** the plan clones `OCA/OpenUpgrade` `13.0` and no `odoo/odoo` `13.0`
+
+#### Scenario: A source or target with shell syntax is refused
+
+- **WHEN** the operator enters `13.0$(curl …)` or `13` as the source
+- **THEN** generation stops with an invalid-version error and nothing is written
 
 ### Requirement: Per-version uv virtualenv with repaired requirements
 
@@ -34,7 +48,9 @@ For versions whose Odoo code imports `pkg_resources` at startup (Odoo ≤ 16), t
 `setuptools` release that still provides it.
 
 A completed venv SHALL be stamped with a ready marker; generation SHALL skip on the marker (not on the venv
-directory) so an interrupted build is redone, not silently skipped.
+directory) so an interrupted build is redone, not silently skipped. A ready venv whose `pyvenv.cfg` names
+another interpreter than the step now resolves to SHALL be rebuilt, so a newly pinned interpreter takes
+effect; when `pyvenv.cfg` cannot be read, the ready venv is kept.
 
 #### Scenario: A modern step's venv is built with the matched interpreter
 
@@ -63,15 +79,20 @@ directory) so an interrupted build is redone, not silently skipped.
 - **THEN** a `constraints-13.0.txt` is written pinning `setuptools<58`, and the requirements install applies
   it with `--build-constraints`, so the branch's `use_2to3` dependency builds instead of failing
 
+#### Scenario: A newly pinned interpreter rebuilds a ready venv
+
+- **WHEN** a step's venv was built on 3.10 and the operator now pins that step to 3.12
+- **THEN** the next generation rebuilds that venv with 3.12 instead of skipping it on its ready marker
+
 ### Requirement: Per-step migration config
 
 The system SHALL write a per-step `odoo.conf` whose `addons_path` includes the target version's Odoo add-ons
-and the OpenUpgrade `openupgrade_scripts`, and whose database connection targets the shared migration cluster.
+and the OpenUpgrade the OpenUpgrade checkout root (14.0 and later) or the fork's `addons` (13.0 and earlier), and whose database connection targets the shared migration cluster.
 
 #### Scenario: Config includes the OpenUpgrade scripts path
 
 - **WHEN** the per-step config for version 18 is rendered
-- **THEN** its `addons_path` references the `openupgrade_scripts` directory of the OpenUpgrade 18.0 checkout
+- **THEN** its `addons_path` references the the OpenUpgrade checkout root (14.0 and later) or the fork's `addons` (13.0 and earlier) directory of the OpenUpgrade 18.0 checkout
 
 ### Requirement: Migration environment cleanup
 
@@ -122,7 +143,7 @@ virtualenv; no step SHALL depend on a container image. Odoo 13 runs on `uv`'s in
 is above its documented minimum and is what makes a container unnecessary.
 
 The recommendation SHALL be a default the operator can override on any step of the chain: an overridden step
-uses the chosen interpreter while every other step keeps its recommendation. An override SHALL be validated
+uses the chosen interpreter while every other step keeps its recommendation. An override SHALL be a `3.N` version, and SHALL be validated
 against that version's declared Python range and, when outside it, used only after the flow has stated the
 range, the chosen version and the bound's evidence tier and the operator has confirmed. An override SHALL be
 refused for a version outside the chain.
@@ -155,6 +176,11 @@ the dev workspace's job.
 - **WHEN** an override falls outside that version's declared Python range
 - **THEN** the flow states the range, the chosen version and the bound's evidence tier, and applies the
   override only on explicit confirmation
+
+#### Scenario: A malformed override is refused
+
+- **WHEN** the operator pins a step to `3.x` or `3.10; rm -rf ~`
+- **THEN** the flow refuses it as an invalid Python version and pins nothing
 
 ### Requirement: Migration steps send mail to the local capture
 

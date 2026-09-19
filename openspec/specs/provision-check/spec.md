@@ -22,13 +22,18 @@ workspace interpreters). `check` MUST NOT modify the host in any way.
 #### Scenario: Report on a ready host
 
 - **WHEN** every prerequisite is already present
-- **THEN** every capability is reported OK and nothing is installed
+- **THEN** no capability is reported MISSING, informational rows (the host interpreter, the optional
+  components) are still shown, and nothing is installed
 
 ### Requirement: PostgreSQL readiness detection
 
 The system SHALL detect whether PostgreSQL is installed, whether its service is running, whether a usable
 development role exists, and which server version is installed, reporting each as a distinct signal in the
-table. The installed server version SHALL be compared against the minimum PostgreSQL the support matrix
+table. The probes SHALL never prompt for a password:
+- the service state and server version come from `pg_lsclusters`, or `pg_isready`;
+- the role is checked by connecting as it over loopback, then through `sudo -n`.
+
+When the role cannot be checked that way, it SHALL be reported as unknown (WARN), not MISSING. The installed server version SHALL be compared against the minimum PostgreSQL the support matrix
 declares for the Odoo versions in play, and reported WARN when it is below that floor, naming both versions.
 
 #### Scenario: PostgreSQL installed but no dev role
@@ -46,6 +51,11 @@ declares for the Odoo versions in play, and reported WARN when it is below that 
 
 - **WHEN** the installed PostgreSQL server meets the floor for every version in play
 - **THEN** the version row is OK and states the detected server version
+
+#### Scenario: No sudo, no prompt
+
+- **WHEN** the check runs as a user without passwordless sudo and cannot log in as the role
+- **THEN** no password is asked for, and the role row is WARN saying it could not be checked
 
 ### Requirement: wkhtmltopdf patched-build detection
 
@@ -79,9 +89,9 @@ SHALL still complete without error.
 ### Requirement: Egress control and mail capture readiness
 
 `provision check` SHALL report, without changing anything:
-- whether OpenSnitch is installed and its service is running, with its configured default action and
-  process-monitor method, flagging any value that differs from the hardened configuration;
-- whether Mailpit is installed and listening on `127.0.0.1:1025`.
+- whether OpenSnitch is installed and its service is running, and which hardened settings the running
+  configuration does not have;
+- whether Mailpit is installed and its service is running.
 
 Both SHALL be reported as optional.
 
