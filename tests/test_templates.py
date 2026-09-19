@@ -100,3 +100,15 @@ def test_setup_venv_script_applies_the_same_requirement_substitute():
     script = templates.render_setup_venv_sh(cfg)
     assert script.count("grep -v -i -E '^pyldap") == 1
     assert "install -r /dev/stdin python-ldap==3.1.0" in script
+
+
+def test_readme_states_what_each_venv_installs():
+    from odoo_dwg.models import resolve_interpreter
+
+    cfg = WorkspaceConfig(name="acme", versions=["12.0", "15.0", "18.0"])
+    cfg.normalize_defaults()
+    choices = {v: resolve_interpreter(v, host_python="3.12") for v in cfg.versions}
+    readme = templates.render_workspace_readme(cfg, choices)
+    assert "| 12.0 | 3.8 (`uv`) | `setuptools<58` | `python-ldap==3.1.0` instead of `pyldap` |" in readme
+    assert "| 15.0 | 3.12 (host) | `setuptools<81` | — |" in readme
+    assert "| 18.0 | 3.12 (host) | `setuptools` | — |" in readme

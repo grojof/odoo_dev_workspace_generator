@@ -291,12 +291,36 @@ def render_code_workspace(cfg: WorkspaceConfig) -> str:
     return json.dumps(workspace, indent=2) + "\n"
 
 
-def render_workspace_readme(cfg: WorkspaceConfig) -> str:
+def _readme_python(choice: InterpreterChoice | None) -> str:
+    if choice is None or not choice.python:
+        return "host `python3`"
+    return f"{choice.python} (`uv`)" if choice.source == UV_PYTHON else f"{choice.python} (host)"
+
+
+def _readme_requirement_changes(version: str) -> str:
+    substitute = requirement_substitute(version)
+    if substitute is None:
+        return "—"
+    dropped, replacement = substitute
+    return f"`{replacement}` instead of `{dropped}`"
+
+
+def render_workspace_readme(
+    cfg: WorkspaceConfig,
+    interpreters: dict[str, InterpreterChoice] | None = None,
+) -> str:
     """A robust per-workspace README giving any human or AI full context —
-    versions, layout, per-version ports/configs, and setup/run commands."""
+    versions, layout, per-version ports/configs, what each venv installs, and
+    setup/run commands. ``interpreters`` are the choices the plan built with."""
     version_rows = "\n".join(
         f"| {inst.version} | `{inst.name}` | {cfg.http_port_for(inst.version)} | "
         f"`config/odoo{inst.major}.conf` | `.venv/odoo{inst.major}` |"
+        for inst in cfg.instances()
+    )
+    venv_rows = "\n".join(
+        f"| {inst.version} | {_readme_python((interpreters or {}).get(inst.version))} | "
+        f"`{setuptools_requirement(inst.version)}` | "
+        f"{_readme_requirement_changes(inst.version)} |"
         for inst in cfg.instances()
     )
     oca = ", ".join(cfg.oca_repos) if cfg.oca_repos else "(none)"
@@ -327,6 +351,18 @@ reused across workspaces.
 
 - OCA repositories: {oca}
 - Custom addons: `addons-custom/` · OCA addons (symlinks): `addons-oca/`
+
+## What each venv installs
+
+| Version | Python | setuptools | Requirement changes |
+|---------|--------|------------|---------------------|
+{venv_rows}
+
+`scripts/setup_venv.sh` rebuilds each venv the same way. Odoo ≤ 16 needs `setuptools<81` because it imports
+`pkg_resources` at startup; Odoo ≤ 13 needs `setuptools<58` because `vatnumber` still uses `use_2to3`. A
+requirement change replaces a deprecated project the branch still pins with its declared successor; the shared
+clone is not modified. If a venv fails with `No module named 'pkg_resources'`, run
+`.venv/odoo<major>/bin/pip install 'setuptools<81'`.
 
 ## Layout
 

@@ -177,7 +177,7 @@ def plan_workspace_tree(
     # Only when the language server can open at least one version (it refuses < 14).
     if templates.odools_versions(cfg):
         commands += write_text_file_command(cfg.odools_file, templates.render_odools_toml(cfg))
-    commands += write_text_file_command(cfg.readme_file, templates.render_workspace_readme(cfg))
+    commands += write_text_file_command(cfg.readme_file, templates.render_workspace_readme(cfg, interpreters))
     # Save the profile marker so the workspace can be re-loaded for management.
     commands += write_text_file_command(cfg.profile_file, cfg.to_json())
     return commands

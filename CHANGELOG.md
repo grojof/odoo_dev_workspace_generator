@@ -38,6 +38,14 @@ All notable changes to this project are documented here. The format is based on
   version against the floor of the versions in play, the host `python3`, and which interpreters `uv` can
   provide.
 
+- **`tools/verify_workspace_versions.py`**: builds a throwaway workspace with every supported Odoo version
+  through the tool's own plan, installs `base` and serves `/web/login` on each, then removes what it created.
+  It is the documented procedure for re-checking that every version still builds and starts
+  ([`docs/workspace-layout.md`](docs/workspace-layout.md#re-verifying-every-version)).
+- **The generated README states what each venv installs**: its Python (host or `uv`), its setuptools rule
+  and any requirement replaced, with the reason, so anyone reading the workspace, human or assistant, knows
+  exactly what runs. `docs/workspace-layout.md` carries the same table for every version, as last verified.
+
 ### Changed
 - Workspaces recommend the **official** `Odoo.odoo` extension instead of the third-party
   `trinhanhngoc.vscode-odoo`, and set `python.languageServer` to `None` so Pylance does not analyse Python
