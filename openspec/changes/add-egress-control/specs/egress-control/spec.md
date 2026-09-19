@@ -24,7 +24,9 @@ The daemon configuration written by `provision` SHALL set:
 - `ProcMonitorMethod` to `proc`;
 - `Internal.FlushConnsOnStart` to `false`;
 - `FwOptions.QueueBypass` to `false`;
-- `LogLevel` to `2`.
+- `LogLevel` to `2`;
+- `Server.Loggers` to a local syslog logger in `rfc5424` format, so every connection decision reaches the
+  system journal whether or not a UI is connected.
 
 Every other key SHALL be left as the package ships it.
 
@@ -68,3 +70,30 @@ No rule SHALL name an AI assistant.
 
 - **WHEN** `provision apply` runs again on a host where the operator created rules from the UI
 - **THEN** only `odwg-*` files are rewritten and the operator's rules are unchanged
+
+### Requirement: Turn off, turn on and uninstall
+
+`provision` SHALL offer, for each installed component (OpenSnitch, Mailpit), to turn it off or on
+persistently across restarts, and to uninstall it. Uninstalling SHALL require a confirmation phrase.
+Uninstalling OpenSnitch SHALL:
+- first show the packages `apt` would remove;
+- then remove only the tool's own `00-odwg-*` rules, keeping the operator's.
+
+Uninstalling Mailpit SHALL remove its unit, binary and captured mail.
+
+#### Scenario: Turned off stays off
+
+- **WHEN** the operator turns the outbound firewall off
+- **THEN** the service is stopped and disabled, outbound traffic is unrestricted, and it stays off after a
+  restart until turned on
+
+#### Scenario: Uninstall keeps operator rules
+
+- **WHEN** OpenSnitch is uninstalled on a host where the operator created rules
+- **THEN** the packages are purged, the `00-odwg-*` rules are gone, and the operator's rule files remain
+
+#### Scenario: Decisions are recorded without the UI
+
+- **WHEN** no UI is connected and a connection is blocked
+- **THEN** the decision, with its process, destination and rule, appears in the system journal under the
+  `opensnitch` tag

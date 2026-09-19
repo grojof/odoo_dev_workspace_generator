@@ -52,6 +52,7 @@ Every decision below comes from what that spike measured. Nothing here is assume
 | `Internal.FlushConnsOnStart` | `true` | `false` | Starting the daemon would cut every open connection, including the editor's and any remote session. |
 | `FwOptions.QueueBypass` | `true` | `false` | `true` accepts packets when the daemon is not reading the queue, which fails open. `false` fails closed. A clean `systemctl stop` removes the daemon's rules and restores the network, which is the documented way to pause. A crash leaves traffic blocked until the daemon restarts. |
 | `LogLevel` | `2` | `2` | The spike raised it to debug to diagnose. Normal operation keeps it at 2. |
+| `Server.Loggers` | none | `[{Name: syslog, Format: rfc5424}]` | Acceptance found that at levels 2 and 1 the daemon's log records no connection decisions. With the UI closed, nothing kept a record. The source (`statistics/stats.go`) sends every connection event to the configured loggers regardless of the UI. Measured: with this logger, blocked and allowed connections reach the journal with the UI closed. 1.8.0 always uses the tag `opensnitch` (its `Tag` key is not passed to syslog, see `log/loggers/syslog.go`) and offers `rfc5424` or `csv` for syslog, not `json`. |
 
 ### Rules: an owned baseline, never touching the operator's
 
@@ -75,6 +76,28 @@ Every decision below comes from what that spike measured. Nothing here is assume
 - **Measured.** With these rules and `DefaultAction: deny`, the following work: `git fetch`, `gh`, `uv`, `pip`
   from a workspace venv, `apt-get update` (2 s) and a GitHub release download with `curl`. An unknown
   destination is blocked. `apt` needed `cli.github.com`, found because the prompt appeared during the spike.
+
+### Turning off and uninstalling
+
+A `provision` submenu shows each component's state and offers only the applicable actions:
+- **Turn off / on:** `systemctl disable --now` / `enable --now`, so the state survives restarts.
+- **Uninstall OpenSnitch:**
+  1. turn it off;
+  2. delete only the `00-odwg-*` rules;
+  3. run `apt-get purge --autoremove` of its two packages.
+  
+  First it prints the simulated list of packages `apt` would remove, then asks for `UNINSTALL`.
+- **Uninstall Mailpit:** turn it off, then remove the unit, the binary and its state directory. It asks for
+  `UNINSTALL`, because captured mail is deleted.
+
+Measured:
+- Off → unrestricted network, `disabled`.
+- On → deny again.
+- Mailpit off → SMTP closed; on → the captured messages were still there.
+
+**Crash recovery.** The package's unit has `Restart=always` with `RestartSec=30`. Acceptance killed the daemon:
+during the outage even an allowed host was unreachable (fail closed), and systemd brought it back within 30 s
+with no intervention.
 
 ### Operating the UI (documented, not automated)
 

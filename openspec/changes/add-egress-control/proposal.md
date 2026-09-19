@@ -26,7 +26,8 @@ with a web UI. It also found the defaults that must change for them to hold (see
     one minute;
   - never flush existing connections on start;
   - fail closed if the daemon dies;
-  - normal log level.
+  - normal log level;
+  - every decision sent to the system journal (`journalctl -t opensnitch`), with or without the UI.
 - **`provision` installs a baseline rule set**, prefixed `odwg-`, owned and refreshed by the tool, and never
   touching the operator's own rules:
   - localhost;
@@ -48,6 +49,9 @@ with a web UI. It also found the defaults that must change for them to hold (see
   It asks for a confirmation phrase, works on Odoo 12–19, and is never meant for a production cutover
   database.
 - `provision check` reports OpenSnitch (installed, running, default action, method) and Mailpit.
+- A `provision` submenu turns each component **off or on**, persistently across restarts, and **uninstalls**
+  it. Uninstalling needs a confirmation phrase; for OpenSnitch it first shows what `apt` will remove, and it
+  keeps the operator's own rules.
 - **Documentation:** a new `docs/egress-control.md` covering:
   - how it works;
   - starting, reopening and closing the UI;
