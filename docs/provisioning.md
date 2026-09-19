@@ -63,10 +63,12 @@ and warns when every role — `postgres` included — may connect over loopback 
   before planning.
   The `pg_hba.conf` step runs on an already-provisioned host too, so a host left with a blanket loopback
   `trust` by an earlier version is narrowed the next time you apply; when the rules are already in that
-  shape, nothing is planned. A blanket `trust` counts however it is spelled (`127.0.0.1/32`, `::1/128`,
-  `localhost`, `samehost`, `samenet`). The step ends by **connecting as the role over loopback**: if it
-  cannot, apply stops there instead of reporting a narrowing that does not work — a rule earlier in the file
-  may be matching first.
+  shape, nothing is planned. A blanket `trust` counts in every shape `pg_hba.conf` accepts for it: any
+  address spelling (`127.0.0.1/32`, `127.0.0.1 255.255.255.255`, `::1/128`, `localhost`, `samehost`,
+  `samenet`), the `hostnossl` connection type, and a line indented by leading blanks. The role's own line is
+  inserted **before** any rule that would match the same connection, because `pg_hba` is first-match-wins.
+  The step ends by **connecting as the role over loopback**: if it cannot, apply stops there instead of
+  reporting a narrowing that does not work.
 
   Apply also acts when a probe could not answer: PostgreSQL installed but stopped, a role it could not check
   without a password, an unreadable `pg_hba.conf`. Everything it plans is idempotent, so the worst case is a

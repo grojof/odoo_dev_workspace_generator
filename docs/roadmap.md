@@ -30,7 +30,7 @@ and `harden-for-0-2-0`, which closed what ten pre-release audits found (five rou
 Three verifiers came out of those rounds, all outside the unit suite because it may not shell out:
 `tools/verify_migration_driver.py` executes the generated migration driver against stub binaries,
 `tools/verify_generated_shell.py` runs ShellCheck over every generated script, and
-`tools/verify_pg_hba_trust.py` runs the `pg_hba.conf` rewriter over five shapes of that file.
+`tools/verify_pg_hba_trust.py` runs the `pg_hba.conf` rewriter over eight shapes of that file.
 
 Delivery is phased so each phase is independently useful and verifiable. Non-trivial work is proposed and
 tracked through OpenSpec (`/opsx:*`); every phase below was accepted end-to-end on WSL Ubuntu 24.04.

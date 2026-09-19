@@ -77,9 +77,8 @@ All notable changes to this project are documented here. The format is based on
   venv directory and skipped the build, so the workspace listed a version whose venv had no Odoo
   dependencies. Workspace venvs now carry the same ready marker migration venvs have had: written last, so
   it can only mean every install finished.
-- The `pg_hba` connection check retries the connection it is actually proving, and tells "PostgreSQL is not
-  running" apart from "a rule above yours matches first".
-
+- The `pg_hba` connection check retries the connection it is actually proving, and its failure names both
+  causes: PostgreSQL not running, or a rule above the ones it just added matching first.
 - **`provision apply` reported "Host already provisioned — nothing to do" on a host with PostgreSQL stopped
   and no development role.** A probe that could not answer (a stopped server hides both the role and
   `pg_hba.conf`) was read as "nothing to do" instead of "do the work". Unknown now means act, and every step
@@ -88,7 +87,7 @@ All notable changes to this project are documented here. The format is based on
   `provision check` then reported `trust for odoo only` — while any local user could still connect as
   `postgres`. Every spelling is recognised now, by the rewriter and by the check alike, and the step ends by
   connecting as the role: a line that is present but shadowed by an earlier rule fails the step instead of
-  passing it. `tools/verify_pg_hba_trust.py` runs the rewriter over five shapes of that file.
+  passing it. `tools/verify_pg_hba_trust.py` runs the rewriter over every shape of that file below.
 - **Installing Odoo 12's requirements could report `[OK]` having installed only the `python-ldap`
   substitute.** The step is a `grep | pip` pipeline and plans run without `pipefail`, so `pip`'s status hid
   `grep`'s. The step sets `pipefail` now, as the generated `setup_venv.sh` always did.

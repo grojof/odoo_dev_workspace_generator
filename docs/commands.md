@@ -86,6 +86,7 @@ Every menu shows a numbered list; `0` (or `Back`/`Cancel`) always returns withou
 
 `run_migration.sh <source-dump>` (inside an environment) preflights the host, restores the dump, verifies
 the database before step 1, then runs each step with a `pg_dump` checkpoint after every success — a re-run
-resumes from the last good checkpoint. Any preflight failure exits non-zero with a `[preflight-fail]` line,
-and a checkpoint that cannot be written with a `[fail]` line.
+resumes from the last good checkpoint. Any preflight failure exits non-zero with a `[preflight-fail]` line;
+the driver's own aborts use a `[fail]` line — a checkpoint that cannot be written, a step that failed (it
+names the step's log file), or a step whose OpenUpgrade code is not on disk.
 Details: [migration](migration.md).
