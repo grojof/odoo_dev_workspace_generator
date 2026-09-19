@@ -5,6 +5,7 @@
 Installs and configures what a supported Ubuntu host is missing to build Odoo from source — build dependencies, PostgreSQL with a development role, the patched wkhtmltopdf, and optionally Node — as a previewed, confirmed, root-gated plan that refuses any host outside the support matrix.
 
 ## Requirements
+
 ### Requirement: Apply is root-gated and previewed
 
 `provision apply` SHALL assemble the install/configure steps into a command plan, preview it, and run it only
@@ -34,13 +35,20 @@ the headers backing lxml, Pillow, psycopg2, python-ldap, etc.), as an idempotent
 ### Requirement: Install and configure PostgreSQL with a development role
 
 `provision apply` SHALL install PostgreSQL, enable and start its service, and create a development login role
-if it does not already exist, so a workspace's `odoo.conf` can connect. Creating an existing role MUST be a
-no-op.
+if it does not already exist, so a workspace's `odoo.conf` can connect. The role SHALL default to `odoo`, the
+role workspaces and migration environments use by default. The role name MUST match
+`^[a-z_][a-z0-9_]{0,62}$`; any other value SHALL be rejected before a plan is assembled. Creating an existing
+role MUST be a no-op.
 
 #### Scenario: Dev role created idempotently
 
 - **WHEN** apply configures PostgreSQL and the dev role is absent
 - **THEN** the plan creates the role; re-running apply with the role present makes no change to it
+
+#### Scenario: Unsafe role rejected
+
+- **WHEN** the operator enters `odoo'; DROP DATABASE x; --` as the development role
+- **THEN** apply reports the invalid role and assembles no plan
 
 ### Requirement: Install the Odoo-recommended patched wkhtmltopdf verified by checksum
 
