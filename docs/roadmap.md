@@ -10,9 +10,14 @@ updated: 2026-09-19
 
 **Released: v0.1.0 (2026-09-19).** F0–F3 are complete; see [`CHANGELOG.md`](../CHANGELOG.md).
 
-**In flight for 0.2.0:** the outbound firewall and mail capture landed (change `add-egress-control`), and
-`harden-for-0-2-0` is closing what two pre-release audits found — input validation, the migration driver's
-resume, legacy-step coverage, probes that never prompt, and a quiet/verbose plan output.
+**Next release (0.2.0), on `main`:** the outbound firewall and mail capture (change `add-egress-control`),
+and `harden-for-0-2-0`, which closed what four pre-release audits found (two rounds, docs and code):
+- injection through versions and profiles, now validated at every entry point;
+- a migration driver that skipped its coverage check entirely and trusted checkpoints from another attempt;
+- coverage and `apriori.py` looked up in the wrong place for the ≤ 13 steps;
+- probes that could ask for a password, and host changes that were wider than they needed to be
+  (loopback `trust` for every role, the firewall's DNS rule on every port, root downloads in `/tmp`);
+- plans that printed every line: one line per step now, with `--verbose` to see everything.
 
 Delivery is phased so each phase is independently useful and verifiable. Non-trivial work is proposed and
 tracked through OpenSpec (`/opsx:*`); every phase below was accepted end-to-end on WSL Ubuntu 24.04.

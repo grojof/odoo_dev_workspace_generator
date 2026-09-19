@@ -45,10 +45,10 @@
 
 ## 6. Acceptance
 
-- [ ] 6.1 Project checks and the four verifiers green
-- [ ] 6.2 Run the generated driver with shimmed PostgreSQL tools and a failing step. Confirm that it restores
+- [x] 6.1 Project checks and the four verifiers green
+- [x] 6.2 Run the generated driver with shimmed PostgreSQL tools and a failing step. Confirm that it restores
       the newest checkpoint, resumes at the failed step, and refuses a different dump. Confirm the injections
       are refused from the real menus.
 - [x] 6.3 Two fresh independent audits (docs and code). They found the coverage-check and checkpoint defects
       above, one firewall rule too wide, and doc/spec drifts — all fixed here.
-- [ ] 6.4 Re-run the checks and the verifiers after the second round
+- [x] 6.4 Re-run the checks and the verifiers after the second round
