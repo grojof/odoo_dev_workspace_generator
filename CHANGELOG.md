@@ -12,7 +12,9 @@ All notable changes to this project are documented here. The format is based on
   - **OpenSnitch 1.8.0** is installed from the upstream release, with SHA-512 pinned from the maintainer-signed
     list.
   - **Hardened configuration:** deny by default whether or not its window is open, `proc` process monitoring
-    (`ebpf` lost long-running processes on WSL), no connection flush on start, and fail closed.
+    (`ebpf` lost long-running processes on WSL), rules applied to connections without a visible process
+    (WSL's localhost relay, so the Mailpit UI opens from Windows), no connection flush on start, and fail
+    closed.
   - **Baseline `00-odwg-*` rules** that come before any other rule:
     - localhost, DNS, NTP and the VS Code server;
     - **Odoo (`odoo-bin`) confined to localhost**;

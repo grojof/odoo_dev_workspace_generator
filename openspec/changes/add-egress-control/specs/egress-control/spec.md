@@ -22,6 +22,8 @@ configuration and the baseline rules are in place.
 The daemon configuration written by `provision` SHALL set:
 - `DefaultAction` to `deny`;
 - `ProcMonitorMethod` to `proc`;
+- `InterceptUnknown` to `true`, so that connections whose process cannot be found go through the rules and are
+  logged, instead of being dropped silently;
 - `Internal.FlushConnsOnStart` to `false`;
 - `FwOptions.QueueBypass` to `false`;
 - `LogLevel` to `2`;

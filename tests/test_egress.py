@@ -96,7 +96,7 @@ def test_hardening_script_applies_settings_and_keeps_other_keys(tmp_path):
     assert result["Server"]["Address"] == shipped["Server"]["Address"]
     assert result["Server"]["Loggers"] == [{"Name": "syslog", "Format": "rfc5424"}]
     # And the package defaults are exactly the deviations the check reports.
-    assert len(egress.config_deviations(shipped)) == 5
+    assert len(egress.config_deviations(shipped)) == 6  # InterceptUnknown is absent here
 
 
 # --- plans --------------------------------------------------------------------

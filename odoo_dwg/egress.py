@@ -64,6 +64,12 @@ HARDENED_SETTINGS: dict[str, object] = {
     # With "ebpf", a process lost its identity after about a minute and a rule on
     # its command line stopped matching; "proc" held. Odoo runs for hours.
     "ProcMonitorMethod": "proc",
+    # A connection whose process cannot be found skips every rule and gets the
+    # default action, unlogged, while this is false. WSL's localhost relay (a
+    # Windows browser opening Mailpit's UI) is such a connection: with "true" it
+    # is matched by the localhost rule, and any other process-less connection is
+    # denied and logged instead of silently dropped.
+    "InterceptUnknown": True,
     # "true" would cut every open connection (editor, remote session) on start.
     "Internal.FlushConnsOnStart": False,
     # "true" lets packets through when the daemon is not reading the queue: fail
