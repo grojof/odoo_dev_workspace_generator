@@ -40,10 +40,12 @@ an Odoo branch may have changed what it supports, or before trusting a bound in 
 ```bash
 python tools/verify_support_matrix.py            # re-derive every bound from its official source
 python tools/verify_support_matrix.py 18.0 19.0  # only these versions
+python tools/verify_odools_config.py             # the editor config vs the latest OdooLS release
 ```
 
 It exits non-zero on drift and never edits the declared matrix: fixing drift means editing
-`odoo_dwg/models.py` and `docs/support-matrix.md` together. There is no scheduled job running it — make it a
+`odoo_dwg/models.py` and `docs/support-matrix.md` together. The editor check has its own procedure for
+acting on what it reports: [`docs/editor-integration.md`](docs/editor-integration.md). There is no scheduled job running it — make it a
 habit before touching the matrix, and every few months otherwise, since a bound drifts when *Odoo* changes,
 not when this repository does.
 

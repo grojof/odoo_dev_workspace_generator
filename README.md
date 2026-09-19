@@ -101,6 +101,8 @@ By surface:
 - **Host setup** — [`docs/wsl-setup.md`](docs/wsl-setup.md) (Ubuntu 24.04 on WSL 2, from zero) ·
   [`docs/provisioning.md`](docs/provisioning.md) (host check/apply).
 - **Migration** — [`docs/migration.md`](docs/migration.md) (interpreters, preflight, staging, checkpointing driver).
+- **Editor** — [`docs/editor-integration.md`](docs/editor-integration.md) (the official Odoo extension, what a
+  workspace emits for it, and how to keep up with its releases).
 - **What is supported** — [`docs/support-matrix.md`](docs/support-matrix.md) (hosts, Python per Odoo version,
   PostgreSQL — with the source behind every bound and how to re-verify it).
 - **Project** — [`docs/roadmap.md`](docs/roadmap.md) (phases + backlog) · [`CLAUDE.md`](CLAUDE.md) (AI-agent

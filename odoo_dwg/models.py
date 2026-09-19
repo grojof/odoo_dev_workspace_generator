@@ -552,6 +552,12 @@ class WorkspaceConfig:
         return self.root / "README.md"
 
     @property
+    def odools_file(self) -> Path:
+        """The official Odoo language server's configuration, at the workspace
+        root where OdooLS looks for it."""
+        return self.root / "odools.toml"
+
+    @property
     def profile_file(self) -> Path:
         """The saved profile marker inside the workspace, so it can be re-loaded
         for management."""
@@ -577,15 +583,24 @@ class WorkspaceConfig:
         ``addons_path``. Per version because OCA addons must match the Odoo major."""
         return self.addons_oca_dir / f"odoo{odoo_major(version)}" / repo
 
-    def addons_path(self, version: str) -> str:
-        """Composed ``addons_path`` for a version, in precedence order: the
+    def addons_dirs(self, version: str, include_core: bool = True) -> list[Path]:
+        """The add-on directories for a version, in precedence order: the
         workspace's custom addons, each configured OCA repo (via its in-workspace
-        per-version symlink), then the shared Odoo ``addons``. All paths stay
-        inside the workspace or the shared cache."""
+        per-version symlink), then — unless ``include_core`` is false — the shared
+        Odoo ``addons``. All paths stay inside the workspace or the shared cache.
+
+        ``include_core=False`` is what a tool that loads core from the Odoo source
+        itself needs (the OdooLS ``odools.toml``); both views come from this one
+        list, so they cannot disagree."""
         parts: list[Path] = [self.addons_custom_dir]
         parts += [self.oca_symlink_dir(repo, version) for repo in self.oca_repos]
-        parts.append(self.odoo_clone_dir(version) / "addons")
-        return ",".join(str(part) for part in parts)
+        if include_core:
+            parts.append(self.odoo_clone_dir(version) / "addons")
+        return parts
+
+    def addons_path(self, version: str) -> str:
+        """Composed ``addons_path`` for a version's ``odoo.conf``."""
+        return ",".join(str(part) for part in self.addons_dirs(version))
 
     # --- normalization / validation --------------------------------------
 

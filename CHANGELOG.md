@@ -7,6 +7,14 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Official Odoo extension support** (change `use-official-odoo-language-server`). Generated workspaces carry
+  an `odools.toml` for the official language server (OdooLS): one profile per Odoo version ≥ 14 (OdooLS
+  refuses older ones), using only the four documented minimal keys — `name`, `odoo_path`, `addons_paths`,
+  `python_path` — as absolute paths, so the file stays valid across releases of a strict schema. Pick the
+  profile from the status bar. New `tools/verify_odools_config.py` checks the emitted keys against the latest
+  stable release's published schema, lists keys not yet emitted, and prints the release notes since the
+  release last reviewed; [`docs/editor-integration.md`](docs/editor-integration.md) documents the update
+  procedure.
 - **Support matrix** (change `add-support-matrix`): one authoritative, evidence-tiered declaration of what
   the tool supports — host releases, the tool's own Python floor, and per-Odoo-version Python range,
   recommended interpreter and PostgreSQL floor — in `models.py` (`ODOO_SUPPORT`/`SUPPORTED_HOSTS`), which
@@ -24,13 +32,16 @@ All notable changes to this project are documented here. The format is based on
   and the crossed bound's tier and offers a matching `uv`-provisioned interpreter (`uv venv --seed`, so the
   venv still has `pip`). Migration environments take each step's interpreter from the matrix recommendation
   and let the operator **pin any step** to a specific Python — the way to rehearse on a client's own
-  interpreter — with the step's requirements repair following the interpreter actually in use. Docker-backed
-  steps (12/13) cannot be pinned.
+  interpreter — with the step's requirements repair following the interpreter actually in use. Every step
+  can be pinned, 13 included, since no step runs in a container any more.
 - `provision check` now reports the host release against the supported list, the installed PostgreSQL server
   version against the floor of the versions in play, the host `python3`, and which interpreters `uv` can
   provide.
 
 ### Changed
+- Workspaces recommend the **official** `Odoo.odoo` extension instead of the third-party
+  `trinhanhngoc.vscode-odoo`, and set `python.languageServer` to `None` so Pylance does not analyse Python
+  alongside OdooLS. No `jsconfig.json` is generated: OdooLS 1.5 resolves JavaScript and OWL itself.
 - **BREAKING — Docker is no longer used or required** (change `drop-docker-run-13-natively`). The Odoo 13
   step, the only step that ever ran in a container, now runs natively in a `uv` virtualenv on Python 3.8
   like every other step. `provision check` drops the Docker rows, `provision apply` drops the Docker Engine

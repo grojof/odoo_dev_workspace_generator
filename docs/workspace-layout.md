@@ -3,7 +3,7 @@ type: reference
 title: "Workspace layout"
 description: "The directory structure odoo_dwg generates for a client workspace and the shared repo cache."
 audience: [developer]
-updated: 2026-07-05
+updated: 2026-09-19
 ---
 
 # Workspace layout
@@ -25,6 +25,7 @@ read-only repo cache** reused across workspaces, and one **per-client workspace*
     ├── scripts/run-odoo<major>.sh       # launch one instance
     ├── .vscode/                         # tasks / launch / settings / extensions
     ├── <name>.code-workspace
+    ├── odools.toml                      # official Odoo language server profiles (Odoo >= 14)
     ├── workspace.json                   # saved profile (used by the manage flow)
     └── README.md                        # full context for humans and AI assistants
 ```
@@ -56,3 +57,10 @@ bash scripts/run-odoo18.sh                       # odoo-bin -c config/odoo18.con
 ```
 
 This step is host-dependent and is **not** run in CI; it is the manual acceptance check for the change.
+
+## Editor
+
+The workspace is set up for the **official** Odoo extension (`Odoo.odoo`) and its language server: an
+`odools.toml` with one profile per version (switch it from the status bar), Pylance turned off so Python is
+analysed once, and no `jsconfig.json`. What is emitted, what is deliberately not, and how to keep up with the
+extension's releases: [`editor-integration.md`](editor-integration.md).
