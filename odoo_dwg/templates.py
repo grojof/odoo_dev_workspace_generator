@@ -729,6 +729,13 @@ def _render_coverage_helper() -> str:
             "                            if isinstance(v, str)})",
             "def resolves(name):",
             "    return any(os.path.isdir(os.path.join(src, name)) for src in sources)",
+            "",
+            "# Nothing to resolve against: report that, rather than calling every",
+            "# module missing — including `base`, which cannot be dropped.",
+            "if not any(os.path.isdir(src) for src in sources):",
+            "    print('[coverage] %s: its sources are not on disk — regenerate the"
+            " environment' % version, file=sys.stderr)",
+            "    raise SystemExit(1)",
             "blocking, dropped = [], []",
             'modules_tsv = os.environ.get("ODWG_MODULES_TSV", "")',
             "if not modules_tsv.strip():",

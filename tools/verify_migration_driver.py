@@ -28,6 +28,9 @@ from odoo_dwg import templates  # noqa: E402
 from odoo_dwg.models import MigrationEnv  # noqa: E402
 
 SOURCE, TARGET = "16.0", "18.0"
+# A chain that crosses the <= 13 layout, so the legacy step command and its own
+# preconditions are executed too, not only the upgrade-path ones.
+LEGACY_SOURCE, LEGACY_TARGET = "12.0", "14.0"
 
 
 def _stub(path: Path, body: str) -> None:
@@ -37,18 +40,23 @@ def _stub(path: Path, body: str) -> None:
 
 
 def _build(
-    root: Path, *, failing_pg_dump: bool = False, failing_step: str | None = None
+    root: Path,
+    *,
+    failing_pg_dump: bool = False,
+    failing_step: str | None = None,
+    source: str = SOURCE,
+    target: str = TARGET,
 ) -> tuple[Path, MigrationEnv]:
     """Render the driver and the stub host it runs against."""
     MigrationEnv.base_dir = str(root / "envs")
-    env = MigrationEnv(source=SOURCE, target=TARGET)
+    env = MigrationEnv(source=source, target=target)
     script = root / "run_migration.sh"
     script.write_text(templates.render_run_migration_sh(env), encoding="utf-8")
 
     stubs = root / "bin"
     # One installed module authored by Odoo: coverage warns, never blocks.
     _stub(stubs / "psql",
-          'if [[ "$*" == *base* && "$*" == *latest_version* ]]; then echo 16.0.1.0; '
+          f'if [[ "$*" == *base* && "$*" == *latest_version* ]]; then echo {source}.1.0; '
           'else printf "base\\tOdoo S.A.\\n"; fi')
     for name in ("pg_restore", "dropdb", "createdb", "uv"):
         _stub(stubs / name, "exit 0")
@@ -175,6 +183,35 @@ def main() -> int:
             "[done]" not in missing.stdout
             and not (Path(env.checkpoints_dir) / f"{TARGET}.dump").exists(),
             missing.stdout,
+        )
+
+    # The legacy (<= 13) layout: its own step command, and its own precondition.
+    with tempfile.TemporaryDirectory(prefix="odwg-driver-") as tmp:
+        root = Path(tmp)
+        script, env = _build(root, source=LEGACY_SOURCE, target=LEGACY_TARGET)
+        legacy = _run(root, script)
+        check(
+            f"a {LEGACY_SOURCE} to {LEGACY_TARGET} chain migrates through the legacy layout",
+            legacy.returncode == 0 and "[done]" in legacy.stdout,
+            legacy.stdout + legacy.stderr,
+        )
+    # Fresh state, or the completed checkpoints above would skip the step.
+    with tempfile.TemporaryDirectory(prefix="odwg-driver-") as tmp:
+        root = Path(tmp)
+        script, env = _build(root, source=LEGACY_SOURCE, target=LEGACY_TARGET)
+        first_step = env.chain()[0]
+        shutil.rmtree(_openupgrade_dirs(env, first_step)[0])
+        legacy_missing = _run(root, script)
+        # Either signal is correct — coverage sees the empty sources first, the
+        # step's own precondition would catch it otherwise. What matters is that
+        # the run stops and names the step, instead of migrating nothing.
+        stopped = legacy_missing.stdout + legacy_missing.stderr
+        check(
+            "a missing OpenUpgrade fork stops the legacy step",
+            legacy_missing.returncode != 0
+            and first_step in stopped
+            and "[done]" not in legacy_missing.stdout,
+            stopped,
         )
 
     # A failing step must name itself and its log, not die silently on set -e.

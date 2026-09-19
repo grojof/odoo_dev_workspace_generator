@@ -80,6 +80,39 @@ local   all             postgres                                peer
 hostnossl all all 127.0.0.1/32 trust
 """
 
+# Addresses that contain loopback without naming it. `all` is what the official
+# postgres image writes for POSTGRES_HOST_AUTH_METHOD=trust.
+ANY_ADDRESS = """\
+local   all             postgres                                peer
+host all all all trust
+"""
+
+WORLD = """\
+local   all             postgres                                peer
+host all all 0.0.0.0/0 trust
+host all all ::0/0 trust
+"""
+
+LOOPBACK_RANGE = """\
+local   all             postgres                                peer
+host all all 127.0.0.0/8 trust
+"""
+
+# The role's line is there, but a rule for every role above it decides the
+# connection first, so it is never read.
+SHADOWED_ROLE = """\
+local   all             postgres                                peer
+host    all             all             127.0.0.1/32            scram-sha-256
+host    all             odoo            127.0.0.1/32            trust
+"""
+
+# A rule this tool must not touch: the method is not trust, and "trust" only
+# appears in a comment.
+NOT_A_TRUST = """\
+local   all             postgres                                peer
+host    all             all             127.0.0.1/32            scram-sha-256 # was trust
+"""
+
 CASES = [
     ("the Ubuntu default", UBUNTU_DEFAULT),
     ("a blanket loopback trust (CIDR)", BLANKET_CIDR),
@@ -89,13 +122,18 @@ CASES = [
     ("an indented blanket trust", INDENTED),
     ("a blanket trust in address/netmask form", LEGACY_NETMASK),
     ("a hostnossl blanket trust", HOSTNOSSL),
+    ("a blanket trust on every address", ANY_ADDRESS),
+    ("a blanket trust open to the network", WORLD),
+    ("a blanket trust on the loopback range", LOOPBACK_RANGE),
+    ("a password rule whose comment mentions trust", NOT_A_TRUST),
+    ("a role line shadowed by an earlier rule", SHADOWED_ROLE),
 ]
 
-ROLE_LINE = re.compile(rf"^host\s+all\s+{ROLE}\s+127\.0\.0\.1/32\s+trust\b", re.MULTILINE)
+ROLE_LINE = re.compile(
+    rf"^\s*host(nossl)?\s+all\s+{ROLE}\s+\S+(\s+[0-9a-fA-F.:]+)?\s+trust(\s|$)", re.MULTILINE
+)
 BLANKET_TRUST = re.compile(
-    r"^\s*host(nossl)?\s+all\s+all\s+"
-    r"(127\.0\.0\.1(/32|\s+255\.255\.255\.255)|::1(/128|\s+ffff(:ffff){7})"
-    r"|localhost|samehost|samenet)\s+trust\b",
+    r"^\s*host(nossl)?(\s+all){2}\s+\S+(\s+[0-9a-fA-F.:]+)?\s+trust(\s|$)",
     re.MULTILINE,
 )
 
@@ -136,9 +174,9 @@ def main() -> int:
                 f"probe={probed} file_has_blanket={bool(BLANKET_TRUST.search(before))}",
             )
             check(
-                f"{label}: the probe and the file agree on the role's line",
-                probed is not None and probed[1] == bool(ROLE_LINE.search(before)),
-                f"probe={probed} file_has_role_line={bool(ROLE_LINE.search(before))}",
+                f"{label}: the probe and the file agree on whether the role's line is reached",
+                probed is not None and probed[1] == _role_rule_wins(before),
+                f"probe={probed} role_rule_reached={_role_rule_wins(before)}",
             )
 
             first = subprocess.run(["bash", str(script), str(target)], capture_output=True, text=True)
@@ -216,11 +254,7 @@ def _role_rule_wins(text: str) -> bool:
     for line in text.splitlines():
         if ROLE_LINE.match(line):
             return True
-        if re.match(
-            r"^\s*host(nossl)?\s+all\s+all\s+"
-            r"(127\.0\.0\.1|::1|localhost|samehost|samenet|0\.0\.0\.0/0)",
-            line,
-        ):
+        if re.match(r"^\s*host(nossl)?(\s+all){2}\s", line):
             return False
     return False
 

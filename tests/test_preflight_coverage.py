@@ -30,6 +30,14 @@ def _isolated_base_dir(tmp_path, monkeypatch):
     preflight._APRIORI_CACHE.clear()
 
 
+def _only_the_source_dirs(env: MigrationEnv):
+    """A generated environment with empty source directories: the dirs are there,
+    no module resolves in them. Coverage can then classify, instead of reporting
+    the step as never generated."""
+    dirs = {d for version in env.chain() for d in preflight.coverage_sources(env, version)}
+    return lambda p: p in dirs
+
+
 def _write_apriori(path: Path, body: str) -> Path:
     assert "/odoo-migrations/" not in str(path) or "tmp" in str(path), (
         f"refusing to write to what looks like a real environment: {path}"
@@ -106,7 +114,8 @@ def test_odoo_authorship_is_an_exact_match_never_a_substring():
 
 def test_module_openupgrade_renamed_is_covered_by_its_successor(tmp_path):
     env = MigrationEnv(source="18.0", target="19.0")
-    present = {env.odoo_clone_dir("19.0") / "addons" / "html_editor"}
+    present = {env.odoo_clone_dir("19.0") / "addons" / "html_editor",
+               *preflight.coverage_sources(env, "19.0")}
     _write_apriori(
         preflight.apriori_path(env, "19.0"),
         'renamed_modules = {"web_editor": "html_editor"}\n',
@@ -122,7 +131,8 @@ def test_module_openupgrade_renamed_is_covered_by_its_successor(tmp_path):
 
 def test_module_openupgrade_merged_is_covered(tmp_path):
     env = MigrationEnv(source="16.0", target="17.0")
-    present = {env.odoo_clone_dir("17.0") / "addons" / "web"}
+    present = {env.odoo_clone_dir("17.0") / "addons" / "web",
+               *preflight.coverage_sources(env, "17.0")}
     _write_apriori(
         preflight.apriori_path(env, "17.0"),
         'merged_modules = {"web_kanban_gauge": "web"}\n',
@@ -141,7 +151,7 @@ def test_odoo_code_dropped_without_a_successor_only_warns():
     coverage = preflight.gather_coverage(
         env,
         ["web_settings_dashboard"],
-        exists=lambda _p: False,
+        exists=_only_the_source_dirs(env),
         authors={"web_settings_dashboard": "Odoo S.A."},
     )
     assert coverage.warnings == {"14.0": ["web_settings_dashboard"]}
@@ -153,7 +163,7 @@ def test_oca_and_vendor_code_still_blocks():
     coverage = preflight.gather_coverage(
         env,
         ["web_responsive", "client_sales"],
-        exists=lambda _p: False,
+        exists=_only_the_source_dirs(env),
         authors={
             "web_responsive": "Odoo Community Association (OCA)",
             "client_sales": "Acme Consulting",
@@ -172,7 +182,7 @@ def test_a_successor_that_resolves_nowhere_falls_through_to_classification():
     coverage = preflight.gather_coverage(
         env,
         ["old_vendor"],
-        exists=lambda _p: False,
+        exists=_only_the_source_dirs(env),
         authors={"old_vendor": "Acme Consulting"},
     )
     assert coverage.blocking == {"14.0": ["old_vendor"]}

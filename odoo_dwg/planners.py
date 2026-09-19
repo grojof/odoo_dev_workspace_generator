@@ -309,12 +309,17 @@ def plan_postgresql(role: str) -> list[Command]:
     ] + plan_pg_hba_trust(role)
 
 
-# Any rule for every role over loopback, however pg_hba spells it, and any host
-# rule at all: the two anchors the role's own line is inserted before.
-ANY_LOOPBACK_RULE = (
-    "^[[:space:]]*host(nossl)?[[:space:]]+all[[:space:]]+all[[:space:]]+"
-    "(127\\.0\\.0\\.1|::1|localhost|samehost|samenet)"
+# A TCP rule for *every* role whose method is `trust`, whatever address it names.
+# Enumerating addresses was wrong twice over (`localhost`, then `all`/`0.0.0.0/0`):
+# an address can contain loopback without naming it, so the method is what this
+# tool reasons about. The address is one token, or an address and a netmask.
+BLANKET_TRUST_RULE = (
+    "^([[:space:]]*host(nossl)?([[:space:]]+all){2}[[:space:]]+[^[:space:]]+"
+    "([[:space:]]+[0-9a-fA-F.:]+)?[[:space:]]+)trust([[:space:]]|$)"
 )
+# Any rule for every role, and any host rule at all: the two anchors the role's
+# own line is inserted before, so it is never shadowed by one of them.
+ANY_ALL_ROLES_RULE = "^[[:space:]]*host(nossl)?([[:space:]]+all){2}[[:space:]]"
 ANY_HOST_RULE = "^[[:space:]]*host(nossl)?[[:space:]]"
 
 
@@ -324,7 +329,20 @@ def plan_pg_hba_trust(role: str) -> list[Command]:
     and the role still gets its ``pg_hba.conf`` narrowed."""
     v4 = f"host    all             {role}             127.0.0.1/32            trust"
     v6 = f"host    all             {role}             ::1/128                 trust"
-    want = f'^host[[:space:]]+all[[:space:]]+{role}[[:space:]]+127\\.0\\.0\\.1/32[[:space:]]+trust'
+    # "Is the role's trust line *reached*", not "is it present": pg_hba is
+    # first-match-wins, so a line below a rule for every role is never read, and
+    # inserting nothing would leave the role unable to connect. Mirrors
+    # ``system.pg_hba_loopback_state``. Interval expressions are avoided so this
+    # behaves the same under mawk (Ubuntu's awk) and gawk.
+    reached = (
+        "awk '"
+        "/^[[:space:]]*#/ { next } "
+        f"$0 ~ /^[[:space:]]*host(nossl)?[[:space:]]+all[[:space:]]+{role}[[:space:]]+"
+        "[^[:space:]]+([[:space:]]+[0-9a-fA-F.:]+)?[[:space:]]+trust([[:space:]]|$)/ "
+        "{ found=1; exit } "
+        "$0 ~ /^[[:space:]]*host(nossl)?[[:space:]]+all[[:space:]]+all[[:space:]]/ { exit } "
+        "END { exit !found }' \"$PGHBA\""
+    )
     # Only the development role, not every role: a blanket loopback trust would let
     # any local user connect as the postgres superuser. Any earlier blanket trust
     # this tool wrote is put back to scram-sha-256. The insertion tries the usual
@@ -335,23 +353,22 @@ def plan_pg_hba_trust(role: str) -> list[Command]:
         'set -e',
         'PGHBA=$(sudo -u postgres psql -tAc "SHOW hba_file;")',
         '[ -f "$PGHBA" ] || { echo "pg_hba.conf not found: $PGHBA" >&2; exit 1; }',
-        r'sed -ri "s#^([[:space:]]*host(nossl)?[[:space:]]+all[[:space:]]+all[[:space:]]+'
-        r'(127\.0\.0\.1(/32|[[:space:]]+255\.255\.255\.255)|::1(/128|[[:space:]]+ffff(:ffff){7})'
-        r'|localhost|samehost|samenet)[[:space:]]+)trust#\1scram-sha-256#" "$PGHBA"',
-        f'if ! grep -qE {shlex.quote(want)} "$PGHBA"; then',
+        f'sed -ri "s#{BLANKET_TRUST_RULE}#\\1scram-sha-256\\5#" "$PGHBA"',
+        f"if ! {reached}; then",
         # The insertion must be at least as permissive as the downgrade above, or
         # the role's line lands *after* a rule that matches the same connection
         # first — pg_hba is first-match-wins, and the line would never be read.
-        f'  if grep -qE {shlex.quote(ANY_LOOPBACK_RULE)} "$PGHBA"; then',
-        f'    sed -ri "0,/{ANY_LOOPBACK_RULE}/s##{v4}\\n{v6}\\n&#" "$PGHBA"',
+        f'  if grep -qE {shlex.quote(ANY_ALL_ROLES_RULE)} "$PGHBA"; then',
+        f'    sed -ri "0,/{ANY_ALL_ROLES_RULE}/s##{v4}\\n{v6}\\n&#" "$PGHBA"',
         f'  elif grep -qE {shlex.quote(ANY_HOST_RULE)} "$PGHBA"; then',
         f'    sed -ri "0,/{ANY_HOST_RULE}/s##{v4}\\n{v6}\\n&#" "$PGHBA"',
         '  else',
         f'    printf "%s\\n%s\\n" {shlex.quote(v4)} {shlex.quote(v6)} >> "$PGHBA"',
         '  fi',
         'fi',
-        f'grep -qE {shlex.quote(want)} "$PGHBA" || '
-        f'{{ echo "could not add the loopback trust line for {role} to $PGHBA" >&2; exit 1; }}',
+        f'{reached} || '
+        f'{{ echo "the loopback trust line for {role} in $PGHBA is missing or is shadowed by an '
+        f'earlier rule" >&2; exit 1; }}',
     ])
     # The grep proves the line exists, not that it is reached: an earlier rule
     # matching the same connection wins, and pg_hba is first-match-wins. Only a

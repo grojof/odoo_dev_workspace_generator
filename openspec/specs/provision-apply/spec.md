@@ -59,10 +59,15 @@ as the `postgres` superuser.
 
 This SHALL be planned whenever the rules are not already in that shape, **including on a host that already
 has PostgreSQL and the role**, since those hosts are exactly the ones a previous version left with a blanket
-trust. A blanket trust SHALL be recognised in every shape `pg_hba.conf` accepts for it: any address spelling
-(`127.0.0.1/32`, `127.0.0.1 255.255.255.255`, `::1/128`, `localhost`, `samehost`, `samenet`), the
-`hostnossl` connection type, and a line indented by leading blanks. The role's own line SHALL be inserted
-*before* any rule that would match the same connection, since the first matching rule wins.
+trust. A blanket trust SHALL be recognised by its **method, not its address**: any `host` or `hostnossl` rule for
+every role whose method is `trust`, whatever address it names — including addresses that contain loopback
+without naming it (`all`, `0.0.0.0/0`, `127.0.0.0/8`) and the `address netmask` form, and however the line
+is indented. The role's own line SHALL be inserted *before* any rule for every role, since the first
+matching rule wins, and the role SHALL be treated as trusted only when its line is **reached**, never merely
+present.
+
+When the file pulls in rules the tool cannot see (`include`, `include_if_exists`, `include_dir`), the state
+SHALL be reported as unknown rather than as either answer.
 
 The step SHALL fail rather than report success when it cannot place the line, whatever shape the file has,
 and SHALL end by connecting as the role over loopback — `pg_hba.conf` is first-match-wins, so a line that is
@@ -89,8 +94,14 @@ step SHALL be idempotent, so acting on an unknown costs a no-op.
 
 #### Scenario: A trust spelled another way is still blanket
 
-- **WHEN** `pg_hba.conf` trusts every role on `localhost` rather than `127.0.0.1/32`
-- **THEN** that line is narrowed too, and the check does not report the host as already narrow
+- **WHEN** `pg_hba.conf` trusts every role on `localhost`, on `all`, or on `0.0.0.0/0` rather than
+  `127.0.0.1/32`
+- **THEN** each of those lines is narrowed too, and the check does not report the host as already narrow
+
+#### Scenario: A role line that is present but never reached
+
+- **WHEN** the role's trust line sits below a rule for every role that matches the same connection
+- **THEN** the check reports the role as not trusted, and apply inserts a line that is reached
 
 #### Scenario: The role's line is shadowed by an earlier rule
 

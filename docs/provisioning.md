@@ -63,12 +63,17 @@ and warns when every role — `postgres` included — may connect over loopback 
   before planning.
   The `pg_hba.conf` step runs on an already-provisioned host too, so a host left with a blanket loopback
   `trust` by an earlier version is narrowed the next time you apply; when the rules are already in that
-  shape, nothing is planned. A blanket `trust` counts in every shape `pg_hba.conf` accepts for it: any
-  address spelling (`127.0.0.1/32`, `127.0.0.1 255.255.255.255`, `::1/128`, `localhost`, `samehost`,
-  `samenet`), the `hostnossl` connection type, and a line indented by leading blanks. The role's own line is
-  inserted **before** any rule that would match the same connection, because `pg_hba` is first-match-wins.
-  The step ends by **connecting as the role over loopback**: if it cannot, apply stops there instead of
-  reporting a narrowing that does not work.
+  shape, nothing is planned. What counts as a blanket `trust` is decided by the **method, not the address**:
+  any `host`/`hostnossl` rule for every role whose method is `trust` — `127.0.0.1/32`, `localhost`,
+  `samehost`, `127.0.0.1 255.255.255.255`, and equally `all`, `0.0.0.0/0` or `127.0.0.0/8`, which contain
+  loopback without naming it. The role's own line is inserted **before** any rule for every role, because
+  `pg_hba` is first-match-wins: a line below one of those is never read, and a line that is merely *present*
+  is not a narrowing. The step ends by **connecting as the role over loopback**: if it cannot, apply stops
+  there instead of reporting a narrowing that does not work.
+
+  When `pg_hba.conf` pulls in rules through `include`, `include_if_exists` or `include_dir`, the state
+  cannot be read from that file alone: the check says so instead of claiming either answer, and apply plans
+  the narrowing rather than assuming it is done.
 
   Apply also acts when a probe could not answer: PostgreSQL installed but stopped, a role it could not check
   without a password, an unreadable `pg_hba.conf`. Everything it plans is idempotent, so the worst case is a

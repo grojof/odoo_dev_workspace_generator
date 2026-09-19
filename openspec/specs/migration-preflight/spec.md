@@ -56,6 +56,12 @@ author:
 The interactive preflight and the checks embedded in the migration driver SHALL apply the same
 classification, so that the two cannot disagree about whether a chain can run.
 
+#### Scenario: A step whose sources are not on disk is named as such
+
+- **WHEN** coverage runs for a step whose OpenUpgrade and Odoo directories do not exist
+- **THEN** it reports that the step's sources are not on disk and classifies no module, rather than
+  reporting every installed module — `base` included — as dropped or missing
+
 #### Scenario: A custom module missing for one step is pinpointed
 
 - **WHEN** module `client_sales` is installed in the database but absent from every source of step 16.0

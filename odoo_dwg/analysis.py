@@ -95,7 +95,7 @@ def scan_source(
         if record.kind == "removed_field":
             if record.name in GENERIC_FIELD_NAMES:
                 continue
-            # `record.doall` is the normal usage — a leading dot must match.
+            # `<model>.<field>` is the normal usage, so a leading dot must match.
             patterns.append((record, re.compile(rf"(?<!\w){re.escape(record.name)}(?!\w)")))
         else:
             # Model names must not match inside longer dotted names.

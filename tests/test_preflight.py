@@ -82,7 +82,7 @@ def test_gather_coverage_classifies_by_where_found():
     env = MigrationEnv(source="15.0", target="16.0")
     core = env.odoo_clone_dir("16.0") / "addons"
     custom = env.addons_custom_dir("16.0")
-    present = {core / "sale", custom / "client_sales"}
+    present = {core / "sale", custom / "client_sales", *preflight.coverage_sources(env, "16.0")}
     coverage = preflight.gather_coverage(
         env, ["sale", "client_sales", "ghost_module"], exists=lambda p: p in present
     )
@@ -96,7 +96,8 @@ def test_coverage_now_verifies_the_13_step_too():
     # It used to be skipped as "not verifiable" while it ran in a container.
     env = MigrationEnv(source="12.0", target="13.0")
     coverage = preflight.gather_coverage(
-        env, ["sale"], exists=lambda _p: False, authors={"sale": "Acme"}
+        env, ["sale"], exists=lambda p: p in set(preflight.coverage_sources(env, "13.0")),
+        authors={"sale": "Acme"},
     )
     assert coverage.blocking == {"13.0": ["sale"]}
 

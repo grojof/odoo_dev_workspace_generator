@@ -325,13 +325,28 @@ def db_role_exists(role: str, port: int = 5432) -> bool | None:
     return "1" in result.stdout
 
 
+# The method, not the address: an address can contain loopback without naming it
+# (`all`, `0.0.0.0/0`, `127.0.0.0/8`), and every such rule lets any local user in
+# as any role. Mirrors planners.BLANKET_TRUST_RULE.
+_BLANKET_TRUST = re.compile(r"^\s*host(nossl)?(\s+all){2}\s+\S+(\s+[0-9a-fA-F.:]+)?\s+trust(\s|$)")
+_ANY_ALL_ROLES = re.compile(r"^\s*host(nossl)?(\s+all){2}\s")
+_INCLUDE = re.compile(r"^\s*include(_if_exists|_dir)?\s", re.IGNORECASE)
+
+
 def pg_hba_loopback_state(role: str, port: int = 5432) -> tuple[bool, bool] | None:
     """``(blanket_trust, role_trusted)`` for loopback in the server's ``pg_hba.conf``.
 
-    ``blanket_trust`` is a ``host all all 127.0.0.1/32|::1/128 trust`` line — any
-    local user may then connect as any role, ``postgres`` included. ``role_trusted``
-    is the development role's own loopback trust line. None when the file cannot
-    be located or read (it is root-owned), so a caller cannot mistake "unknown"
+    ``blanket_trust``: a TCP rule trusting *every* role, whatever address it
+    names — any local user may then connect as any role, ``postgres`` included.
+
+    ``role_trusted``: the development role's loopback trust line is present **and
+    reached**. ``pg_hba`` is first-match-wins, so a line sitting below a rule that
+    matches the same connection is never read, and reporting it as trusted would
+    claim a narrowing that does not work.
+
+    None when the answer cannot be had: the file could not be located or read (it
+    is root-owned), or it pulls in rules this cannot see (``include``,
+    ``include_if_exists``, ``include_dir``). A caller must not mistake "unknown"
     for "already narrow".
     """
     if not DB_ROLE_RE.fullmatch(role):
@@ -343,18 +358,18 @@ def pg_hba_loopback_state(role: str, port: int = 5432) -> tuple[bool, bool] | No
     if not text:
         return None
     lines = [line for line in text.splitlines() if not line.lstrip().startswith("#")]
-    # pg_hba spells loopback several ways; a blanket trust is a blanket trust
-    # however it is written.
-    blanket = re.compile(
-        r"^\s*host(nossl)?\s+all\s+all\s+"
-        r"(127\.0\.0\.1(/32|\s+255\.255\.255\.255)|::1(/128|\s+ffff(:ffff){7})"
-        r"|localhost|samehost|samenet)\s+trust\b"
-    )
-    own = re.compile(rf"^host\s+all\s+{re.escape(role)}\s+127\.0\.0\.1/32\s+trust\b")
-    return (
-        any(blanket.match(line) for line in lines),
-        any(own.match(line) for line in lines),
-    )
+    if any(_INCLUDE.match(line) for line in lines):
+        return None
+    own = re.compile(rf"^\s*host(nossl)?\s+all\s+{re.escape(role)}\s+\S+\s+trust(\s|$)")
+    role_trusted = False
+    for line in lines:
+        if own.match(line):
+            role_trusted = True
+            break
+        # An earlier rule for every role decides this connection instead.
+        if _ANY_ALL_ROLES.match(line):
+            break
+    return (any(_BLANKET_TRUST.match(line) for line in lines), role_trusted)
 
 
 # --- migration preflight probes --------------------------------------------

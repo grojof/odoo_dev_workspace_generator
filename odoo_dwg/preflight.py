@@ -63,6 +63,10 @@ class Coverage:
     warnings: dict[str, list[str]] = field(default_factory=dict)
     # Modules resolved from the operator's own per-version custom directory.
     customs: set[str] = field(default_factory=set)
+    # ``[version]`` — steps whose sources are not on disk at all. Classifying a
+    # module against nothing would report every one of them as missing, `base`
+    # among them, and send the operator looking for code that is not the problem.
+    ungenerated: list[str] = field(default_factory=list)
 
 
 def gather_host_facts(env: MigrationEnv, dump_path: str | None = None) -> HostFacts:
@@ -198,6 +202,11 @@ def gather_coverage(
     authors = authors or {}
     for version in env.chain():
         sources = coverage_sources(env, version)
+        if not any(exists(src) for src in sources):
+            # Nothing to resolve against: the environment was never generated, or
+            # its clones are gone. Say that instead of blaming every module.
+            coverage.ungenerated.append(version)
+            continue
         renames = read_apriori(apriori_path(env, version))
         blocking: list[str] = []
         warnings: list[str] = []
@@ -283,6 +292,11 @@ def preflight_rows(
                      f"base is {db.base_version} but the environment was generated for source {db.declared_source}"))
 
     rows.append(("OK", "Installed modules", f"{len(db.installed_modules)} installed"))
+
+    for version in sorted(coverage.ungenerated if coverage else ()):
+        rows.append(("MISSING", f"Coverage ({version})",
+                     "that step's sources are not on disk — generate the environment before "
+                     "reading coverage"))
 
     for version, missing_modules in sorted((coverage.blocking if coverage else {}).items()):
         target = str(custom_dir_for(version)) if custom_dir_for else f"addons/odoo{odoo_major(version)}/custom"

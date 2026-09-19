@@ -62,6 +62,22 @@ All notable changes to this project are documented here. The format is based on
   first run: dead variables in `setup_venv.sh`, and a failure path written as `a && b || c`).
 
 ### Fixed
+- **A blanket `trust` whose address merely *contained* loopback survived the narrowing** — `all` (what the
+  official `postgres` image writes for `POSTGRES_HOST_AUTH_METHOD=trust`), `0.0.0.0/0`, `127.0.0.0/8` — and
+  the check then reported `trust for odoo only`, with the network reachable in the `0.0.0.0/0` case. The
+  rule is now recognised by its **method**, not by a list of addresses, which is what enumerating spellings
+  kept getting wrong.
+- **A role trust line that was present but shadowed counted as narrowed.** `pg_hba` is first-match-wins, so
+  a line below a rule for every role is never read. Both the check and the step now ask whether the line is
+  *reached*, and apply inserts one that is.
+- **`pg_hba.conf` files that pull in rules through `include`, `include_if_exists` or `include_dir`** were
+  read as if those rules did not exist. The state is now reported as unknown — which, since an unknown probe
+  means act, plans the narrowing instead of assuming it is done.
+- **The migration preflight blamed the modules when the environment had never been generated.** With no
+  clones on disk nothing resolves, so every installed module was reported missing and Odoo's own — `base`
+  among them — as "dropped by Odoo". Both the interactive check and the driver's own coverage now say the
+  step's sources are not on disk and classify nothing.
+
 - **A migration step ran even when its OpenUpgrade code was not on disk.** Odoo says nothing when
   `--upgrade-path` names a directory that is not there — it finds no scripts — so a chain whose checkout was
   interrupted or partially deleted migrated nothing and still reported `[done] migration complete`, with a
