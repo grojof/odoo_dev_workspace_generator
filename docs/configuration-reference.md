@@ -13,13 +13,13 @@ older profiles keep loading. Loading a profile validates it before use.
 
 | Field | Type | Default | Meaning |
 |-------|------|---------|---------|
-| `name` | string | — (required) | Workspace/client id. Must match `^[a-z][a-z0-9_]{0,31}$` (filesystem- and PostgreSQL-safe). Reused for instance names, `db_user`, and `addon_prefix`. |
+| `name` | string | — (required) | Workspace/client id. Must match `^[a-z][a-z0-9_]{0,31}$` (filesystem- and PostgreSQL-safe). Reused for instance names and `addon_prefix`. |
 | `versions` | string[] | `["18.0"]` | Odoo versions to host (e.g. `"18.0"`). At least one; each must be a parseable Odoo version. Deduplicated and ordered by major. |
 | `addon_prefix` | string | = `name` | Prefix for scaffolded custom modules. |
 | `http_port_base` | int | `8069` | HTTP port of the lowest-major instance; higher majors get `+step` each. |
 | `db_host` | string | `127.0.0.1` | PostgreSQL host written into each `odoo.conf`. |
 | `db_port` | int | `5432` | PostgreSQL port. |
-| `db_user` | string | = `name` | PostgreSQL role written into each `odoo.conf`. |
+| `db_user` | string | `odoo` | PostgreSQL role written into each `odoo.conf`: by default the shared development role that `provision apply` creates. Must match `^[a-z_][a-z0-9_]{0,62}$`. |
 | `oca_repos` | string[] | `[]` | OCA repository names (e.g. `"web"`, `"server-tools"`), cloned per version from `github.com/OCA/<repo>` and symlinked into `addons-oca/odoo<major>/`. Empty by default — no opinionated preset. |
 
 ## Development versions and interpreters
@@ -42,13 +42,27 @@ Each instance's venv is built with an interpreter resolved against that matrix:
 There is no profile field for the interpreter: it is asked at generation time, because the answer depends on
 the host, not on the profile.
 
+## One development database role
+
+Every workspace connects as `odoo`, the role `provision apply` creates by default and migration environments
+use, so a freshly provisioned host serves a new workspace with no extra step. A role per workspace would add a
+`sudo` step for each client and isolate nothing, since loopback authentication is `trust`
+([`provisioning.md`](provisioning.md#why-trust-on-loopback)). Set `db_user` in the profile if you want another
+role; `provision apply` creates whichever role you name.
+
+The trade-off: Odoo's database selector lists the databases the connecting role owns, so every workspace's
+selector shows every development database on the host — as it already does across the versions of one
+workspace. Open the one you mean, or pass `-d <db>` to `odoo-bin`.
+
+Existing workspaces keep their role: `workspace.json` records the resolved `db_user`, and managing a
+workspace reads it from there.
+
 ## Example
 
 ```json
 {
   "name": "acme",
   "versions": ["17.0", "18.0"],
-  "db_user": "acme",
   "oca_repos": ["web", "server-tools"]
 }
 ```

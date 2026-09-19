@@ -41,7 +41,7 @@ Two optional user-facing **sections** plus one **mode**:
 | Surface | What it does | Requires root? |
 |---|---|---|
 | **workspace** | Per-client workspaces: shared Odoo/OCA repo cache, per-instance venv, `addons-custom`/`addons-oca`, per-version `odoo.conf`, VSCode files, and a robust per-workspace README. | No (user's home) |
-| **provision** *(optional)* | Prepare *a Linux host*: build dependencies, PostgreSQL + role, wkhtmltopdf, and Node + rtlcss (opt-in). Targets the Ubuntu releases in the [support matrix](docs/support-matrix.md). | `apply` may |
+| **provision** *(optional)* | Prepare *a Linux host*: build dependencies, PostgreSQL + role, wkhtmltopdf, and Node + rtlcss (opt-in). Targets Ubuntu 24.04, per the [support matrix](docs/support-matrix.md). | `apply` may |
 | **migration** *(mode)* | OpenUpgrade chained upgrade **12 → 19** (sequential, no skips): **preflight verification** (host, dump, database, addons coverage), per-version interpreters via `uv`, **custom-module staging** (OCA `odoo-module-migrator` + analysis findings + scaffolds), a checkpointing driver, and environment cleanup. | No |
 
 ## Install & first run

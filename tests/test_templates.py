@@ -16,6 +16,8 @@ def test_odoo_conf_has_composed_addons_path_and_derived_port():
     assert "http_port = 8079" in conf  # 17=8069, 18=8079, 19=8089
     assert "gevent_port = 9079" in conf  # bus port = http + 1000, Odoo >= 16 key
     assert "workers = 0" in conf  # development posture
+    # The shared development role, not one named after the workspace.
+    assert "db_user = odoo\n" in conf
 
 
 def test_odoo_conf_uses_longpolling_key_below_16():

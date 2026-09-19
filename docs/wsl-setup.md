@@ -163,7 +163,7 @@ python3 -m odoo_dwg provision       # menu → "Check host readiness"
 ```
 
 The table shows what is missing: build dependencies, PostgreSQL and its development role, wkhtmltopdf,
-and optionally Node, `uv` and Docker. Then run **Apply** from the same menu: it asks for `sudo`, shows the
+and optionally Node and `uv`. Then run **Apply** from the same menu: it asks for `sudo`, shows the
 full plan, and only runs it after you confirm.
 
 ```
@@ -177,16 +177,14 @@ full plan, and only runs it after you confirm.
 
 Details and the full capability list: [`provisioning.md`](provisioning.md).
 
-## 7. (Optional) Extras for migrations
+## 7. (Optional) `uv` for other Python versions
 
-Only needed if you are going to migrate databases with OpenUpgrade:
+Needed for migrations with OpenUpgrade, and for workspaces on an Odoo version whose supported Python range
+excludes this host's 3.12 (see [`support-matrix.md`](support-matrix.md)):
 
 - **`uv`** provides the per-version Python interpreters. `provision check` reports it but does not install
   it — follow the official instructions: <https://docs.astral.sh/uv/getting-started/installation/>. Reopen
   the shell afterwards and confirm with `uv --version`.
-- **Docker** is only required when the chain includes a step for Odoo 12 or 13. `provision apply` can
-  install Docker Engine (`docker.io`) inside this Ubuntu — Docker Desktop is not involved. After it is
-  installed, log out and back in so your user picks up the `docker` group.
 
 See [`migration.md`](migration.md).
 

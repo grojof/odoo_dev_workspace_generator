@@ -59,8 +59,20 @@ All notable changes to this project are documented here. The format is based on
   single-branch Odoo clone measured 4.2–5.7 GB, almost all history; a shallow one is about 1 GB. Existing clones
   are left untouched, **Refresh shared repos** keeps working, and `git fetch --unshallow` restores history for
   whoever needs `log`/`blame`.
+- **Workspaces connect as the shared `odoo` role by default** (change `default-shared-db-role`), the role
+  `provision apply` creates by default and migration environments use. `db_user` used to default to the
+  workspace name, a role nobody had created, so a freshly provisioned host could not serve a new workspace.
+  Existing workspaces keep their role (it is recorded in `workspace.json`); a profile can still set
+  `db_user`. Odoo's database selector now lists every development database on the host.
 
 ### Fixed
+- **PostgreSQL role names are validated.** The role typed into `provision apply` was interpolated unquoted
+  into SQL run as `postgres`, and a profile's `db_user` was written through a shell heredoc; both now must
+  be a plain PostgreSQL identifier (`^[a-z_][a-z0-9_]{0,62}$`) and are rejected before any plan is built.
+- **Generated files can no longer break out of their heredoc.** Every file is written with a quoted
+  heredoc whose delimiter was a fixed `EOF`, so a profile value carrying a newline and a line `EOF` (a
+  hand-edited `db_host`, `addon_prefix` or OCA repo name) ended the heredoc early and ran the rest as shell
+  commands — reproduced before the fix. The delimiter is now chosen so that no content line equals it.
 - **The containerised Odoo 13 step silently under-migrated.** The `odoo:13.0` image sets
   `addons_path = /mnt/extra-addons`, so the mounted OpenUpgrade fork's `odoo-bin` loaded the *image's*
   add-ons; in the ≤ 13 layout every migration script lives inside its add-on, so only core scripts ran and

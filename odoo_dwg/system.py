@@ -17,6 +17,7 @@ import subprocess
 from dataclasses import dataclass
 
 from .i18n import t, tf
+from .models import DEFAULT_DB_ROLE
 from .ui import level_text, style, title, wrap_plain_block
 
 
@@ -229,7 +230,7 @@ def pg_restore_lists(dump_path: str) -> tuple[bool, str]:
 
 
 def psql_scalar(
-    query: str, db: str, host: str = "127.0.0.1", port: int = 5432, user: str = "odoo"
+    query: str, db: str, host: str = "127.0.0.1", port: int = 5432, user: str = DEFAULT_DB_ROLE
 ) -> str | None:
     """Single-value ``psql`` query against an existing database, or None on any
     failure. Queries are caller-built from validated identifiers; the operator-

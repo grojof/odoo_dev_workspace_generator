@@ -89,6 +89,8 @@ _ES_TO_EN: dict[str, str] = {
     "Cancelado.": "Cancelled.",
     "Entorno de migración eliminado.": "Migration environment removed.",
     "La base de datos PostgreSQL de migración (si existe) no se toca — bórrala con dropdb cuando quieras una ejecución totalmente limpia.": "The PostgreSQL migration database (if any) is untouched — drop it with dropdb when you want a fully clean run.",
+    "Rol PostgreSQL de desarrollo": "Development PostgreSQL role",
+    "Rol PostgreSQL no válido: {}": "Invalid PostgreSQL role: {}",
     "Elimina el entorno de migración {}": "Remove migration environment {}",
     "Elimina la caché compartida de clones {}": "Remove shared migration clones {}",
     # preflight

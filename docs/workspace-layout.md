@@ -52,7 +52,7 @@ intrinsically Linux and is validated by hand on WSL Ubuntu 24.04:
 # On the Linux host, after generating the workspace:
 cd ~/odoo-workspaces/<name>
 bash scripts/setup_venv.sh                      # python3 -m venv + pip install -r requirements.txt
-createdb <name>                                 # PostgreSQL role/db must exist (see provision, F2)
+createdb <name>                                 # as the `odoo` role that provision apply creates
 bash scripts/run-odoo18.sh                       # odoo-bin -c config/odoo18.conf → serves on its port
 ```
 

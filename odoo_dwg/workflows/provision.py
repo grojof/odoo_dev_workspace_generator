@@ -13,7 +13,7 @@ import os
 
 from .. import planners, provisioning
 from ..i18n import t, tf
-from ..models import supported_host, supported_hosts_text
+from ..models import DB_ROLE_RE, DEFAULT_DB_ROLE, supported_host, supported_hosts_text
 from ..prompts import ask_bool, ask_text, choose
 from ..system import apply_commands, preview_commands
 from ..ui import level_text, render_table
@@ -39,7 +39,11 @@ def _apply() -> None:
         print(level_text("ERROR", t("To apply system changes, run with privileges (sudo).")))
         return
 
-    role = ask_text("Development PostgreSQL role", "odoo", required=True)
+    role = ask_text("Development PostgreSQL role", DEFAULT_DB_ROLE, required=True)
+    # The role reaches SQL run as postgres: refuse anything but a plain identifier.
+    if not DB_ROLE_RE.fullmatch(role):
+        print(level_text("ERROR", tf("Invalid PostgreSQL role: {}", role)))
+        return
     facts = provisioning.gather_facts(dev_role=role)
 
     # Refuse before assembling any command: this host is not one the project
