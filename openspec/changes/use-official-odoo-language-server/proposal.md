@@ -7,8 +7,8 @@ publishes and actively maintains its own: the **OdooLS** language server (`odoo/
 `Odoo.odoo` extension (`odoo/odoo-vscode`), released monthly in lockstep — stable 1.4.0, betas 1.5.x as of
 2026-09-19 — with official plugins for PyCharm, Neovim and Zed as well.
 
-The backlog carried a richer plan: a static emitter deferred until a separate companion extension settled
-profiles, version switching, a doctor and JavaScript support. The official project now covers every one of
+The backlog carried a richer plan: a static emitter deferred until a separate, project-specific extension
+settled profiles, version switching, a doctor and JavaScript support. The official project now covers every one of
 those itself — `[[config]]` profiles switched from the status bar, per-version detection, a
 "Show Server Configuration" view, and, from 1.5, JavaScript and OWL through its own `tsserver` reading the
 manifests' asset bundles. Building on top of it would only add surface that breaks when it moves.
@@ -32,7 +32,14 @@ shared `.repos` cache, often in several versions at once. That gap is the one th
 - **No `jsconfig.json`**, deliberately: OdooLS 1.5 resolves JavaScript from the real asset bundles, a static
   `jsconfig` would run VSCode's own TypeScript over the same files in parallel, and its paths would depend on
   Odoo's internal JS layout, which changes between versions.
-- The backlog item is rewritten accordingly and loses its dependency on the companion extension, which is no
+- **A documented, repeatable procedure for keeping up with the extension.** The language server publishes a
+  `config_schema.json` with every release, and that schema is strict (`additionalProperties: false`: an
+  unknown key is rejected). A stdlib-only `tools/verify_odools_config.py` downloads the schema of the latest
+  stable release, checks that every key and type the generator emits is still accepted, lists the keys it
+  does not use yet (new features to consider), and prints the changelog since the release last reviewed.
+  `docs/editor-integration.md` explains where to look, how to read the result, and how a finding becomes a
+  change — so adopting a new feature is a decision, not a surprise.
+- The backlog item is rewritten accordingly and loses its dependency on that separate extension, which is no
   longer planned.
 
 Out of scope: IDE integrations other than VSCode (the `odools.toml` is shared by every OdooLS client, so they
@@ -48,9 +55,14 @@ benefit anyway), and the `launch.json` debug shape, which remains its own valida
 
 - **Code**: `templates.py` (`render_odools_toml`, the extensions and settings renderers), `planners.py`
   (write the new file with the tree).
-- **Docs**: `docs/workspace-layout.md` (the new file and the editor setup), `docs/roadmap.md`,
-  `CHANGELOG.md`.
+- **Tooling**: `tools/verify_odools_config.py`, stdlib-only and outside the package, like
+  `tools/verify_support_matrix.py`.
+- **Docs**: a new `docs/editor-integration.md` (the setup and the update procedure),
+  `docs/workspace-layout.md`, `CONTRIBUTING.md`, `docs/roadmap.md`, `CHANGELOG.md`.
 - **Dependencies**: none. The file is plain TOML text; nothing is installed.
-- **Verifiable on the reference host**: generate a workspace with two versions and confirm the rendered
-  `odools.toml` points at the real clones and venvs. Whether the extension then loads it is a manual check in
-  VSCode — recorded as such, not claimed.
+- **Verified on the reference host**, beyond rendering: a two-version workspace (14.0 and 18.0) was generated
+  with the tool, and the official OdooLS binaries — 1.4.0 stable and 1.5.2 beta — were run against its
+  `odools.toml` with a probe module. Both accepted the file under their strict schema, selected each profile by
+  name, loaded the workspace's own interpreters (the `uv` 3.8 for 14.0, the host 3.12 for 18.0), resolved
+  `res.partner` from core and reported only the probe's deliberate error. What remains manual is the editor
+  UI itself — the status-bar switcher — which the CLI does not exercise.

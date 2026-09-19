@@ -3,7 +3,7 @@ type: explanation
 title: "Roadmap (F0–F4) and backlog"
 description: "Phased delivery plan and the parked backlog for the Odoo dev/migration workspace generator."
 audience: [contributor]
-updated: 2026-09-17
+updated: 2026-09-19
 ---
 
 # Roadmap
@@ -73,13 +73,15 @@ items are host-dependent.
   workflows in repos with 60 days of inactivity, which is precisely when the alert would matter.
   `tools/verify_support_matrix.py` is a documented manual habit instead. Revisit if more people contribute
   (then PR gating earns its keep) or if the repo goes public (Actions is free there).
-- **VSCode official-extension emitter** — optional static emitter for the official `Odoo.odoo` extension:
-  `odools.toml` profiles (verified schema: `[[config]]` + `name`/`extends`/`odoo_path`/`addons_paths`/
-  `python_path`, vars `${workspaceFolder}`/`${detectVersion}`/`$autoDetectAddons`), an OWL `jsconfig.json`,
-  stylelint wiring, and recommending `Odoo.odoo` in `extensions.json` (replacing the community pick).
-  **Deferred until the sibling VSCode extension stabilizes the format** — the dynamic logic (profiles,
-  version switching, doctor) lives there, this emitter stays static. Sibling project (WIP):
-  [grojof/odoo-ls-companion](https://github.com/grojof/odoo-ls-companion).
+- ~~Official Odoo extension support~~ — **done** (2026-09-19, change `use-official-odoo-language-server`).
+  Workspaces recommend the official `Odoo.odoo` extension instead of a third-party one, turn Pylance off so
+  Python is analysed once, and carry an `odools.toml` with one profile per version ≥ 14 using only the four
+  documented minimal keys as absolute paths. No `jsconfig.json`: OdooLS 1.5 handles JavaScript and OWL from
+  the manifests' asset bundles. A richer emitter was dropped — the official extension already provides
+  profiles, per-version switching and a configuration view — and `tools/verify_odools_config.py` plus
+  [`docs/editor-integration.md`](editor-integration.md) keep the emitted file in step with new releases.
+  Validated by running the official OdooLS binaries (1.4.0 stable and 1.5.2 beta) against a generated
+  workspace. Open: whether to adopt any 1.5 key once 1.5 reaches the stable channel.
 - **Provision password-auth mode** — instead of loopback `trust`, create the PostgreSQL role with a password
   and write `db_password` into the workspace `odoo.conf` (needs an `odoo.conf` password field). Safer for
   shared/remote PostgreSQL; the current trust is dev-only. (Deferred open question from F2 design.)

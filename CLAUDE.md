@@ -17,6 +17,7 @@ project status — look that up in the files below.
 | What the tool does, user-facing map | [`README.md`](README.md) |
 | Commands, menus, confirmation phrases | [`docs/commands.md`](docs/commands.md) |
 | What is supported (hosts, Python, PostgreSQL) | [`docs/support-matrix.md`](docs/support-matrix.md) — declared in `models.py`, re-verified by `tools/verify_support_matrix.py` |
+| Editor integration (official Odoo extension) and its update procedure | [`docs/editor-integration.md`](docs/editor-integration.md) — re-verified by `tools/verify_odools_config.py` |
 | Workspace profile / layout | [`docs/configuration-reference.md`](docs/configuration-reference.md), [`docs/workspace-layout.md`](docs/workspace-layout.md) |
 | Provisioning / migration guides | [`docs/provisioning.md`](docs/provisioning.md), [`docs/migration.md`](docs/migration.md) |
 | Contribution rules, checks, commits | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
@@ -44,7 +45,7 @@ unless they are `system.py`.
 ## Non-negotiable principles
 
 - **Zero runtime dependencies.** Python 3.10+, `from __future__ import annotations`, stdlib only. System
-  tools (`git`, `uv`, `psql`, `docker`…) are host prerequisites detected by `provision check`, never Python
+  tools (`git`, `uv`, `psql`…) are host prerequisites detected by `provision check`, never Python
   deps. Adding a runtime dependency requires a documented design decision.
 - **Plan → preview → confirm → apply is inviolable.** No code path mutates the host without a previewed
   plan; destructive/data actions require `confirm_with_phrase`. Planners stay pure.
@@ -84,6 +85,7 @@ python -m odoo_dwg --help           # CLI smoke test
 # The declared floor (3.10) — the reference box runs 3.12, so nothing else exercises it:
 PYTHONPATH=. uv run --python 3.10 --with pytest --no-project pytest -q
 python tools/verify_support_matrix.py   # re-derive the support matrix from its sources (network; not in the suite)
+python tools/verify_odools_config.py    # editor config vs the latest official OdooLS release (network)
 ```
 
 End-to-end validation (cloning Odoo, building venvs, running `odoo-bin`, migrations) happens on a real

@@ -50,6 +50,12 @@ holds absolute paths too).
 itself, so the profile takes the same composition without its last entry — derived from the same model method
 rather than restated, so the two can never disagree.
 
+Verified in the OdooLS 1.4.0 source rather than assumed: `core/odoo.rs` adds `<odoo_path>/addons` whenever
+`load_odoo_addons` is set, which is the default for every editor session; only the one-shot CLI turns it off
+(`cli_backend.rs`). The `addons_paths` loop that follows does not deduplicate, so listing core explicitly would
+load it twice in the editor. The documented consequence for the CLI is accepted: running `odoo_ls_server
+--parse` on a generated workspace needs `-a <odoo_path>/addons`, as the official CLI documentation says.
+
 ### D3: One profile per version, named after the workspace and version
 
 `acme 18.0` reads clearly in the status bar switcher. A single-version workspace gets a single profile, which
@@ -70,12 +76,32 @@ built-in TypeScript on the same files in parallel, and its path aliases would tr
 which shifts between versions. The trade-off, accepted: until 1.5 leaves beta, users on the stable 1.4
 channel get no JavaScript intelligence from the language server.
 
+### D6: The published schema is the authority, checked by a command
+
+Every OdooLS release ships `config_schema.json`, and it is strict — `additionalProperties: false`, so a key
+it does not know is rejected, not ignored. That makes it a better check than the wiki: the wiki documents
+beta keys (`disable_javascript`, `ts_check`, from 1.5.0) that the 1.4.0 stable schema does not contain, and
+emitting one of those would break a stable install.
+
+`tools/verify_odools_config.py` (stdlib, network, outside the package, like the support-matrix verifier)
+reads the latest **stable** release's schema: any emitted key missing or retyped fails; any schema key not
+emitted is listed as a candidate feature; the changelog since `ODOOLS_REVIEWED_VERSION` is printed. The
+reviewed version is a constant next to the renderer, so bumping it is part of the change that adopts what the
+review found. Prereleases are reported but never used to judge, because their keys are not yet safe to emit.
+
+### D7: No profile for Odoo 12 or 13
+
+OdooLS refuses Odoo below 14 (`core/odoo.rs`: "The tool only supports version 14 and above … switching to
+non-odoo mode"). A workspace may still hold 12 or 13, since the support matrix covers them, so those versions
+get no profile — an entry that is guaranteed to fail would only put an error in the editor. The file lists the
+skipped versions in a comment, and a workspace with no supported version gets no `odools.toml` at all.
+
 ## Risks / Trade-offs
 
 - **The extension is still "in development"** by its own README → the file uses the smallest stable subset,
   and nothing in the tool depends on the extension being installed; ignoring it costs nothing.
-- **A key is renamed upstream** → the verification is cheap (render, compare with the wiki's minimal example),
-  and the four keys have been stable across the releases on record.
+- **A key is renamed upstream** → `tools/verify_odools_config.py` fails on the next review, naming the key
+  and the release.
 - **A workspace is moved** → its `odoo.conf` breaks the same way; regeneration fixes both, as today.
 
 ## Migration Plan
