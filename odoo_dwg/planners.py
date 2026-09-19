@@ -13,7 +13,7 @@ import shlex
 from collections.abc import Callable
 from pathlib import Path
 
-from . import templates
+from . import egress, templates
 from .i18n import tf
 from .models import (
     PKG_RESOURCES_LAST_MAJOR,
@@ -332,8 +332,163 @@ def plan_wkhtmltopdf(major: int, codename: str) -> list[Command]:
 def plan_node_rtlcss() -> list[Command]:
     """Optional web toolchain for RTL/less asset compilation."""
     return [
-        Command(tf("Install Node.js and npm"), "apt-get update && apt-get -y install nodejs npm"),
+        # Without recommends: they pulled in 455 packages on Ubuntu 24.04, a GUI
+        # terminal among them, for what only needs node and npm.
+        Command(tf("Install Node.js and npm"),
+                "apt-get update && apt-get -y install --no-install-recommends nodejs npm"),
         Command(tf("Install rtlcss globally"), "npm install -g rtlcss"),
+    ]
+
+
+# --- egress control and mail capture (optional) ----------------------------
+
+_POLICY_RC = "/usr/sbin/policy-rc.d"
+_POLICY_MARK = "odoo_dwg: keep opensnitch stopped until it is configured"
+
+
+def plan_opensnitch(resolvers: list[str], installed_version: str | None = None) -> list[Command]:
+    """Install OpenSnitch from its pinned upstream packages, harden its config and
+    write the owned baseline rules, then (re)start it.
+
+    The packages are verified by SHA-512 and the service is kept from starting
+    until the configuration and rules are in place (``policy-rc.d``): the shipped
+    defaults would flush open connections and allow everything. When the pinned
+    version is already installed, only the configuration, rules and restart run."""
+    commands: list[Command] = []
+    if not (installed_version or "").startswith(egress.OPENSNITCH_VERSION):
+        workdir = "/tmp/odwg-opensnitch"
+        debs = [f"{workdir}/{name}" for name, _sha in egress.OPENSNITCH_PACKAGES]
+        commands += [
+            Command(tf("Ensure curl is available"),
+                    "command -v curl >/dev/null 2>&1 || (apt-get update && apt-get -y install curl)"),
+            Command(tf("Create download directory {}", workdir), f"mkdir -p {shlex.quote(workdir)}"),
+        ]
+        for (name, sha512), deb in zip(egress.OPENSNITCH_PACKAGES, debs, strict=True):
+            commands += [
+                Command(tf("Download {}", name),
+                        f"curl -fSL -o {shlex.quote(deb)} "
+                        f"{shlex.quote(egress.OPENSNITCH_BASE_URL + '/' + name)}"),
+                Command(tf("Verify {} SHA-512 (abort on mismatch)", name),
+                        f"echo {shlex.quote(sha512 + '  ' + deb)} | sha512sum -c -"),
+            ]
+        install = " ".join(shlex.quote(deb) for deb in debs)
+        commands += [
+            Command(
+                tf("Install OpenSnitch {} without starting it", egress.OPENSNITCH_VERSION),
+                # Refuse to replace an existing policy-rc.d; always remove ours,
+                # even when the install fails.
+                f"if [ -e {_POLICY_RC} ]; then echo '{_POLICY_RC} already exists' >&2; exit 1; fi; "
+                f"printf '#!/bin/sh\\n# {_POLICY_MARK}\\nexit 101\\n' > {_POLICY_RC} && "
+                f"chmod 755 {_POLICY_RC}; "
+                f"apt-get -y install {install}; status=$?; rm -f {_POLICY_RC}; exit $status",
+            ),
+            Command(tf("Remove downloaded packages"), f"rm -rf {shlex.quote(workdir)}"),
+        ]
+    commands.append(
+        Command(
+            tf("Harden {}", egress.OPENSNITCH_CONFIG),
+            f"python3 - <<'PYEOF'\n{egress.hardening_script()}PYEOF",
+        )
+    )
+    commands.append(
+        Command(
+            tf("Replace the tool's own OpenSnitch rules ({}*)", egress.RULE_PREFIX),
+            f"rm -f {shlex.quote(egress.OPENSNITCH_RULES_DIR)}/{egress.RULE_PREFIX}*.json",
+        )
+    )
+    for rule in egress.baseline_rules(resolvers):
+        path = f"{egress.OPENSNITCH_RULES_DIR}/{egress.rule_filename(rule)}"
+        commands += write_text_file_command(path, egress.render_rule(rule), "644")
+    commands.append(
+        Command(tf("Enable and (re)start OpenSnitch"),
+                "systemctl enable opensnitch && systemctl restart opensnitch")
+    )
+    return commands
+
+
+def plan_mailpit(installed_version: str | None = None) -> list[Command]:
+    """Install Mailpit from its pinned release (SHA-256 verified) as a system
+    service bound to 127.0.0.1; only the unit and restart run when the pinned
+    version is already installed."""
+    commands: list[Command] = []
+    if installed_version != egress.MAILPIT_VERSION:
+        workdir = "/tmp/odwg-mailpit"
+        archive = f"{workdir}/mailpit-linux-amd64.tar.gz"
+        commands += [
+            Command(tf("Ensure curl is available"),
+                    "command -v curl >/dev/null 2>&1 || (apt-get update && apt-get -y install curl)"),
+            Command(tf("Create download directory {}", workdir), f"mkdir -p {shlex.quote(workdir)}"),
+            Command(tf("Download Mailpit {}", egress.MAILPIT_VERSION),
+                    f"curl -fSL -o {shlex.quote(archive)} {shlex.quote(egress.MAILPIT_URL)}"),
+            Command(tf("Verify Mailpit SHA-256 (abort on mismatch)"),
+                    f"echo {shlex.quote(egress.MAILPIT_SHA256 + '  ' + archive)} | sha256sum -c -"),
+            Command(tf("Install Mailpit to {}", egress.MAILPIT_BINARY),
+                    f"tar -xzf {shlex.quote(archive)} -C {shlex.quote(workdir)} mailpit && "
+                    f"install -m 755 {shlex.quote(workdir + '/mailpit')} "
+                    f"{shlex.quote(egress.MAILPIT_BINARY)}"),
+            Command(tf("Remove downloaded files"), f"rm -rf {shlex.quote(workdir)}"),
+        ]
+    commands += write_text_file_command(egress.MAILPIT_UNIT, egress.render_mailpit_unit(), "644")
+    commands.append(
+        Command(tf("Enable and (re)start Mailpit"),
+                "systemctl daemon-reload && systemctl enable mailpit && systemctl restart mailpit")
+    )
+    return commands
+
+
+OPENSNITCH_PACKAGE_NAMES = ("opensnitch", "python3-opensnitch-ui")
+
+
+def plan_service_switch(unit: str, on: bool) -> list[Command]:
+    """Turn a service on or off, and keep it that way across restarts."""
+    if on:
+        return [Command(tf("Turn on {} (and at every start)", unit),
+                        f"systemctl enable --now {shlex.quote(unit)}")]
+    return [Command(tf("Turn off {} (and keep it off after a restart)", unit),
+                    f"systemctl disable --now {shlex.quote(unit)}")]
+
+
+def plan_opensnitch_uninstall() -> list[Command]:
+    """Stop OpenSnitch, remove the tool's own rules, and purge the packages with the
+    dependencies they pulled in. The operator's own rules are left in place."""
+    packages = " ".join(OPENSNITCH_PACKAGE_NAMES)
+    return [
+        Command(tf("Turn off {} (and keep it off after a restart)", "opensnitch"),
+                "systemctl disable --now opensnitch"),
+        Command(tf("Remove the tool's own OpenSnitch rules ({}*)", egress.RULE_PREFIX),
+                f"rm -f {shlex.quote(egress.OPENSNITCH_RULES_DIR)}/{egress.RULE_PREFIX}*.json"),
+        Command(tf("Purge OpenSnitch and the packages it pulled in"),
+                f"apt-get -y purge --autoremove {packages}"),
+        # The packet-queue modules it loaded stay in the kernel until reboot otherwise.
+        Command(tf("Unload the kernel modules it used"),
+                "modprobe -r nft_queue nfnetlink_queue 2>/dev/null || true"),
+    ]
+
+
+def plan_mailpit_uninstall() -> list[Command]:
+    """Stop Mailpit and remove its unit, binary and captured mail."""
+    return [
+        Command(tf("Turn off {} (and keep it off after a restart)", "mailpit"),
+                "systemctl disable --now mailpit"),
+        Command(tf("Remove {}", egress.MAILPIT_UNIT),
+                f"rm -f {shlex.quote(egress.MAILPIT_UNIT)} && systemctl daemon-reload"),
+        Command(tf("Remove {}", egress.MAILPIT_BINARY), f"rm -f {shlex.quote(egress.MAILPIT_BINARY)}"),
+        # DynamicUser keeps the state in /var/lib/private/, linked from /var/lib/.
+        Command(tf("Remove the captured mail ({})", "/var/lib/mailpit"),
+                "rm -rf /var/lib/mailpit /var/lib/private/mailpit"),
+    ]
+
+
+def plan_mail_redirect(database: str, host: str, port: int, user: str) -> list[Command]:
+    """Point a database's mail servers at Mailpit and stop it fetching mail. For
+    rehearsal copies only; the workflow asks for a confirmation phrase first."""
+    return [
+        Command(
+            tf("Redirect the mail of database {} to Mailpit", database),
+            f"psql -h {shlex.quote(host)} -p {int(port)} -U {shlex.quote(user)} "
+            f"-d {shlex.quote(database)} -v ON_ERROR_STOP=1 "
+            f"-c {shlex.quote(egress.mail_redirect_sql())}",
+        )
     ]
 
 

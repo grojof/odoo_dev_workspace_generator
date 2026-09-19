@@ -91,6 +91,16 @@ items are host-dependent.
   remote PostgreSQL, which a local development tool does not target, and it would add secret generation and
   storage, a plaintext password in `odoo.conf` and new `pg_hba` rules — a security surface with no user.
   Loopback `trust` is documented as intentional in `docs/provisioning.md`, with the manual steps if needed.
+- ~~Outbound firewall and mail capture~~ — **done** (2026-09-19, change `add-egress-control`). The need was
+  testing and migrating copies of production without mailing customers or calling real services. The choice
+  was host-level control, since Odoo's `neutralize` is version-bound and blind to custom addons:
+  - **OpenSnitch:** deny by default, ask when its window is open, and log every decision to the journal;
+  - **Mailpit:** local mail capture.
+  
+  Both are opt-in in `provision`, pinned and verified, and can be turned off or on, or uninstalled, from its
+  menu. A spike and the operator's own test on WSL drove every non-default setting (`proc` monitoring,
+  `InterceptUnknown`, fail closed, the journal logger) and the rule order that keeps `odoo-bin` on localhost.
+  See [`egress-control.md`](egress-control.md).
 ## Validation / refinement (host-dependent)
 
 - ~~Migration overrides tuning~~ — **done** (2026-07-18): 14/15 install clean on 3.8; 16/17 needed the

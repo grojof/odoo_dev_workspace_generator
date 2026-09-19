@@ -200,6 +200,36 @@ def wkhtmltopdf_version() -> str | None:
     return text or None
 
 
+def deb_version(package: str) -> str | None:
+    """Installed Debian package version (e.g. ``1.8.0-1``), or None when absent."""
+    result = run(
+        f"dpkg-query -W -f='${{Status}} ${{Version}}' {shlex.quote(package)} 2>/dev/null",
+        check=False,
+    )
+    parts = result.stdout.split()
+    return parts[-1] if result.returncode == 0 and "installed" in parts else None
+
+
+def service_active(unit: str) -> bool:
+    return command_ok(f"systemctl is-active --quiet {shlex.quote(unit)}")
+
+
+def read_text(path: str) -> str | None:
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return handle.read()
+    except OSError:
+        return None
+
+
+def mailpit_version(binary: str) -> str | None:
+    """``1.31.2`` from ``mailpit version``, or None when the binary is absent."""
+    if not os.path.exists(binary):
+        return None
+    match = re.search(r"v(\d+\.\d+\.\d+)", run(f"{shlex.quote(binary)} version", check=False).stdout)
+    return match.group(1) if match else None
+
+
 def postgres_installed() -> bool:
     return has_tool("psql") or package_installed("postgresql")
 

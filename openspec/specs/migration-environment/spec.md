@@ -5,6 +5,7 @@
 Generates a self-contained OpenUpgrade environment for a source → target chain: per-version clones, a virtual environment per step on an interpreter that step supports, per-step configs, and the driver that runs them in order.
 
 ## Requirements
+
 ### Requirement: Per-version clones from the shared cache
 
 The system SHALL clone, for each target version in the chain, `odoo/odoo` and `OCA/OpenUpgrade` on the
@@ -154,3 +155,12 @@ the dev workspace's job.
 - **WHEN** an override falls outside that version's declared Python range
 - **THEN** the flow states the range, the chosen version and the bound's evidence tier, and applies the
   override only on explicit confirmation
+
+### Requirement: Migration steps send mail to the local capture
+
+Each migration step's generated `odoo.conf` SHALL set `smtp_server = 127.0.0.1` and `smtp_port = 1025`.
+
+#### Scenario: SMTP keys in a step config
+
+- **WHEN** the step config for `17.0` is rendered
+- **THEN** it contains `smtp_server = 127.0.0.1` and `smtp_port = 1025`

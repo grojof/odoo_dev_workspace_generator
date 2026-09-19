@@ -286,3 +286,14 @@ The database, the modules and the test module SHALL be asked when a configuratio
 
 - **WHEN** the Odoo 18 test module configuration is started and `sale` is entered as the module
 - **THEN** it upgrades `sale`, runs only the tests tagged `/sale` and stops
+
+### Requirement: Workspace mail goes to the local capture
+
+Each generated workspace `odoo.conf` SHALL set `smtp_server = 127.0.0.1` and `smtp_port = 1025`, so that mail
+sent through the configuration server reaches the local capture when it runs and is refused when it does
+not. It is never delivered elsewhere.
+
+#### Scenario: SMTP keys in odoo.conf
+
+- **WHEN** `config/odoo18.conf` is rendered
+- **THEN** it contains `smtp_server = 127.0.0.1` and `smtp_port = 1025`

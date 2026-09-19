@@ -33,6 +33,7 @@ python tools/verify_support_matrix.py            # re-derive every bound from it
 python tools/verify_support_matrix.py 18.0 19.0  # only these versions
 python tools/verify_odools_config.py             # the editor config vs the latest OdooLS release
 python tools/verify_workspace_versions.py        # build every version's venv, start Odoo on each (host)
+python tools/verify_egress_pins.py               # OpenSnitch/Mailpit pins vs their signed/published sources
 ```
 
 The last one changes the host: it previews a plan, asks before applying, and removes what it created. See

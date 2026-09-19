@@ -210,6 +210,7 @@ def test_wkhtmltopdf_plan_empty_for_legacy_and_unmapped():
 def test_node_rtlcss_plan():
     joined = "\n".join(c.command for c in planners.plan_node_rtlcss())
     assert "nodejs" in joined and "npm install -g rtlcss" in joined
+    assert "apt-get -y install --no-install-recommends nodejs npm" in joined
 
 
 def test_build_venv_pins_setuptools_per_era():

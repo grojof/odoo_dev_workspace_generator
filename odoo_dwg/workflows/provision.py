@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import os
 
-from .. import planners, provisioning
+from .. import egress, planners, provisioning, system
 from ..i18n import t, tf
 from ..models import DB_ROLE_RE, DEFAULT_DB_ROLE, supported_host, supported_hosts_text
-from ..prompts import ask_bool, ask_text, choose
+from ..prompts import ask_bool, ask_text, choose, confirm_with_phrase
 from ..system import apply_commands, preview_commands
 from ..ui import level_text, render_table
 
@@ -72,6 +72,7 @@ def _apply() -> None:
         commands += planners.plan_wkhtmltopdf(_DEV_WKHTMLTOPDF_MAJOR, facts.os_codename)
     if ask_bool("Also install the optional web toolchain (Node + rtlcss)?", False):
         commands += planners.plan_node_rtlcss()
+    commands += _optional_egress(facts)
 
     if not commands:
         print(level_text("OK", t("Host already provisioned — nothing to do.")))
@@ -83,11 +84,116 @@ def _apply() -> None:
         print(level_text("OK", t("Provisioning applied.")))
 
 
+def _optional_egress(facts: provisioning.ProvisionFacts) -> list:
+    """The opt-in outbound firewall and mail capture (docs/egress-control.md)."""
+    commands: list = []
+    print(
+        level_text(
+            "INFO",
+            t(
+                "OpenSnitch blocks every outbound connection without a rule, asking in its UI "
+                "when it is open. Odoo may reach only localhost; the development tools keep "
+                "their hosts. See docs/egress-control.md."
+            ),
+        )
+    )
+    if ask_bool("Install or update the outbound firewall (OpenSnitch)?", False):
+        commands += planners.plan_opensnitch(facts.resolvers, facts.opensnitch_version)
+    if ask_bool("Install or update the local mail capture (Mailpit)?", False):
+        commands += planners.plan_mailpit(facts.mailpit_version)
+    return commands
+
+
+def _egress_status() -> tuple[str | None, bool, str | None, bool]:
+    opensnitch = system.deb_version("opensnitch")
+    mailpit = system.mailpit_version(egress.MAILPIT_BINARY)
+    return (
+        opensnitch,
+        bool(opensnitch) and system.service_active("opensnitch"),
+        mailpit,
+        bool(mailpit) and system.service_active("mailpit"),
+    )
+
+
+def _uninstall_opensnitch() -> None:
+    packages = " ".join(planners.OPENSNITCH_PACKAGE_NAMES)
+    simulated = system.run(f"apt-get -s purge --autoremove {packages}", check=False).stdout
+    removed = sorted({line.split()[1] for line in simulated.splitlines() if line.startswith("Purg ")})
+    print(level_text("INFO", tf("apt would remove {} package(s): {}", len(removed), ", ".join(removed))))
+    print(level_text("INFO", tf("Your own rules in {} are kept.", egress.OPENSNITCH_RULES_DIR)))
+    if not confirm_with_phrase(t("This removes the outbound firewall."), "UNINSTALL"):
+        print(level_text("INFO", t("Cancelled.")))
+        return
+    _preview_and_apply(planners.plan_opensnitch_uninstall())
+
+
+def _uninstall_mailpit() -> None:
+    if not confirm_with_phrase(
+        t("This removes Mailpit and every message it captured."), "UNINSTALL"
+    ):
+        print(level_text("INFO", t("Cancelled.")))
+        return
+    _preview_and_apply(planners.plan_mailpit_uninstall())
+
+
+def _preview_and_apply(commands: list) -> None:
+    preview_commands(commands)
+    if ask_bool("Apply this plan now?", False):
+        apply_commands(commands)
+        print(level_text("OK", t("Done.")))
+
+
+def _egress_menu() -> None:
+    """Turn the outbound firewall and the mail capture on or off, or uninstall them."""
+    if not _is_root():
+        print(level_text("ERROR", t("To apply system changes, run with privileges (sudo).")))
+        return
+    while True:
+        opensnitch, firewall_on, mailpit, capture_on = _egress_status()
+        rows = [
+            ["OpenSnitch", opensnitch or t("not installed"),
+             t("on") if firewall_on else t("off")],
+            ["Mailpit", mailpit or t("not installed"), t("on") if capture_on else t("off")],
+        ]
+        print(render_table(["Component", "Version", "State"], rows))
+        options: list[str] = []
+        if opensnitch:
+            options.append("Turn the outbound firewall off" if firewall_on
+                           else "Turn the outbound firewall on")
+            options.append("Uninstall the outbound firewall")
+        if mailpit:
+            options.append("Turn the mail capture off" if capture_on else "Turn the mail capture on")
+            options.append("Uninstall the mail capture")
+        if not options:
+            print(level_text("INFO", t("Neither is installed — use Apply to install them.")))
+            return
+        action = choose("\nOutbound firewall and mail capture", options + ["Back"], default_index=None)
+        if action in ("", "Back"):
+            return
+        if action == "Turn the outbound firewall off":
+            _preview_and_apply(planners.plan_service_switch("opensnitch", on=False))
+        elif action == "Turn the outbound firewall on":
+            _preview_and_apply(planners.plan_service_switch("opensnitch", on=True))
+        elif action == "Uninstall the outbound firewall":
+            _uninstall_opensnitch()
+        elif action == "Turn the mail capture off":
+            _preview_and_apply(planners.plan_service_switch("mailpit", on=False))
+        elif action == "Turn the mail capture on":
+            _preview_and_apply(planners.plan_service_switch("mailpit", on=True))
+        elif action == "Uninstall the mail capture":
+            _uninstall_mailpit()
+
+
 def provision_menu() -> None:
     while True:
         action = choose(
             "\nSystem provisioning",
-            ["Check host readiness", "Apply (install what's missing)", "Back"],
+            [
+                "Check host readiness",
+                "Apply (install what's missing)",
+                "Outbound firewall and mail capture (on/off, uninstall)",
+                "Back",
+            ],
             default_index=None,
         )
         if action in ("", "Back"):
@@ -96,3 +202,5 @@ def provision_menu() -> None:
             _check()
         elif action == "Apply (install what's missing)":
             _apply()
+        elif action == "Outbound firewall and mail capture (on/off, uninstall)":
+            _egress_menu()

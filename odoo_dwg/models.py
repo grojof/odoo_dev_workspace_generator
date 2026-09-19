@@ -30,6 +30,9 @@ DEFAULT_DB_ROLE = "odoo"
 # plain unquoted identifier is accepted (lowercase: unquoted names fold to it;
 # 63 bytes: NAMEDATALEN - 1).
 DB_ROLE_RE = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
+# A database name as Odoo's own database manager accepts it (DBNAME_PATTERN in
+# addons/web/controllers/main.py on 14, database.py on 19).
+DB_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]+$")
 
 # First-class development versions (see the plan: dev on current majors).
 SUPPORTED_DEV_VERSIONS: tuple[str, ...] = ("17.0", "18.0", "19.0")
