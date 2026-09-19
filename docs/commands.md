@@ -47,6 +47,8 @@ A plan is always previewed and confirmed first. While it runs:
 |---|---|
 | `ODWG_LANG=en\|es` | UI language without the startup prompt (artifacts are always English) |
 | `ODWG_VERBOSE=1` | Stream every line a plan's commands print, same as `--verbose` |
+| `NO_COLOR` | Set to anything: never colour the output, whatever the terminal is |
+| `FORCE_COLOR` | Set to anything: colour even when the output is not a terminal (ignored when `NO_COLOR` is set) |
 
 ## Menus and actions
 
@@ -88,5 +90,6 @@ Every menu shows a numbered list; `0` (or `Back`/`Cancel`) always returns withou
 the database before step 1, then runs each step with a `pg_dump` checkpoint after every success — a re-run
 resumes from the last good checkpoint. Any preflight failure exits non-zero with a `[preflight-fail]` line;
 the driver's own aborts use a `[fail]` line — a checkpoint that cannot be written, a step that failed (it
-names the step's log file), or a step whose OpenUpgrade code is not on disk.
+names the step's log file), a step whose OpenUpgrade code is not on disk, or checkpoints left by a different
+source dump.
 Details: [migration](migration.md).

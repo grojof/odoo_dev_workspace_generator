@@ -229,7 +229,8 @@ def test_a_missing_role_trust_line_is_reported_without_alarm():
     assert state == "INFO"
 
 
-def test_an_unreadable_pg_hba_is_never_read_as_narrow():
-    state, detail = _hba_row()  # both None: the file could not be read
+def test_a_state_that_could_not_be_had_is_never_read_as_narrow():
+    """Unreadable, or full of include directives: either way, not "narrow"."""
+    state, detail = _hba_row()  # both None
     assert state == "WARN"
-    assert "sudo" in detail
+    assert "sudo" in detail and "include" in detail

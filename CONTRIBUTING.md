@@ -44,13 +44,16 @@ python tools/verify_pg_hba_trust.py              # run the pg_hba rewriter over 
 `verify_migration_driver.py` needs neither network nor PostgreSQL: it renders `run_migration.sh` into a
 temporary directory and executes it with stub `psql`/`pg_dump`/`pg_restore`/`uv`, covering the fresh run,
 resume, a gap in the checkpoints, a dump that does not match, a checkpoint that cannot be written, a step
-whose OpenUpgrade code is not on disk, and a step that fails — which must name itself and its log. The
-unit suite may not shell out, so this is where the *behaviour* of the generated shell is checked — run it
+whose OpenUpgrade code is not on disk, a step that fails — which must name itself and its log — and a
+12 → 14 chain, so the ≤ 13 layout's own step command and preconditions are executed too, not only the
+upgrade-path ones. The unit suite may not shell out, so this is where the *behaviour* of the generated shell is checked — run it
 whenever `render_run_migration_sh` changes.
 
-`verify_pg_hba_trust.py` runs the `pg_hba.conf` rewriter over eight shapes of that file (the Ubuntu default,
-a blanket trust written as CIDR, as `localhost`/`samehost`, indented, in `address netmask` form and as
-`hostnossl`, a file with no `host` rules, and an already-narrowed one), asserting each result and that `system.pg_hba_loopback_state` reads the same file the
+`verify_pg_hba_trust.py` runs the `pg_hba.conf` rewriter over thirteen shapes of that file (the Ubuntu
+default; a blanket trust written as CIDR, as `localhost`/`samehost`, indented, in `address netmask` form, as
+`hostnossl`, on `all`, on `0.0.0.0/0` and on `127.0.0.0/8`; a file with no `host` rules; one this tool
+already narrowed; a role line shadowed by an earlier rule; and — the only negative case — a password rule
+whose comment merely mentions trust, which it must leave alone), asserting each result and that `system.pg_hba_loopback_state` reads the same file the
 same way. It found the `localhost` spelling surviving the narrowing while the check reported it narrowed.
 
 `verify_generated_shell.py` renders every generated script (both OpenUpgrade layouts, both interpreter

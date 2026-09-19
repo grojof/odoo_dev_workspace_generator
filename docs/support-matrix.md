@@ -128,7 +128,9 @@ the fact, both values and the source URL. It never edits the declared matrix: fi
 `odoo_dwg/models.py` **and** this page together. It is stdlib-only, lives outside the package
 (`odoo_dwg` never imports it) and outside the unit suite. Together with the other network-facing
 `tools/verify_*.py` checks — the editor configuration and the firewall/mail-capture pins — it is the only
-kind of code in the repository that reaches the network; the rest of the verifiers are host-only.
+kind of code in the repository that reaches the network — with `verify_workspace_versions.py`, which needs
+both a network and a host. Three more (the migration driver, the generated shell, the `pg_hba` rewriter)
+touch neither.
 
 ### Source precedence, per fact
 

@@ -60,9 +60,13 @@ declares for the Odoo versions in play, and reported WARN when it is below that 
 ### Requirement: Loopback authentication reporting
 
 The check SHALL report how loopback authentication is configured for the development role, reading
-`pg_hba.conf` at the path the server reports. A blanket `host all all <loopback> trust` SHALL be reported as
-a WARN naming what apply would do, a missing role trust line as INFO, and the narrowed state as OK. When the
-file cannot be read — it is root-owned — the row SHALL say so rather than claim either state.
+`pg_hba.conf` at the path the server reports. A blanket trust — any `host`/`hostnossl` rule for **every
+role** whose method is `trust`, whatever address it names — SHALL be reported as a WARN naming what apply
+would do; a role whose trust line is absent **or shadowed by an earlier rule** as INFO; and the narrowed
+state as OK.
+
+When the state cannot be had from that file — it is root-owned and unreadable, or it pulls in rules through
+`include`, `include_if_exists` or `include_dir` — the row SHALL say so rather than claim either state.
 
 #### Scenario: Blanket trust is called out
 
@@ -73,6 +77,16 @@ file cannot be read — it is root-owned — the row SHALL say so rather than cl
 
 - **WHEN** the check runs as a user who cannot read `pg_hba.conf`
 - **THEN** the row is WARN saying it could not be read, never OK
+
+#### Scenario: A role line that is never reached is not narrow either
+
+- **WHEN** the role's trust line sits below a rule for every role that matches the same connection
+- **THEN** the row does not report the host as narrowed
+
+#### Scenario: Included rules make the state unknown
+
+- **WHEN** `pg_hba.conf` pulls in rules through `include_dir`
+- **THEN** the row says the state cannot be had from that file, rather than reporting either state
 
 ### Requirement: wkhtmltopdf patched-build detection
 

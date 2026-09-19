@@ -140,7 +140,9 @@ previewed plan the first time you stage.
 ## Preflight: verify before you burn hours
 
 **Menu → Migration → Preflight check** runs a read-only verification, and the same checks run
-automatically when generating an environment (host scope) and inside the driver (both scopes):
+automatically when generating an environment (host scope) and inside the driver — its four host checks
+(everything in the Host row below except the addons layout, which only the menu and generate flows check)
+plus the whole database scope:
 
 | Scope | Checks |
 |-------|--------|
@@ -166,8 +168,9 @@ database (version match, addons coverage) before step 1, then runs each step wit
 `--update all --stop-after-init` (Odoo ≥ 14: `--load=base,web,openupgrade_framework`), and **`pg_dump`s a
 checkpoint after each successful step**. Any preflight failure exits non-zero with a `[preflight-fail]` line
 naming the check. A `[fail]` line is the driver's own abort: a checkpoint that cannot be written, a step
-whose `odoo-bin` failed (it names the step's log file), or a step whose OpenUpgrade code is not on disk —
-Odoo would migrate nothing and say nothing in that case, so the driver checks before running it.
+whose `odoo-bin` failed (it names the step's log file), a step whose OpenUpgrade code is not on disk — Odoo
+would migrate nothing and say nothing in that case, so the driver checks before running it — or checkpoints
+that came from a different source dump.
 
 **The working database.** Every environment upgrades a database called `migration` on the shared PostgreSQL,
 which a fresh run drops and recreates from the dump. Two environments therefore cannot run at the same time,

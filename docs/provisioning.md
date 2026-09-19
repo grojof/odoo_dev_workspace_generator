@@ -71,9 +71,10 @@ and warns when every role — `postgres` included — may connect over loopback 
   is not a narrowing. The step ends by **connecting as the role over loopback**: if it cannot, apply stops
   there instead of reporting a narrowing that does not work.
 
-  When `pg_hba.conf` pulls in rules through `include`, `include_if_exists` or `include_dir`, the state
-  cannot be read from that file alone: the check says so instead of claiming either answer, and apply plans
-  the narrowing rather than assuming it is done.
+  When `pg_hba.conf` cannot be read (it is root-owned, so run the check with `sudo`) or pulls in rules
+  through `include`, `include_if_exists` or `include_dir`, the state cannot be had from that file alone. The
+  check reports it as unknown (WARN) instead of claiming either answer, and apply plans the narrowing rather
+  than assuming it is done.
 
   Apply also acts when a probe could not answer: PostgreSQL installed but stopped, a role it could not check
   without a password, an unreadable `pg_hba.conf`. Everything it plans is idempotent, so the worst case is a

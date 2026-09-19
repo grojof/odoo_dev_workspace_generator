@@ -105,7 +105,11 @@ def _pg_hba_rows(facts: ProvisionFacts) -> list[tuple[str, str, str]]:
     if not facts.postgres_installed:
         return []
     if facts.pg_hba_blanket_trust is None:
-        return [("WARN", label, "pg_hba.conf could not be read — run the check with sudo")]
+        return [(
+            "WARN", label,
+            "cannot be read from pg_hba.conf alone — run the check with sudo, and note that "
+            "include directives hide rules from it; apply narrows it either way",
+        )]
     if facts.pg_hba_blanket_trust:
         return [(
             "WARN", label,

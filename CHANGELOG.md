@@ -77,7 +77,6 @@ All notable changes to this project are documented here. The format is based on
   clones on disk nothing resolves, so every installed module was reported missing and Odoo's own — `base`
   among them — as "dropped by Odoo". Both the interactive check and the driver's own coverage now say the
   step's sources are not on disk and classify nothing.
-
 - **A migration step ran even when its OpenUpgrade code was not on disk.** Odoo says nothing when
   `--upgrade-path` names a directory that is not there — it finds no scripts — so a chain whose checkout was
   interrupted or partially deleted migrated nothing and still reported `[done] migration complete`, with a
