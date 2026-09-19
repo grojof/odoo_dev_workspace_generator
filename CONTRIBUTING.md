@@ -36,6 +36,7 @@ python tools/verify_odools_config.py             # the editor config vs the late
 python tools/verify_workspace_versions.py        # build every version's venv, start Odoo on each (host)
 python tools/verify_egress_pins.py               # OpenSnitch/Mailpit pins vs their signed/published sources
 python tools/verify_migration_driver.py          # run the generated migration driver against stub binaries
+python tools/verify_generated_shell.py           # ShellCheck every generated script
 ```
 
 `verify_migration_driver.py` needs neither network nor PostgreSQL: it renders `run_migration.sh` into a
@@ -43,6 +44,13 @@ temporary directory and executes it with stub `psql`/`pg_dump`/`pg_restore`/`uv`
 resume, a gap in the checkpoints, a dump that does not match, and a checkpoint that cannot be written. The
 unit suite may not shell out, so this is where the *behaviour* of the generated shell is checked — run it
 whenever `render_run_migration_sh` changes.
+
+`verify_generated_shell.py` renders every generated script (both OpenUpgrade layouts, both interpreter
+sources) and runs [ShellCheck](https://www.shellcheck.net) on it — install it with
+`uv tool install shellcheck-py`, `pipx install shellcheck-py` or `apt install shellcheck`; it is a
+development tool, never a dependency of the package. It is the static half and
+`verify_migration_driver.py` the behavioural one: ShellCheck does *not* catch a failure masked by `;` in a
+function whose last command succeeds, which is exactly the bug that verifier exists for.
 
 The others only read from the network. `verify_workspace_versions.py` is the one that changes the host: it
 previews a plan, asks before applying (or not, with `--yes`), and removes what it created. See

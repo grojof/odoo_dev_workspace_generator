@@ -88,6 +88,7 @@ python tools/verify_odools_config.py    # editor config vs the latest official O
 python tools/verify_workspace_versions.py  # build + start Odoo 12-19 in a throwaway workspace (host)
 python tools/verify_egress_pins.py      # OpenSnitch/Mailpit pins vs their signed/published sources (network)
 python tools/verify_migration_driver.py # execute the generated migration driver against stub binaries (host)
+python tools/verify_generated_shell.py  # ShellCheck every generated script (host, needs shellcheck)
 ```
 
 End-to-end validation (cloning Odoo, building venvs, running `odoo-bin`, migrations) happens on a real
