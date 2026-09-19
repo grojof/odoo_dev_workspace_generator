@@ -24,18 +24,18 @@ Accepted on WSL: a generated Odoo 18 workspace served HTTP 200 at `/web/login`.
 ## F2 — Provision ✅ (accepted E2E)
 
 `check` (host-readiness table) + `apply` (build deps, PostgreSQL + dev role + loopback trust, checksum-verified
-patched wkhtmltopdf, optional Node + rtlcss); root-gated, and since the support matrix landed it targets
-the declared Ubuntu releases rather than the whole apt family. Accepted on WSL.
+patched wkhtmltopdf, optional Node + rtlcss); root-gated, and it targets Ubuntu 24.04 only (the whole apt family until the
+support matrix, then 22.04/24.04 until `lighten-scope`). Accepted on WSL.
 
 ## F3 — Migration ✅ (accepted)
 
 OpenUpgrade 12→19: per-version clones + `uv` venvs (matched interpreter) + per-step `odoo.conf` + checkpointing
-`run_migration.sh`; Docker fallback for the Odoo-13 (Python 3.6) step. Interpreter decision closed with WSL
-data (uv floor 3.8). Accepted on WSL: Odoo 15 runs on uv Python 3.8; driver passes `bash -n`.
+`run_migration.sh`. Every step runs natively in a `uv` venv; the Docker fallback the Odoo 13 step first used
+was removed in `drop-docker-run-13-natively`. Interpreter decision closed with WSL data (uv floor 3.8). Accepted on WSL: Odoo 15 runs on uv Python 3.8; driver passes `bash -n`.
 
-Extended after acceptance (both archived changes, accepted on WSL): **migration preflight & Docker
-readiness** (`2026-07-18-add-migration-preflight` — provision rows for uv/Docker, preflight menu action +
-driver-embedded checks, per-version `addons/odoo<major>/{custom,oca}` layout) and **custom-module staging**
+Extended after acceptance (both archived changes, accepted on WSL): **migration preflight**
+(`2026-07-18-add-migration-preflight` — provision rows for uv (and Docker, since removed), preflight menu
+action + driver-embedded checks, per-version `addons/odoo<major>/{custom,oca}` layout) and **custom-module staging**
 (`2026-07-18-add-custom-module-staging` — `odoo-module-migrator` orchestration, analysis-file findings,
 inert scaffolds, per-module report). Environment cleanup landed alongside (`Clean a migration environment`).
 
@@ -55,7 +55,8 @@ items are host-dependent.
   (derived from each branch's own `requirements.txt` buckets, cross-validated against Odoo 19's declared
   `MAX_PY_VERSION`); Odoo 19's PostgreSQL floor corrected to 13. Interpreter choice now exists in both the
   workspace and migration flows. Development of this repo moved into WSL (clone under `~`, not `/mnt/c`);
-  [`docs/wsl-setup.md`](wsl-setup.md) covers getting the tool onto a host.
+  [`docs/wsl-setup.md`](wsl-setup.md) covers getting the tool onto a host. `lighten-scope` later narrowed the
+  hosts to Ubuntu 24.04 alone and raised the tool's floor to 3.12.
 - ~~F4 — Optional AI emitters~~ — **dropped** (2026-09-19, change `lighten-scope`). Emitting `CLAUDE.md`,
   skills or other assistants' rules files would couple the tool to formats that change month to month, one per
   assistant, while the per-workspace README already gives any assistant its context without coupling to one.
@@ -65,9 +66,9 @@ items are host-dependent.
   full single-branch clones were 4.2 GB (Odoo 14) and 5.7 GB (Odoo 18), almost all history; shallow ones are
   0.9 and 1.3 GB. `git fetch --unshallow` restores history for whoever needs it, and refreshing still works.
 - ~~CI workflow~~ — **not planned for now** (decided 2026-09-17). The case for it was testing the declared
-  Python floor, which the reference box does not run — but that costs a fraction of a second locally
-  (`PYTHONPATH=. uv run --python 3.10 --with pytest --no-project pytest -q`, now in `CONTRIBUTING.md`), so
-  four runners would buy ceremony rather than safety on a single-developer repo. Cost was never the
+  Python floor, which the reference box did not run; since `lighten-scope` the floor (3.12) *is* the reference
+  box's Python, so that case is gone, and runners would buy ceremony rather than safety on a
+  single-developer repo. Cost was never the
   obstacle: this repo is private, so minutes come out of the account allowance, but each job rounds up to a
   whole minute and the whole matrix would bill roughly 5–6 minutes per push — a few percent of a free tier.
   The one thing with no local substitute is drift in the support matrix, which is triggered by *Odoo*
@@ -103,8 +104,7 @@ items are host-dependent.
   its data intact, `html_editor` installed in place of `web_editor` and the modules Odoo dropped gone. It
   exposed two blocking defects, both fixed in `fix-preflight-coverage-classification`: coverage treating
   Odoo's own renamed/dropped modules as the operator's, and Odoo ≤ 16 needing `setuptools<81` for
-  `pkg_resources`. Docker Engine (`docker.io`) is installed in the Linux host itself by `provision apply` —
-  no Docker Desktop dependency — and the 12/13 fallback images were pulled by the same plan.
+  `pkg_resources`. That run still used the Docker fallback for the 13 step; the next item removed it.
 - ~~Native 12/13 instead of the Docker fallback~~ — **done** (2026-09-17, change
   `drop-docker-run-13-natively`). Odoo 13 — the only step that ever ran in a container, since Odoo 12 is
   restored and never executed — installs its full requirements on `uv`'s 3.8 with one build constraint
