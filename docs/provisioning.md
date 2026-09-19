@@ -77,18 +77,29 @@ password:
   is merely *present* is not a narrowing. The step ends by **connecting as the role over loopback**: if it
   cannot, apply stops there instead of reporting a narrowing that does not work.
 
-  After reloading, apply **asks the server what rules it now has** and fails the step if any rule still
-  trusts every role — naming the file and line, which may be one the rewriter never saw — or if the first
-  rule PostgreSQL matches for your role is not the one it just added. Only then does it connect as the role.
-  Every defect this feature has had was a step reporting a success that had not happened, so success is now
-  something PostgreSQL confirms.
+  After reloading, apply **asks the server what rules it now has** and fails the step, naming the file and
+  line — which may be one the rewriter never saw — when any of these is true:
+
+  1. PostgreSQL reports a rule it could not parse. It then refused to load the file and is **still running
+     the previous rules**, while the file on disk reads as narrowed. `pg_ctl reload` reports success either
+     way, so nothing else would notice.
+  2. A rule still trusts every role over TCP — unless that rule's own line quotes its fields, since `"all"`
+     in quotes is a role literally named `all` and not the keyword.
+  3. A `trust` rule names its roles by pattern (`/…`) or group (`+…`), which apply cannot rule out: narrow
+     that rule by hand.
+  4. The first rule PostgreSQL matches for your role is not the plain `host` trust rule it just added.
+
+  Only then does it connect as the role. Every defect this feature has had was a step reporting a success
+  that had not happened, so success is now something PostgreSQL confirms.
 
   The **rewriter** still reads text, and refuses rather than rewrite a file whose rules it cannot read one
   line at a time — an `include` directive, or a record continued with a trailing backslash. It says which of
-  the two it found: narrow that file by hand, or join the continued lines, then run apply again. When PostgreSQL is
-  stopped, the view cannot be read without `sudo`, or the server reports a rule it could not parse, the
-  check says so (WARN) instead of claiming either answer, and apply plans the narrowing rather than assuming
-  it is done.
+  the two it found: narrow that file by hand, or join the continued lines, then run apply again.
+
+  The check says **unknown** (WARN) instead of claiming either answer — and apply plans the narrowing rather
+  than assuming it is done — when PostgreSQL is stopped, when the view cannot be read without `sudo`, when
+  the server reports a rule it could not parse, or when a `trust` rule names its roles by pattern (`/…`) or
+  group (`+…`), which cannot be told to cover every role.
 
   Apply also acts when a probe could not answer: PostgreSQL installed but stopped, a role it could not check
   without a password, a rule set it could not read. Everything it plans is idempotent, so the worst case is a

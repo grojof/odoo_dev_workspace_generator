@@ -90,15 +90,17 @@ openspec validate --specs           # specs well-formed
 python -m odoo_dwg --help           # CLI smoke test
 ```
 
+These are not in the suite. **What each one covers and needs is stated once**, in
+[`CONTRIBUTING.md`](CONTRIBUTING.md) — restating it here is how it drifted four audit rounds running:
+
 ```bash
-python tools/verify_support_matrix.py   # re-derive the support matrix from its sources (network; not in the suite)
-python tools/verify_odools_config.py    # editor config vs the latest official OdooLS release (network)
-python tools/verify_workspace_versions.py  # build + start Odoo 12-19 in a throwaway workspace (host)
-python tools/verify_egress_pins.py      # OpenSnitch/Mailpit pins vs their signed/published sources (network)
-python tools/verify_migration_driver.py # execute the generated migration driver against stub binaries (host)
-python tools/verify_generated_shell.py  # ShellCheck every generated script (host, needs shellcheck)
-python tools/verify_pg_hba_trust.py     # rewrite real pg_hba.conf shapes, then ask a throwaway PostgreSQL
-                                        # whether it worked (host, needs the PostgreSQL binaries)
+python tools/verify_support_matrix.py      # the support matrix, re-derived from its official sources
+python tools/verify_odools_config.py       # the editor config vs the latest official OdooLS release
+python tools/verify_workspace_versions.py  # build + start Odoo 12-19 in a throwaway workspace
+python tools/verify_egress_pins.py         # OpenSnitch/Mailpit pins vs their signed/published sources
+python tools/verify_migration_driver.py    # the generated migration driver, against stub binaries
+python tools/verify_generated_shell.py     # ShellCheck over every generated script
+python tools/verify_pg_hba_trust.py        # the pg_hba rewriter, against a throwaway PostgreSQL
 ```
 
 End-to-end validation (cloning Odoo, building venvs, running `odoo-bin`, migrations) happens on a real

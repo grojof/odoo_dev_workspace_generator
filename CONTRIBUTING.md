@@ -34,15 +34,22 @@ fact may have changed, the second when you touch what renders it, and all of the
 python tools/verify_support_matrix.py            # re-derive every bound from its official source
 python tools/verify_support_matrix.py 18.0 19.0  # only these versions
 python tools/verify_odools_config.py             # the editor config vs the latest OdooLS release
-python tools/verify_workspace_versions.py        # build every version's venv, start Odoo on each (host)
+python tools/verify_workspace_versions.py        # build every version's venv, start Odoo on each
 python tools/verify_egress_pins.py               # OpenSnitch/Mailpit pins vs their signed/published sources
 python tools/verify_migration_driver.py          # run the generated migration driver against stub binaries
 python tools/verify_generated_shell.py           # ShellCheck every generated script
-python tools/verify_pg_hba_trust.py              # run the pg_hba rewriter over real files
+python tools/verify_pg_hba_trust.py              # run the pg_hba rewriter, and ask PostgreSQL about it
 ```
 
-`verify_migration_driver.py` needs neither network nor PostgreSQL: it renders `run_migration.sh` into a
-temporary directory and executes it with stub `psql`/`pg_dump`/`pg_restore`/`uv`, covering the fresh run,
+| Tool | Needs |
+|---|---|
+| `verify_support_matrix.py`, `verify_odools_config.py`, `verify_egress_pins.py` | the network |
+| `verify_workspace_versions.py` | the network **and** a host it may change (it previews, asks, and cleans up) |
+| `verify_generated_shell.py` | `shellcheck` on the host |
+| `verify_pg_hba_trust.py` | the host's PostgreSQL binaries; it runs a cluster of its own and takes about a minute |
+| `verify_migration_driver.py` | nothing but `bash` |
+
+`verify_migration_driver.py` renders `run_migration.sh` into a temporary directory and executes it with stub `psql`/`pg_dump`/`pg_restore`/`uv`, covering the fresh run,
 resume, a gap in the checkpoints, a dump that does not match, a checkpoint that cannot be written, a step
 whose OpenUpgrade code is not on disk, a step that fails — which must name itself and its log — and a
 12 → 14 chain, so the ≤ 13 layout's own step command and preconditions are executed too, not only the
@@ -61,8 +68,12 @@ first version of that tool asserted with a copy of `system.py`'s own regex, so e
 passed as correct — which is how a `hostssl` trust survived three rounds of it. And once against
 **PostgreSQL itself**: it creates a throwaway cluster (`initdb` in a temp directory, its own port and
 socket, TLS on like the supported host), points it at each fixture, and asks `pg_hba_file_rules` and a real
-connection. It needs the PostgreSQL binaries and says so when they are absent, never touches the host's own
-cluster, and takes about a minute.
+connection — which it skips, saying so, when those binaries are absent. It never touches the host's own
+cluster.
+
+It also runs **the plan's own verification step** against that cluster, over the states only a server knows
+about: a rule it cannot parse (so it refused to load the file), a quoted `"all"`, roles named by pattern, a
+blanket trust the rewriter left behind, a `hostnossl` rule for the role, and a properly narrowed file.
 
 `verify_generated_shell.py` renders every generated script (both OpenUpgrade layouts, both interpreter
 sources) and runs [ShellCheck](https://www.shellcheck.net) on it — install it with
@@ -71,8 +82,8 @@ development tool, never a dependency of the package. It is the static half and
 `verify_migration_driver.py` the behavioural one: ShellCheck does *not* catch a failure masked by `;` in a
 function whose last command succeeds, which is exactly the bug that verifier exists for.
 
-The others only read from the network. `verify_workspace_versions.py` is the one that changes the host: it
-previews a plan, asks before applying (or not, with `--yes`), and removes what it created. See
+`verify_workspace_versions.py` previews a plan, asks before applying (or not, with `--yes`), and removes
+what it created. See
 [`docs/workspace-layout.md`](docs/workspace-layout.md#re-verifying-every-version) for when to run it.
 
 `verify_support_matrix.py` exits non-zero on drift and never edits the declared matrix: fixing drift means editing

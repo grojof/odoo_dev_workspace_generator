@@ -140,8 +140,14 @@ step SHALL be idempotent, so acting on an unknown costs a no-op.
 
 #### Scenario: A rule that PostgreSQL matches first is caught
 
-- **WHEN** a rule for a group role the development role belongs to precedes the added trust rule
-- **THEN** the verification step fails naming the rule PostgreSQL matches first
+- **WHEN** a rule naming every role, or the development role itself, precedes the added trust rule
+- **THEN** the verification step fails naming that rule
+
+#### Scenario: A rule naming roles by group is refused, not matched
+
+- **WHEN** a `trust` rule names its roles by group (`+…`) or pattern (`/…`)
+- **THEN** the pattern check refuses it, because the server reports the field verbatim and cannot say
+  whether the development role is in it — the "matches first" check cannot answer for such a rule
 
 #### Scenario: A role line that is present but never reached
 
