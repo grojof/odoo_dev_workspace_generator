@@ -54,8 +54,9 @@ generated file, with the prompts answered, on every version:
 having run nothing. From 13 on, tests run either way.
 
 Deliberately not included:
-- **An auto-reload configuration:** Odoo's `reload` re-executes the process, which detaches the debugger. It
-  also needs `watchdog`, which Odoo's requirements do not include.
+- **Auto-reload:** Odoo's `reload` re-executes the process, which detaches the debugger. The generated
+  `odoo.conf` therefore sets `dev_mode = qweb,xml` and never `reload`, so installing `watchdog` (which Odoo's
+  requirements do not include) cannot silently start detaching it.
 - **Attach, `scaffold` and the other subcommands:** they are rarely debugged, and each would add one more
   entry per version to the picker.
 

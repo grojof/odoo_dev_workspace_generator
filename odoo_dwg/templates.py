@@ -69,7 +69,9 @@ def render_odoo_conf(cfg: WorkspaceConfig, version: str) -> str:
         "; Development posture: threaded mode so the debugger can attach.",
         "workers = 0",
         "max_cron_threads = 1",
-        "dev_mode = reload,qweb,xml",
+        # No `reload`: it re-executes the process as soon as watchdog is
+        # installed, which detaches the debugger every launch config attaches.
+        "dev_mode = qweb,xml",
         "",
         f"db_host = {cfg.db_host}",
         f"db_port = {cfg.db_port}",
@@ -441,7 +443,10 @@ clone is not modified. If a venv fails with `No module named 'pkg_resources'`, r
 ├── addons-oca/           # symlinks into the shared OCA cache
 ├── config/odoo<major>.conf
 ├── .venv/odoo<major>/    # one venv per version
-├── scripts/              # setup_venv.sh, run-odoo<major>.sh{odools_line}
+├── scripts/              # setup_venv.sh, run-odoo<major>.sh
+├── .vscode/              # tasks.json, launch.json, settings.json, extensions.json
+├── workspace.json        # this workspace's profile — the manage flow reads it
+├── README.md             # this file{odools_line}
 └── {cfg.name}.code-workspace
 ```
 
@@ -832,7 +837,7 @@ if ! have_ck 00_source; then
   checkpoint 00_source
 else
   if [ "$(cat "$CK/source.sha256" 2>/dev/null)" != "$SRC_SHA" ]; then
-    fail "checkpoints in $CK came from another source dump — remove that whole directory to start over"
+    die "checkpoints in $CK came from another source dump — remove that whole directory to start over"
   fi
   # A failed step leaves the working DB half-migrated: resume from the newest
   # checkpoint, not from whatever the DB holds now.

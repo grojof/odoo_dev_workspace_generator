@@ -52,6 +52,14 @@ All notable changes to this project are documented here. The format is based on
   an earlier one.
 - The outbound firewall's development-infrastructure rule also allows the Ubuntu archive's country mirrors
   (`es.archive.ubuntu.com`, …).
+- **The generated `odoo.conf` no longer sets `dev_mode = reload`.** It is inert until `watchdog` is
+  installed, and from then on it re-executes Odoo on every file change, detaching the debugger that each
+  launch configuration attaches. Generated configs now set `dev_mode = qweb,xml`; run **Refresh generated
+  files** to update an existing workspace.
+- The per-workspace README's layout tree lists `.vscode/`, `workspace.json` and `README.md`, which it
+  generates but did not name.
+- `tools/verify_generated_shell.py` runs ShellCheck over every generated script (it found two defects on its
+  first run: dead variables in `setup_venv.sh`, and a failure path written as `a && b || c`).
 
 ### Fixed
 - **A checkpoint that could not be written was reported as written.** `pg_dump`'s failure did not stop the
@@ -62,14 +70,16 @@ All notable changes to this project are documented here. The format is based on
 - **A plan step could swallow the operator's keystrokes.** Steps inherited the terminal's stdin, so an
   unexpected prompt (debconf, a credential helper) waited invisibly — its output is captured unless
   `--verbose` is on — and consumed the answer meant for the next question. Steps now run with stdin closed,
-  and every `apt` command runs with `DEBIAN_FRONTEND=noninteractive` so there is no dialog to begin with.
+  and every `apt-get install`/`purge` runs with `DEBIAN_FRONTEND=noninteractive` so there is no dialog to
+  begin with.
 - **`provision apply` never narrowed `pg_hba.conf` on a host it had already provisioned** — exactly the
   hosts an earlier version left trusting every role over loopback. The narrowing is now planned whenever the
   rules are not in the wanted shape, `provision check` reports that shape, and the step fails loudly instead
   of silently doing nothing when the file has no rule to anchor to.
 - **The firewall's Odoo rejection sorted after two allow rules.** Rules are evaluated in file-name order and
   the first match wins, so an allow (the VS Code server's) could have matched an `odoo-bin` process first.
-  The rejection is now `00-odwg-003`, ahead of every allow but loopback and DNS.
+  The rejection is now `00-odwg-003`, ahead of every allow rule that could match a user process — only the
+  loopback, DNS and `systemd-timesyncd` rules precede it.
 - A migration environment's database fields (`working_db`, `db_user`, `db_host`, `db_port`) are validated
   like a workspace profile's, since a hand-edited environment reaches the generated driver.
 - A profile naming one of the class-level defaults (`base_dir`, `port_step`, …) raised a `TypeError` instead

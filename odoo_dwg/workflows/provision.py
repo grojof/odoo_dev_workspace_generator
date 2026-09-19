@@ -106,8 +106,8 @@ def _optional_egress(facts: provisioning.ProvisionFacts) -> list:
             "INFO",
             t(
                 "OpenSnitch blocks every outbound connection without a rule, asking in its UI "
-                "when it is open. Odoo may reach only localhost; the development tools keep "
-                "their hosts. See docs/egress-control.md."
+                "when it is open. Odoo may reach only localhost, plus DNS on port 53; the "
+                "development tools keep their hosts. See docs/egress-control.md."
             ),
         )
     )

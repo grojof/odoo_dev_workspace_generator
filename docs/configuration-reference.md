@@ -26,7 +26,7 @@ fails is reported with its field, and nothing is planned.
 
 ## Development versions and interpreters
 
-First-class development targets are **17.0 / 18.0 / 19.0**, but a profile may name any version in the
+A profile may name any version in the
 [support matrix](support-matrix.md) (12.0–19.0), which is the single place the Python range, the recommended
 interpreter and the PostgreSQL floor per version are declared — with the source behind each one.
 

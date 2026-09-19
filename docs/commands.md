@@ -22,23 +22,24 @@ additionally require typing an exact phrase.
 | `python3 -m odoo_dwg migrate` | Migration mode directly |
 | `odoo-dwg …` | Console-script equivalent (after `pip install -e .`) |
 
-Both flags work before or after the subcommand:
+`--lang` and `-v` work before or after the subcommand:
 
 | Flag | Effect |
 |---|---|
 | `--lang {en,es}` | UI language, instead of the prompt (also `ODWG_LANG`) |
 | `-v`, `--verbose` | Stream every line a plan's commands print (also `ODWG_VERBOSE=1`) |
+| `--version` | Print the version and exit (top-level only, not after a subcommand) |
+| `-h`, `--help` | Usage for the tool or for a subcommand |
 
 ## How a plan reports while it runs
 
 A plan is always previewed and confirmed first. While it runs:
 
 - **By default** each step is one line — `[3/12] Clone Odoo 18.0 … [OK]` — plus any line a step printed that
-  mentions a warning, a deprecation or an error.
+  mentions a warning, a deprecation, an error or a failure — at most ten such lines per step.
 - **A step that fails** prints the end of its output (the last 40 lines), then the plan stops.
 - **With `--verbose`** every line appears live, which is what you want while watching a long `git clone` or
   `pip install`.
-
 
 ## Environment variables
 
@@ -67,7 +68,7 @@ Every menu shows a numbered list; `0` (or `Back`/`Cancel`) always returns withou
 
 | Action | Behavior | Guard |
 |---|---|---|
-| Check host readiness | Read-only capability table (host release, build deps, PostgreSQL + role + server version, wkhtmltopdf, Node, host `python3`, uv interpreters, OpenSnitch and whether it is hardened, Mailpit) | Never mutates |
+| Check host readiness | Read-only capability table (host release, build deps, PostgreSQL + role + server version + loopback auth, wkhtmltopdf, Node and rtlcss, host `python3`, uv interpreters, OpenSnitch and whether it is hardened, Mailpit) | Never mutates |
 | Apply (install what's missing) | Plans installs for missing capabilities. rtlcss (right-to-left languages only), the outbound firewall (OpenSnitch) and the mail capture (Mailpit) are separate opt-ins ([egress-control](egress-control.md)). | Root required; preview + confirm |
 | Outbound firewall and mail capture (on/off, uninstall) | Shows both components' state. Turns each off or on (persistent across restarts), or uninstalls it. For OpenSnitch it lists what `apt` removes first and keeps your own rules. ([details](egress-control.md#turning-it-off-or-uninstalling)) | Root required; preview + confirm; phrase `UNINSTALL` to uninstall |
 

@@ -82,13 +82,20 @@ so ports never collide across versions in the same workspace.
 ### Requirement: Composed addons_path
 
 The system SHALL compose each instance's `addons_path`, in precedence order, from the workspace
-`addons-custom` directory, the workspace `addons-oca` directory, and the version's `odoo/addons` in the shared
-repo cache. The composed value MUST reference only paths inside the workspace or the shared cache.
+`addons-custom` directory, the per-version symlink of each configured OCA repository under
+`addons-oca/odoo<major>/`, and the version's `odoo/addons` in the shared repo cache. The composed value MUST
+reference only paths inside the workspace or the shared cache.
 
 #### Scenario: addons_path ordering
 
-- **WHEN** the `odoo.conf` for an instance is rendered
-- **THEN** its `addons_path` lists `addons-custom`, then `addons-oca`, then the shared `odoo/addons`, in that order
+- **WHEN** the `odoo.conf` for an instance with one OCA repository is rendered
+- **THEN** its `addons_path` lists `addons-custom`, then `addons-oca/odoo<major>/<repo>`, then the shared
+  `odoo/addons`, in that order
+
+#### Scenario: A workspace without OCA repositories
+
+- **WHEN** the profile configures no OCA repository
+- **THEN** the `addons_path` holds the custom directory and the core add-ons only, with no `addons-oca` entry
 
 ### Requirement: Shared development database role
 

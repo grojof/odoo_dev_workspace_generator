@@ -15,7 +15,7 @@ bump on the copy. The operator's original source directory MUST NOT be modified.
 invocations SHALL go through the plan → preview → apply flow.
 
 Every operator-supplied value SHALL be validated before it reaches a plan: the source directory MUST exist,
-each named module MUST be a valid Odoo module name (`^[a-z_][a-z0-9_]*$`) and MUST be present in that
+each named module MUST be a valid Odoo module name (`^[a-z_][a-z0-9_]{0,63}$`) and MUST be present in that
 directory. A value failing any of these SHALL stop the action naming the value, with nothing planned.
 
 #### Scenario: A module name carrying shell syntax is refused

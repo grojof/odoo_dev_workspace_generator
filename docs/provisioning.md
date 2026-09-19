@@ -77,8 +77,8 @@ and warns when every role — `postgres` included — may connect over loopback 
     terminal among them.
   - **If Node already comes from nvm,** `npm install -g rtlcss` is enough.
 - **Outbound firewall — OpenSnitch** *(opt-in)*: denies every outbound connection without a rule, asks in its
-  window when that is open, and logs every decision. Odoo may reach only localhost, while the development
-  tools keep their hosts. The package is pinned and verified, the configuration hardened, and the baseline
+  window when that is open, and logs every decision. Odoo may reach only localhost, plus DNS on port 53,
+  while the development tools keep their hosts. The package is pinned and verified, the configuration hardened, and the baseline
   rules installed. See [egress-control](egress-control.md).
 - **Mail capture — Mailpit** *(opt-in)*: a local SMTP server (`127.0.0.1:1025`) with a web UI (`:8025`). Every
   generated `odoo.conf` sends mail there, so it is read and never delivered. See

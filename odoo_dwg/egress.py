@@ -155,7 +155,8 @@ def baseline_rules(resolvers: list[str]) -> list[dict]:
         # odoo-bin first (the VS Code server's own processes, for instance) would
         # open exactly the hole this rule exists to close.
         _rule("003-reject-odoo-external",
-              "Odoo (odoo-bin: workspaces, migrations, shell) may reach localhost only.",
+              "Odoo (odoo-bin: workspaces, migrations, shell) may reach localhost only — "
+              "DNS on port 53 is allowed by the rules above.",
               "reject", _op("process.command", "odoo-bin", "regexp")),
         _rule("004-allow-vscode-server", "The VS Code server of any user (WSL / remote).", "allow",
               _op("process.path", r"^/home/[^/]+/\.vscode-server/", "regexp")),

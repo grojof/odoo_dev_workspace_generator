@@ -75,8 +75,9 @@ No rule SHALL name an AI assistant.
 #### Scenario: No allow rule precedes the Odoo rejection
 
 - **WHEN** the baseline rule set is written
-- **THEN** the only rules sorting before the Odoo rejection are the loopback and DNS allowances, so an
-  `odoo-bin` process started by an allowed program is rejected all the same
+- **THEN** every rule sorting before the Odoo rejection is one that cannot match an `odoo-bin` process —
+  the loopback and DNS destinations, and the `systemd-timesyncd` binary — so an `odoo-bin` process started
+  by an allowed program is rejected all the same
 
 #### Scenario: Development tools keep working
 

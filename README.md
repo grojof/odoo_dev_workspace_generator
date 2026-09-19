@@ -81,7 +81,8 @@ Every command, menu action, and confirmation phrase: [`docs/commands.md`](docs/c
 
 ## Supported versions
 
-- **Development:** Odoo **17.0 / 18.0 / 19.0** (first class).
+- **Development:** any version in the [support matrix](docs/support-matrix.md) (**12.0 – 19.0**); one
+  workspace may host several at once.
 - **Migration:** the full **12.0 → 19.0** OpenUpgrade chain (one step per version).
 - **Python, PostgreSQL and hosts per version:** the [support matrix](docs/support-matrix.md), with the official
   source behind every bound.
