@@ -31,7 +31,9 @@ interpreter and the PostgreSQL floor per version are declared — with the sourc
 Each instance's venv is built with an interpreter resolved against that matrix:
 
 - The host `python3` is used whenever it is inside the version's declared range. On Ubuntu 24.04 that is
-  3.12, which covers Odoo 15 through 19.
+  3.12, which covers Odoo 15 through 19. Odoo 12 and 13 state no maximum, which is not evidence that a newer
+  Python works (their pinned `gevent` does not build on 3.12), so for them the host is the default only up
+  to the recommended 3.8.
 - When it is outside the range — an Odoo 14 instance on that same host, say, since 14 tops out at 3.10 —
   generation says so, naming the range, the detected version and the evidence tier of the bound, and offers
   to build that venv with a matching `uv`-provisioned interpreter (`uv venv --seed`, so the venv still has

@@ -52,6 +52,30 @@ def odoo_major(version: str) -> int:
     return int(match.group(0))
 
 
+# Odoo <= 16 imports ``pkg_resources`` at startup (odoo/modules/module.py), which
+# setuptools removed in 81. Which setuptools a venv ends up with depends on the
+# interpreter: Python 3.8 resolves 75.x and works by luck, while 3.10+ resolves
+# 81+ and Odoo dies with ModuleNotFoundError before it starts. Every venv built for
+# such a version — workspace or migration — pins it; setuptools itself recommends
+# "pin to Setuptools<81" for pkg_resources users.
+PKG_RESOURCES_LAST_MAJOR = 16
+SETUPTOOLS_PIN = "setuptools<81"
+# Odoo <= 13 requires ``vatnumber==1.2``, whose setup.py still passes ``use_2to3``,
+# which setuptools removed in 58; it builds against the venv's own setuptools.
+USE_2TO3_LAST_MAJOR = 13
+SETUPTOOLS_2TO3_PIN = "setuptools<58"
+
+
+def setuptools_requirement(version: str) -> str:
+    """The setuptools requirement a workspace venv for ``version`` installs."""
+    major = odoo_major(version)
+    if major <= USE_2TO3_LAST_MAJOR:
+        return SETUPTOOLS_2TO3_PIN
+    if major <= PKG_RESOURCES_LAST_MAJOR:
+        return SETUPTOOLS_PIN
+    return "setuptools"
+
+
 def python_tuple(python: str) -> tuple[int, ...]:
     """``"3.10"`` → ``(3, 10)``, so Python versions compare numerically rather
     than as strings (where ``"3.9" > "3.10"``)."""
@@ -402,7 +426,10 @@ def resolve_interpreter(
 
     The host ``python3`` wins whenever it is inside the version's declared range,
     so nothing changes for the common case. Outside the range, the matrix's
-    recommendation is offered instead (provisioned by ``uv``). An
+    recommendation is offered instead (provisioned by ``uv``). A range with no
+    stated maximum (Odoo 12/13) is no evidence that a newer host works — on 3.12
+    their pinned ``gevent`` does not even build — so there the host is the default
+    only up to the recommendation. An
     ``operator_choice`` always takes precedence — that is how a migration is
     rehearsed on the exact Python a client runs — and is reported, not silently
     accepted, when it falls outside the range.
@@ -411,7 +438,7 @@ def resolve_interpreter(
     if operator_choice:
         chosen = operator_choice
         source = HOST_PYTHON if host_python and chosen == host_python else UV_PYTHON
-    elif host_python and support.python_in_range(host_python):
+    elif host_python and _host_is_a_safe_default(support, host_python):
         chosen, source = host_python, HOST_PYTHON
     elif support.recommended_python:
         chosen, source = support.recommended_python, UV_PYTHON
@@ -426,6 +453,15 @@ def resolve_interpreter(
         out_of_range=not in_range,
         crossed=None if in_range else _crossed_bound(support, chosen),
     )
+
+
+def _host_is_a_safe_default(support: VersionSupport, host_python: str) -> bool:
+    """In range, and — when no maximum is stated — no newer than the recommendation."""
+    if not support.python_in_range(host_python):
+        return False
+    if support.python_max.value or not support.recommended_python:
+        return True
+    return python_tuple(host_python) <= python_tuple(support.recommended_python)
 
 
 def _crossed_bound(support: VersionSupport, python: str) -> Bound | None:

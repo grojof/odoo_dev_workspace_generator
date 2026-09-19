@@ -69,6 +69,15 @@ All notable changes to this project are documented here. The format is based on
 - **PostgreSQL role names are validated.** The role typed into `provision apply` was interpolated unquoted
   into SQL run as `postgres`, and a profile's `db_user` was written through a shell heredoc; both now must
   be a plain PostgreSQL identifier (`^[a-z_][a-z0-9_]{0,62}$`) and are rejected before any plan is built.
+- **Workspace venvs for Odoo ≤ 16 failed to start, and Odoo ≤ 13 venvs failed to build** (change
+  `fix-workspace-venvs`). The venv step installed the latest setuptools: on Python 3.12 that is 81+, which
+  no longer ships the `pkg_resources` Odoo ≤ 16 imports at startup (`ModuleNotFoundError` on F5 in an Odoo 15
+  workspace), and for Odoo ≤ 13 `vatnumber==1.2` cannot build with setuptools ≥ 58 (`use_2to3 is invalid`).
+  Workspace venvs now install `setuptools<58` (≤ 13), `setuptools<81` (14–16) or an unpinned one (≥ 17), in the
+  plan and in `setup_venv.sh` alike. The migration already pinned it and is unchanged. Odoo 12/13 workspaces
+  also defaulted to the host's Python 3.12 — their maximum is unstated, and an unstated maximum bounded
+  nothing — where their pinned `gevent` does not build; they now default to the recommended `uv` 3.8, and
+  the prompt says the host is unproven rather than out of range.
 - **Generated files can no longer break out of their heredoc.** Every file is written with a quoted
   heredoc whose delimiter was a fixed `EOF`, so a profile value carrying a newline and a line `EOF` (a
   hand-edited `db_host`, `addon_prefix` or OCA repo name) ended the heredoc early and ran the rest as shell

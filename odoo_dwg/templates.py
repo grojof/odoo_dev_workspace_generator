@@ -23,6 +23,7 @@ from .models import (
     WorkspaceConfig,
     migration_interpreter,
     odoo_major,
+    setuptools_requirement,
     version_support,
 )
 
@@ -101,7 +102,8 @@ def render_setup_venv_sh(
                 [
                     f'echo "[odoo{inst.major}] creating venv {venv}"',
                     *create,
-                    f'"{venv}/bin/pip" install --upgrade pip wheel setuptools',
+                    f'"{venv}/bin/pip" install --upgrade pip wheel '
+                    f"'{setuptools_requirement(inst.version)}'",
                     f'"{venv}/bin/pip" install -r "{odoo}/requirements.txt"',
                     "",
                 ]

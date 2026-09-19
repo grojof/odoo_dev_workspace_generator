@@ -254,18 +254,24 @@ def choose_interpreter(
     if resolved.source != UV_PYTHON:
         return resolved
 
-    print(
-        level_text(
-            "WARN",
-            tf(
-                "Odoo {} supports Python {} — this host runs {}.",
-                version,
-                support.python_range_text(),
-                host_python or t("an undetected version"),
-            ),
-        )
-    )
     recommended = resolved.python or ""
+    if host_python and support.python_in_range(host_python):
+        # No stated maximum: the host is not outside the range, just unproven.
+        warning = tf(
+            "Odoo {} states no Python maximum and is not known to build on {}; "
+            "Python {} is recommended.",
+            version,
+            host_python,
+            recommended,
+        )
+    else:
+        warning = tf(
+            "Odoo {} supports Python {} — this host runs {}.",
+            version,
+            support.python_range_text(),
+            host_python or t("an undetected version"),
+        )
+    print(level_text("WARN", warning))
     uv_ready = recommended in uv_minors
     if not uv_ready:
         print(

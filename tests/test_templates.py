@@ -82,3 +82,13 @@ def test_setup_venv_script_without_interpreters_keeps_the_host_python():
     cfg.normalize_defaults()
     script = templates.render_setup_venv_sh(cfg)
     assert "python3 -m venv" in script and "uv venv" not in script
+
+
+def test_setup_venv_script_pins_setuptools_like_the_plan():
+    # Re-running the script must not undo the pin the generation plan applied.
+    cfg = WorkspaceConfig(name="acme", versions=["13.0", "15.0", "18.0"])
+    cfg.normalize_defaults()
+    script = templates.render_setup_venv_sh(cfg)
+    assert "/.venv/odoo13/bin/pip\" install --upgrade pip wheel 'setuptools<58'" in script
+    assert "/.venv/odoo15/bin/pip\" install --upgrade pip wheel 'setuptools<81'" in script
+    assert "/.venv/odoo18/bin/pip\" install --upgrade pip wheel 'setuptools'" in script

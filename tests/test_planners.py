@@ -210,3 +210,20 @@ def test_wkhtmltopdf_plan_empty_for_legacy_and_unmapped():
 def test_node_rtlcss_plan():
     joined = "\n".join(c.command for c in planners.plan_node_rtlcss())
     assert "nodejs" in joined and "npm install -g rtlcss" in joined
+
+
+def test_build_venv_pins_setuptools_per_era():
+    # <=13: vatnumber's setup.py needs use_2to3 (setuptools<58); 14-16 import
+    # pkg_resources at startup (setuptools<81); 17+ need neither.
+    expected = {
+        "12.0": "'setuptools<58'",
+        "13.0": "'setuptools<58'",
+        "14.0": "'setuptools<81'",
+        "15.0": "'setuptools<81'",
+        "16.0": "'setuptools<81'",
+        "17.0": "setuptools",
+        "19.0": "setuptools",
+    }
+    for version, requirement in expected.items():
+        upgrade = planners.plan_build_venv(_cfg(versions=[version]), version)[1].command
+        assert upgrade.endswith(f"install --upgrade pip wheel {requirement}"), upgrade

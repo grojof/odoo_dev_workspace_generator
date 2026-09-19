@@ -58,6 +58,20 @@ bash scripts/run-odoo18.sh                       # odoo-bin -c config/odoo18.con
 
 This step is host-dependent and is **not** run in CI; it is the manual acceptance check for the change.
 
+### setuptools per Odoo version
+
+Each venv installs the `setuptools` its Odoo version needs, and `setup_venv.sh` applies the same rule:
+
+| Odoo | setuptools | Why |
+|---|---|---|
+| ≤ 13 | `<58` | `vatnumber==1.2` still passes `use_2to3`, removed in 58 |
+| 14–16 | `<81` | Odoo imports `pkg_resources` at startup, removed in 81 |
+| ≥ 17 | unpinned | neither |
+
+A venv built before this rule (Odoo ≤ 16 on Python 3.12 got setuptools 81+) fails at start with
+`ModuleNotFoundError: No module named 'pkg_resources'`; fix it with
+`.venv/odoo<major>/bin/pip install 'setuptools<81'`, or rebuild the venv.
+
 ## Editor
 
 The workspace is set up for the **official** Odoo extension (`Odoo.odoo`) and its language server: an

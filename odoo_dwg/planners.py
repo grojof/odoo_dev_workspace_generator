@@ -15,7 +15,16 @@ from pathlib import Path
 
 from . import templates
 from .i18n import tf
-from .models import UV_PYTHON, InterpreterChoice, MigrationEnv, WorkspaceConfig, odoo_major
+from .models import (
+    PKG_RESOURCES_LAST_MAJOR,
+    SETUPTOOLS_PIN,
+    UV_PYTHON,
+    InterpreterChoice,
+    MigrationEnv,
+    WorkspaceConfig,
+    odoo_major,
+    setuptools_requirement,
+)
 from .system import Command
 
 Exists = Callable[[Path], bool]
@@ -311,18 +320,9 @@ def plan_migration_clones(env: MigrationEnv, exists: Exists = _never) -> list[Co
     return commands
 
 
-# Odoo <= 16 imports ``pkg_resources`` at startup (odoo/modules/module.py), which
-# setuptools removed in 81. Which setuptools a venv ends up with is decided by
-# transitive resolution and therefore by the interpreter: a Python 3.8 step
-# resolves 75.x and works by luck, while a 3.10 step resolves 84.x and the step
-# dies with ModuleNotFoundError before OpenUpgrade runs. Pin it where it matters
-# — setuptools itself recommends "pin to Setuptools<81" for pkg_resources users.
-PKG_RESOURCES_LAST_MAJOR = 16
-SETUPTOOLS_PIN = "setuptools<81"
-
-
 def _setuptools_pin(version: str) -> str:
-    """The extra install argument a step needs, or an empty string."""
+    """The extra install argument a migration step needs, or an empty string.
+    (Its 13.0 build pin lives in that step's constraints file instead.)"""
     return f" '{SETUPTOOLS_PIN}'" if odoo_major(version) <= PKG_RESOURCES_LAST_MAJOR else ""
 
 
@@ -610,7 +610,8 @@ def plan_build_venv(
         create,
         Command(
             tf("Upgrade pip/wheel/setuptools in {}", str(venv)),
-            f"{shlex.quote(str(venv / 'bin' / 'pip'))} install --upgrade pip wheel setuptools",
+            f"{shlex.quote(str(venv / 'bin' / 'pip'))} install --upgrade pip wheel "
+            f"{shlex.quote(setuptools_requirement(version))}",
         ),
         Command(
             tf("Install Odoo {} requirements", version),

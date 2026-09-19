@@ -62,6 +62,11 @@ is why Odoo 15 recommends 3.8 although it tolerates 3.12. The recommendation is 
 builds an environment lets the operator choose another interpreter, and says so when a choice falls outside
 the range.
 
+**An unstated maximum is not a green light.** Odoo 12 and 13 state no ceiling, so no interpreter is ever
+*outside* their range — but that is absence of evidence: on 3.12 their pinned `gevent` does not build (measured
+2026-09-19). A workspace therefore uses the host `python3` for them only when it is no newer than the
+recommendation, and otherwise defaults to the recommended `uv` interpreter.
+
 ### Verbatim sources, per version
 
 | Odoo | Quote | Source |
