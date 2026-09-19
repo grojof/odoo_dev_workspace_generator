@@ -24,9 +24,10 @@ python -m odoo_dwg --help           # CLI smoke test
 
 Real end-to-end validation happens on a Linux host (WSL Ubuntu 24.04 is the reference box).
 
-The checks above need no network. One further check does, and is **not** part of the suite — run it when
-an Odoo branch may have changed what it supports, or before trusting a bound in the
-[support matrix](docs/support-matrix.md):
+The checks above need no network and change nothing. The tools below are **not** part of the suite. Each
+re-checks an external fact: the support matrix, the editor configuration, the build and start of every Odoo
+version, and the pinned firewall and mail-capture releases. Run them when that fact may have moved, and before
+a release:
 
 ```bash
 python tools/verify_support_matrix.py            # re-derive every bound from its official source
@@ -36,7 +37,8 @@ python tools/verify_workspace_versions.py        # build every version's venv, s
 python tools/verify_egress_pins.py               # OpenSnitch/Mailpit pins vs their signed/published sources
 ```
 
-The last one changes the host: it previews a plan, asks before applying, and removes what it created. See
+All but `verify_workspace_versions.py` only read from the network. That one changes the host: it previews a
+plan, asks before applying (or not, with `--yes`), and removes what it created. See
 [`docs/workspace-layout.md`](docs/workspace-layout.md#re-verifying-every-version) for when to run it.
 
 It exits non-zero on drift and never edits the declared matrix: fixing drift means editing

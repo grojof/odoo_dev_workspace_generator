@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Reports, read-only, whether a host can build and run Odoo: its release against the supported list, the build dependencies, PostgreSQL and its version against the matrix floor, wkhtmltopdf, the optional web toolchain, and the interpreters and container images the migration paths need. It reports; it never changes the host.
+Reports, read-only and without ever prompting for a password, whether a host can build and run Odoo: its release against the supported list, the build dependencies, PostgreSQL (service, version against the matrix floor, development role), wkhtmltopdf, the optional rtlcss for right-to-left languages, `uv` and its interpreters, and the optional outbound firewall (OpenSnitch) and mail capture (Mailpit). It reports; it never changes the host.
 
 ## Requirements
 

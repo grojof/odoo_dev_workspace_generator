@@ -3,7 +3,7 @@ type: how-to
 title: "Setting up a WSL Ubuntu 24.04 host"
 description: "Step-by-step: install Ubuntu 24.04 on WSL 2 and make it ready to run odoo_dwg."
 audience: [developer]
-updated: 2026-09-17
+updated: 2026-09-19
 ---
 
 # Setting up a WSL Ubuntu 24.04 host
@@ -171,7 +171,7 @@ full plan, and only runs it after you confirm.
 | State | Capability              | Detail                                   |
 +-------+-------------------------+------------------------------------------+
 | OK    | Host release            | Ubuntu 24.04 LTS (noble)                 |
-| MISS  | PostgreSQL              | not installed                            |
+| MISSING | PostgreSQL            | not installed                            |
 +-------+-------------------------+------------------------------------------+
 ```
 

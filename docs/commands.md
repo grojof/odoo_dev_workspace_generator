@@ -3,7 +3,7 @@ type: reference
 title: "Command reference"
 description: "Every CLI invocation, menu action, confirmation phrase, and environment variable."
 audience: [developer, operator]
-updated: 2026-07-18
+updated: 2026-09-19
 ---
 
 # Command reference
@@ -40,10 +40,10 @@ Every menu shows a numbered list; `0` (or `Back`/`Cancel`) always returns withou
 |---|---|---|
 | Create a workspace → New (quick) | Interactive minimal profile, then full generation plan | Create-only: refuses to clobber an existing workspace |
 | Create a workspace → From a profile file | Same, loading a JSON profile (see [configuration-reference](configuration-reference.md)) | idem |
-| Manage → Refresh generated files | Rewrites the generated configs, scripts, `.vscode/*`, `odools.toml`, README and profile from `workspace.json`. Only files that change are written, and each changed file is first kept as `<file>.bak`. Each venv's interpreter is read from its `pyvenv.cfg`. Addons, venvs, clones and databases are never touched. | Preview + confirm |
+| Manage → Refresh generated files | Rewrites the generated configs, scripts, `.vscode/*`, `odools.toml`, README and profile from `workspace.json`. Only files that change are written, and each changed file is first kept as `<file>.bak-<date>`. Each venv's interpreter is read from its `pyvenv.cfg`. Addons, venvs, clones and databases are never touched. | Preview + confirm |
 | Manage → Regenerate a venv | Removes and rebuilds one instance venv | Phrase `REBUILD` |
 | Manage → Refresh shared repos | `git pull --ff-only` on present clones in the shared cache | Preview + confirm |
-| Manage → Add a version | Extends an existing workspace with a new Odoo version. It writes files like **Refresh generated files**, and the other versions keep their interpreters. | Preview + confirm |
+| Manage → Add a version | Extends an existing workspace with a new Odoo version. It writes files like **Refresh generated files**, and the other versions keep their interpreters. The workspace changes only once the plan has run: a declined or failed plan adds nothing. | Preview + confirm |
 | Manage → Redirect a database's mail to Mailpit | Points every mail server of a named database at `127.0.0.1:1025` and clears its credentials, and deactivates fetchmail servers. Odoo 12–19. Rehearsal copies only ([egress-control](egress-control.md#a-copied-database-still-mails-out-redirect-it)). | Phrase `REDIRECT` |
 
 ### System provisioning (optional; the Ubuntu releases in the [support matrix](support-matrix.md))

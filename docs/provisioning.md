@@ -3,7 +3,7 @@ type: how-to
 title: "Provisioning a Linux host"
 description: "Use the provision section to make a supported Ubuntu host Odoo-ready."
 audience: [developer]
-updated: 2026-09-17
+updated: 2026-09-19
 ---
 
 # Provisioning a Linux host
@@ -15,27 +15,34 @@ host is reported by `check` and refused by `apply` rather than guessed at: earli
 apt family, which implied Debian support that was never validated.
 
 ```bash
-python3 -m odoo_dwg provision      # menu: Check / Apply
+python3 -m odoo_dwg provision      # menu: Check / Apply / Outbound firewall and mail capture
 ```
 
 ## Check (read-only)
 
-`Check host readiness` prints a capability table and changes nothing:
+`Check host readiness` prints a capability table, changes nothing and **never asks for a password**. PostgreSQL's
+state and version come from `pg_lsclusters`. The development role is checked by logging in as it over loopback,
+or through `sudo -n`. When neither works, the role row says it could not be checked (WARN), instead of claiming
+it is missing:
 
 ```
-+-------+-------------------------+------------------------------------------+
-| State | Capability              | Detail                                   |
-+-------+-------------------------+------------------------------------------+
-| OK    | Host release            | Ubuntu 24.04 LTS (noble)                 |
-| OK    | Odoo build dependencies | all present                              |
-| OK    | PostgreSQL              | installed and running                    |
-| OK    | Dev role (odoo)         | present                                  |
-| OK    | wkhtmltopdf             | wkhtmltopdf 0.12.6.1 (with patched qt)   |
-| OK    | PostgreSQL version      | 16 (Odoo 19.0 requires 13.0)             |
-| INFO  | Node.js (optional)      | not installed (only for right-to-left languages) |
-| OK    | uv (interpreters)       | present — provides 3.8, 3.10, 3.12 …     |
-| INFO  | Host python3            | 3.12                                     |
-+-------+-------------------------+------------------------------------------+
++-------+-----------------------------------------+------------------------------------------------+
+| State | Capability                              | Detail                                         |
++-------+-----------------------------------------+------------------------------------------------+
+| OK    | Host release                            | Ubuntu 24.04 LTS (noble)                       |
+| OK    | Odoo build dependencies                 | all present                                    |
+| OK    | PostgreSQL                              | installed and running                          |
+| OK    | PostgreSQL version                      | 16 (Odoo 19.0 requires 13.0)                   |
+| OK    | Dev role (odoo)                         | present                                        |
+| OK    | wkhtmltopdf                             | wkhtmltopdf 0.12.6.1 (with patched qt)         |
+| OK    | Node.js (optional)                      | present                                        |
+| INFO  | rtlcss (optional)                       | not installed (only for right-to-left          |
+|       |                                         | languages)                                     |
+| OK    | uv (interpreters)                       | present — provides 3.8, 3.9, 3.10 …            |
+| INFO  | Host python3                            | 3.12                                           |
+| INFO  | Egress firewall — OpenSnitch (optional) | not installed                                  |
+| INFO  | Mail capture — Mailpit (optional)       | not installed                                  |
++-------+-----------------------------------------+------------------------------------------------+
 ```
 
 ## Apply
@@ -51,7 +58,9 @@ python3 -m odoo_dwg provision      # menu: Check / Apply
   connect as; a role name must be a plain PostgreSQL identifier (`^[a-z_][a-z0-9_]{0,62}$`) or apply stops
   before planning.
 - **wkhtmltopdf** — the Odoo-recommended patched build (0.12.6 for Odoo ≥ 15), downloaded for the host
-  codename and **verified by SHA-256** before install; a mismatch aborts.
+  codename and **verified by SHA-256** before install; a mismatch aborts. 0.12.5, which Odoo recommends up to
+  14, is not provisioned. When no verified build is pinned for the host, `apply` says so instead of skipping
+  it silently.
 - **rtlcss, with Node.js** *(opt-in)*: only needed if users work in a right-to-left language (Arabic, Hebrew,
   Persian…).
   - **What it does:** Odoo runs `rtlcss` only to mirror its CSS for those languages

@@ -14,7 +14,7 @@ read-only repo cache** reused across workspaces, and one **per-client workspace*
 ```
 ~/odoo-workspaces/
 ├── .repos/                              # shared cache (one clone per version)
-│   ├── odoo-17.0/  odoo-18.0/  ...      # git clone --branch <ver> --single-branch
+│   ├── odoo-17.0/  odoo-18.0/  ...      # git clone --depth 1 --branch <ver> --single-branch
 │   └── oca/<repo>-<ver>/ ...            # OCA repos on the matching branch
 └── <name>/                             # a client workspace
     ├── addons-custom/                   # your modules
@@ -51,7 +51,7 @@ intrinsically Linux and is validated by hand on WSL Ubuntu 24.04:
 ```bash
 # On the Linux host, after generating the workspace:
 cd ~/odoo-workspaces/<name>
-bash scripts/setup_venv.sh                      # python3 -m venv + pip install -r requirements.txt
+bash scripts/setup_venv.sh                      # venv (host python3 or uv) + pip install -r requirements.txt
 createdb <name>                                 # as the `odoo` role that provision apply creates
 bash scripts/run-odoo18.sh                       # odoo-bin -c config/odoo18.conf → serves on its port
 ```
@@ -102,9 +102,10 @@ A venv built before this rule (Odoo ≤ 16 on Python 3.12 got setuptools 81+) fa
 
 When the tool generates better files than it did when a workspace was created (new debug configurations, a
 fuller README), run **Manage → Refresh generated files**. It rewrites only the generated files whose content
-changed, keeping each previous version as `<file>.bak`, so hand edits are never lost; copy back what you still
+changed, keeping each previous version as `<file>.bak-<date>`, so hand edits are never lost; copy back what you still
 want. Each venv's interpreter is read from its `pyvenv.cfg`, so a version built on `uv` stays on `uv`. Addons,
-venvs, clones and databases are not touched. A later refresh replaces the previous `.bak`.
+venvs, clones and databases are not touched. Each refresh keeps its own dated backups; delete them once you
+have what you need.
 
 ### Re-verifying every version
 
@@ -116,6 +117,7 @@ refresh the table above:
 python tools/verify_workspace_versions.py              # every supported version
 python tools/verify_workspace_versions.py 12.0 15.0    # only these
 python tools/verify_workspace_versions.py --keep       # keep the workspace to inspect a failure
+python tools/verify_workspace_versions.py --yes        # apply without the interactive confirmation
 ```
 
 It generates a throwaway workspace `verifyall` through the tool's own plan, with each version on the

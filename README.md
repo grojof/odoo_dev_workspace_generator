@@ -82,7 +82,8 @@ Every command, menu action, and confirmation phrase: [`docs/commands.md`](docs/c
 
 - **Development:** Odoo **17.0 / 18.0 / 19.0** (first class).
 - **Migration:** the full **12.0 → 19.0** OpenUpgrade chain (one step per version).
-- **Python floors** (official "Source install"): 12→3.5, 13→3.6, 14→3.7, 17→3.10, 18→3.10.
+- **Python, PostgreSQL and hosts per version:** the [support matrix](docs/support-matrix.md), with the official
+  source behind every bound.
 
 ## Design principles
 
@@ -101,6 +102,8 @@ By surface:
 - **Host setup** — [`docs/wsl-setup.md`](docs/wsl-setup.md) (Ubuntu 24.04 on WSL 2, from zero) ·
   [`docs/provisioning.md`](docs/provisioning.md) (host check/apply).
 - **Migration** — [`docs/migration.md`](docs/migration.md) (interpreters, preflight, staging, checkpointing driver).
+- **Host safety** — [`docs/egress-control.md`](docs/egress-control.md) (the outbound firewall that denies by
+  default and asks, the local mail capture, and redirecting a copied database's mail).
 - **Editor** — [`docs/editor-integration.md`](docs/editor-integration.md) (the official Odoo extension, what a
   workspace emits for it, and how to keep up with its releases).
 - **What is supported** — [`docs/support-matrix.md`](docs/support-matrix.md) (hosts, Python per Odoo version,

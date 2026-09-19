@@ -29,8 +29,45 @@ All notable changes to this project are documented here. The format is based on
   - `provision check` reports both and flags a softened firewall configuration.
   - `tools/verify_egress_pins.py` re-checks the pins, the signature and the signing key against upstream.
 
+### Changed
+- **Profiles are validated whenever they are loaded**, including when a workspace is managed. Versions must be
+  exactly one of `12.0` … `19.0`; OCA repository names, `db_host`, ports and Python versions are checked too.
+  **BREAKING** only for profiles that relied on looser values such as `"18"`.
+- The unused `addon_prefix` profile field is gone. Old profiles that carry it still load, and it is ignored.
+- `provision check` and the migration preflight **never ask for a password**. PostgreSQL's state and version
+  come from `pg_lsclusters`; the development role is checked by logging in as it, or through `sudo -n`. When
+  neither works, the role row says it could not be checked (WARN) instead of MISSING.
+- **Refresh generated files** keeps a dated backup (`<file>.bak-<date>`), so a later refresh never overwrites
+  an earlier one.
+- The outbound firewall's development-infrastructure rule also allows the Ubuntu archive's country mirrors
+  (`es.archive.ubuntu.com`, …).
+
 ### Fixed
-- **Node + rtlcss installed 455 packages.** `apt` added every recommended package, a GUI terminal among
+- **Shell injection through versions and profiles.** A migration source or target such as `13.0$(…)`, or a
+  version, name, `db_host` or OCA repository in a `workspace.json`, passed validation and reached generated
+  scripts (`run_migration.sh`, `setup_venv.sh`, `run-odoo*.sh`) or `odoo.conf`. All of them are now validated.
+  Generated scripts quote every path with `shlex.quote`.
+- **The migration driver did not resume from the last good step.** It skipped completed steps, but re-ran a
+  failed one on the half-migrated working database. It now restores the newest checkpoint first. It also
+  binds the run to its source dump by SHA-256, and refuses a different dump instead of ignoring it.
+- **Coverage for the ≤ 13 steps looked in the wrong places**, in the preflight and in the driver. That made
+  every core module look "dropped by Odoo", and renames were read from the ≥ 14 location. Both now read the
+  fork's own `addons`, `odoo/addons` and `openupgrade_records/lib/apriori.py`.
+- **Pinning another Python for an already-built migration step had no effect.** The venv was kept because of
+  its ready marker. It is now rebuilt when its `pyvenv.cfg` names another interpreter.
+- **Add a version** added the version to the loaded profile even when its plan was declined or failed.
+- **Invalid input crashed the CLI with a traceback:** a version like `3.x`, a malformed `workspace.json`, or a
+  port given as text. It is now reported, and the CLI returns to the menu.
+- **An interrupted OpenSnitch install could leave `/usr/sbin/policy-rc.d` behind,** which stopped every
+  service from starting after later `apt` installs. It is removed on any exit, and a leftover of the tool's
+  own is recognised.
+- **Smaller fixes:**
+  - the OpenSnitch configuration is written atomically;
+  - a missing `apriori.py` is no longer cached for the whole session;
+  - `provision apply` says when no verified wkhtmltopdf is pinned for the host;
+  - staging no longer hides `git` failures;
+  - the Python 3.10 gevent repair matches any 3.10 patch level.
+- **The rtlcss option (right-to-left languages) installed 455 packages.** `apt` added every recommended package, a GUI terminal among
   them. It now installs `nodejs` and `npm` without recommends, and the prompt says what the step is for:
   only right-to-left languages (Arabic, Hebrew, Persian…).
 

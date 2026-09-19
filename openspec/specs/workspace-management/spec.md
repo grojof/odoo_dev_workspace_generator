@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Acts on workspaces that already exist — discovering them, repairing a virtual environment, refreshing the shared clones, adding a version — without regenerating or overwriting anything the operator has put in place.
+Maintains an existing workspace from its validated `workspace.json`: repair a venv, refresh the shared clones, add a version, refresh the generated files (changed files only, each previous version kept as a backup) and redirect a rehearsal database's mail to the local capture. Every action is previewed and confirmed, destructive ones need a phrase, and addons, venvs and databases are touched only by the action that names them.
 
 ## Requirements
 

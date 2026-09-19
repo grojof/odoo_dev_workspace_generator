@@ -3,24 +3,26 @@ type: reference
 title: "Workspace profile reference"
 description: "The JSON profile fields that describe an odoo_dwg workspace."
 audience: [developer]
-updated: 2026-07-05
+updated: 2026-09-19
 ---
 
 # Workspace profile reference
 
 A workspace is described by a JSON profile (see `examples/workspace-acme.json`). Unknown keys are ignored so
-older profiles keep loading. Loading a profile validates it before use.
+older profiles keep loading; a former `addon_prefix` key, for example, is ignored. A profile is validated
+**every time it is loaded**, when a workspace is created and whenever one is managed. The reason is that its
+values end up in paths, generated scripts and `odoo.conf`, and a profile can come from anyone. A value that
+fails is reported with its field, and nothing is planned.
 
 | Field | Type | Default | Meaning |
 |-------|------|---------|---------|
-| `name` | string | — (required) | Workspace/client id. Must match `^[a-z][a-z0-9_]{0,31}$` (filesystem- and PostgreSQL-safe). Reused for instance names and `addon_prefix`. |
-| `versions` | string[] | `["18.0"]` | Odoo versions to host (e.g. `"18.0"`). At least one; each must be a parseable Odoo version. Deduplicated and ordered by major. |
-| `addon_prefix` | string | = `name` | Prefix for scaffolded custom modules. |
-| `http_port_base` | int | `8069` | HTTP port of the lowest-major instance; higher majors get `+step` each. |
-| `db_host` | string | `127.0.0.1` | PostgreSQL host written into each `odoo.conf`. |
-| `db_port` | int | `5432` | PostgreSQL port. |
+| `name` | string | — (required) | Workspace/client id. Must match `^[a-z][a-z0-9_]{0,31}$` (filesystem- and PostgreSQL-safe). Reused for instance names and paths. |
+| `versions` | string[] | `["18.0"]` | Odoo versions to host. At least one; each must be exactly one of the supported `"12.0"` … `"19.0"` (not `"18"`). Deduplicated and ordered by major. |
+| `http_port_base` | int | `8069` | HTTP port of the lowest-major instance; higher majors get `+step` each. An integer from 1 to 64000. |
+| `db_host` | string | `127.0.0.1` | PostgreSQL host written into each `odoo.conf`: a host name or an IP address. |
+| `db_port` | int | `5432` | PostgreSQL port: an integer from 1 to 65535. |
 | `db_user` | string | `odoo` | PostgreSQL role written into each `odoo.conf`: by default the shared development role that `provision apply` creates. Must match `^[a-z_][a-z0-9_]{0,62}$`. |
-| `oca_repos` | string[] | `[]` | OCA repository names (e.g. `"web"`, `"server-tools"`), cloned per version from `github.com/OCA/<repo>` and symlinked into `addons-oca/odoo<major>/`. Empty by default — no opinionated preset. |
+| `oca_repos` | string[] | `[]` | OCA repository names (e.g. `"web"`, `"server-tools"`), cloned per version from `github.com/OCA/<repo>` and symlinked into `addons-oca/odoo<major>/`. Letters, digits, `.`, `_` and `-`, never `..`. Empty by default — no opinionated preset. |
 
 ## Development versions and interpreters
 

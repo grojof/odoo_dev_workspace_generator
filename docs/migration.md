@@ -3,7 +3,7 @@ type: how-to
 title: "Migrating a database (OpenUpgrade 12 → 19)"
 description: "Generate an OpenUpgrade migration environment and run the checkpointing driver."
 audience: [developer]
-updated: 2026-07-18
+updated: 2026-09-19
 ---
 
 # Migrating a database (OpenUpgrade 12 → 19)
@@ -50,8 +50,9 @@ Both are generated for you in `requirements/`.
 
 Under `~/odoo-migrations/<src>-to-<tgt>/`:
 
-- Per-version clones of `odoo/odoo` and `OCA/OpenUpgrade` (matching branch, shallow) in the shared
-  `.repos/` cache.
+- Per-version clones of `OCA/OpenUpgrade` (matching branch, shallow) in the shared `.repos/` cache. From
+  14.0 there is also a clone of `odoo/odoo`. Up to 13.0 the OpenUpgrade branch is itself a full Odoo fork, so
+  no separate clone is made.
 - A `uv` virtualenv per native version (matched interpreter + `requirements.txt` + `psycopg2-binary` +
   `openupgradelib`). A per-version `requirements/overrides-<ver>.txt` is applied via
   `uv pip install --overrides` to repair pins that no longer install: the 16.0/17.0 branches pin
@@ -69,8 +70,8 @@ Under `~/odoo-migrations/<src>-to-<tgt>/`:
 ## Two OpenUpgrade layouts
 
 Up to 13, the OpenUpgrade checkout **is** a full Odoo fork and each add-on carries its own
-`migrations/<version>/` scripts; the step runs the fork's `odoo-bin` with an `--addons-path` that names the
-fork's `addons` directory, and there is no `--upgrade-path` or `openupgrade_framework`. From 14 the checkout
+`migrations/<version>/` scripts; the step runs the fork's `odoo-bin` with a config whose `addons_path` names
+the fork's `addons` directory, and there is no `--upgrade-path` or `openupgrade_framework`. From 14 the checkout
 is an add-on collection beside a separate Odoo clone, with scripts under `openupgrade_scripts/scripts`
 reached via `--upgrade-path`. The generated per-step `odoo.conf` states the path explicitly in both cases,
 because a defaulted or inherited path is exactly how the container version went wrong.
@@ -147,8 +148,9 @@ automatically when generating an environment (host scope) and inside the driver 
 | Database | actual source version from `ir_module_module` (`base`) vs. the declared source; installed-module list; **per-step coverage** — every installed module must resolve in every step's `addons_path`, and each miss names the exact directory to fill |
 
 The database scope needs a live database: name an already-restored one in the menu action, or let the
-driver verify right after its initial restore (it aborts before step 1 on any failure). Legacy-layout
-coverage (12/13) is reported as not verifiable — the official image provides core.
+driver verify right after its initial restore (it aborts before step 1 on any failure). For a ≤ 13 step,
+coverage looks in the OpenUpgrade fork itself: its `addons` and `odoo/addons`, and its renames in
+`odoo/addons/openupgrade_records/lib/apriori.py`.
 
 ## Running the migration
 
@@ -162,8 +164,16 @@ bash run_migration.sh /path/to/source-13.0.dump
 It preflights the host, restores the dump into a working database on the shared PostgreSQL, verifies the
 database (version match, addons coverage) before step 1, then runs each step with
 `--update all --stop-after-init` (Odoo ≥ 14: `--load=base,web,openupgrade_framework`), and **`pg_dump`s a
-checkpoint after each successful step** — so a failure resumes from the last good step, not from the source.
-Any preflight failure exits non-zero with a `[preflight-fail]` line naming the check.
+checkpoint after each successful step**. Any preflight failure exits non-zero with a `[preflight-fail]` line
+naming the check.
+
+**Resuming.** Run the same command again after a failure.
+- **What it restores:** before the first step still missing, the driver restores the **newest checkpoint**
+  into the working database. A failed step can leave that database half-migrated, because OpenUpgrade commits
+  module by module, so it is never migrated again as it stands.
+- **One source dump per run:** the first run records the dump's SHA-256 in `checkpoints/source.sha256`. A
+  re-run with a different dump is refused, because the checkpoints belong to the first one. To start over
+  from another dump, remove `checkpoints/`.
 
 ### Keeping a migration from reaching the outside
 

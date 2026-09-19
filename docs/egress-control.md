@@ -66,6 +66,7 @@ The package's defaults do not match "block unless allowed". The tool changes the
 | `InterceptUnknown` | `false` | `true` | With `false`, a connection whose process cannot be found skips **every** rule, including localhost, and is silently denied. WSL's localhost relay is such a connection, so a Windows browser could not open Mailpit's UI. With `true` it goes through the rules: localhost is allowed, and anything else is denied **and logged**. |
 | `Internal.FlushConnsOnStart` | `true` | `false` | Otherwise starting the service would cut every open connection, including your editor's. |
 | `FwOptions.QueueBypass` | `true` | `false` | **Fail closed.** If the service crashes, nothing goes out until it comes back. systemd restarts it within 30 s (`Restart=always`), and a clean stop still restores the network (see [Turning it off](#turning-it-off-or-uninstalling)). Measured: during a crash even GitHub was unreachable, and it recovered on its own. |
+| `LogLevel` | `2` | `2` | Kept at the package's normal level, and checked, so `provision check` flags a debug level left behind by troubleshooting. Debug logs every packet. |
 | `Server.Loggers` | none | `syslog`, `rfc5424` | **Every decision goes to the system journal, with or without the window** (`journalctl -t opensnitch`, see [The permanent record](#the-permanent-record)). The service's own log file does not record decisions at its normal level. |
 
 ### The rules the tool installs
@@ -83,9 +84,10 @@ match decides**.
 | `00-odwg-002-allow-ntp` | Clock synchronisation (`systemd-timesyncd`) |
 | `00-odwg-003-allow-vscode-server` | The VS Code server (`~/.vscode-server`), the editor this tool configures |
 | `00-odwg-010-reject-odoo-external` | **Any process whose command line contains `odoo-bin`** (workspaces, migration steps, the shell) **can reach nothing but localhost** |
-| `00-odwg-020-allow-dev-infrastructure` | Any process may reach GitHub (including `cli.github.com` and `*.githubusercontent.com`), PyPI, `*.astral.sh` (uv's Pythons), the Ubuntu archives and npm, so `git`, `gh`, `pip`, `uv`, `apt` and `npm` keep working. Odoo never reaches this rule, because `010` matches it first. |
+| `00-odwg-020-allow-dev-infrastructure` | Any process may reach GitHub (including `cli.github.com` and `*.githubusercontent.com`), PyPI, `*.astral.sh` (uv's Pythons), the Ubuntu archives (with their country mirrors such as `es.archive.ubuntu.com`) and npm, so `git`, `gh`, `pip`, `uv`, `apt` and `npm` keep working. Odoo never reaches this rule, because `010` matches it first. |
 
-Everything else is **asked about** when the window is open, and **denied** when it is closed.
+Everything else is **asked about** when the window is open, and **denied** when it is closed. A host that uses its
+own apt mirror (a company proxy, for instance) allows it once from the window, scoped to that host.
 
 **Not included:** no rule is shipped for AI assistants or other personal tools. If a tool you use needs the
 network, allow it once from the window (see below). On WSL, that includes an assistant running inside the

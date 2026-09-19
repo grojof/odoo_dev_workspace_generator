@@ -129,8 +129,8 @@ For each entry in the changelog, ask:
 | Nothing to adopt | Bump `ODOOLS_REVIEWED_VERSION` (in `odoo_dwg/templates.py`) to the stable release you reviewed, in a small direct commit, so the next review starts from there |
 | A feature exists only in a prerelease | Nothing yet. Note it in `docs/roadmap.md` if it matters, and revisit when a stable schema carries it |
 
-Existing workspaces pick up a changed `odools.toml` the next time their tree is regenerated (for example by
-adding a version from **Manage an existing workspace**).
+Existing workspaces pick up a changed `odools.toml` with **Manage an existing workspace → Refresh generated
+files**, which rewrites only the files that changed and keeps a dated backup of each.
 
 ### Where the facts live, and the traps
 

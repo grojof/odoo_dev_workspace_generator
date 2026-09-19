@@ -4,7 +4,6 @@
     "17.0",
     "18.0"
   ],
-  "addon_prefix": "acme",
   "http_port_base": 8069,
   "db_host": "127.0.0.1",
   "db_port": 5432,
