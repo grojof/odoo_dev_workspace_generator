@@ -1042,9 +1042,15 @@ def _venv_python(env: MigrationEnv, version: str, read: Read) -> str | None:
     return choice.python if choice else None
 
 
-def plan_migration_oca(env: MigrationEnv, exists: Exists = _never) -> list[Command]:
-    """Clone each named OCA repository per chain version and link it into that
-    step's ``oca`` directory.
+def plan_migration_oca(
+    env: MigrationEnv, exists: Exists = _never, versions: list[str] | None = None
+) -> list[Command]:
+    """Clone each named OCA repository per version and link it into that
+    version's ``oca`` directory.
+
+    ``versions`` defaults to the chain's steps. A demo seed passes the *source*
+    version, which is not a step and therefore gets no OCA link otherwise — and a
+    module that is not on disk at the source version cannot be installed there.
 
     A repository OCA has not ported to a version is a fact the operator needs,
     not a reason to refuse to build the environment: the branch is asked for
@@ -1055,7 +1061,7 @@ def plan_migration_oca(env: MigrationEnv, exists: Exists = _never) -> list[Comma
     commands: list[Command] = []
     for repo in env.oca_repos:
         url = f"{WorkspaceConfig.oca_url_base}/{repo}.git"
-        for version in env.chain():
+        for version in versions if versions is not None else env.chain():
             dest = env.oca_clone_dir(repo, version)
             link = env.oca_link_dir(repo, version)
             if not exists(dest):
@@ -1423,6 +1429,8 @@ def plan_seed_environment(env: MigrationEnv, exists: Exists = _never) -> list[Co
         commands += venv_commands(
             env, version, python, clone / "requirements.txt", openupgrade=False
         )
+    # The source version is not a step, so the chain's OCA linking skips it.
+    commands += plan_migration_oca(env, exists, versions=[version])
     commands.append(
         Command(
             tf("Create the source add-ons directories for {}", version),

@@ -130,3 +130,23 @@ def test_the_seed_script_installs_one_module_at_a_time(tmp_path):
     assert "-i a_module,b_module" not in script
     # 12.0-18.0 load demo data unless told not to; the flag's absence is the ask.
     assert "--without-demo" not in script
+
+
+def test_the_seed_links_oca_for_the_source_version(tmp_path):
+    MigrationEnv.base_dir = str(tmp_path / "envs")
+    env = MigrationEnv(source="12.0", target="19.0", oca_repos=["e-commerce"])
+    commands = " ".join(c.command for c in planners.plan_seed_environment(env))
+    # The source is not a chain step, so the chain's own OCA linking skips it —
+    # and a module that is not on disk at 12.0 cannot be installed at 12.0.
+    assert "e-commerce" in commands and "odoo12" in commands
+
+
+def test_the_chain_s_own_oca_linking_is_unchanged(tmp_path):
+    MigrationEnv.base_dir = str(tmp_path / "envs")
+    env = MigrationEnv(source="12.0", target="14.0", oca_repos=["e-commerce"])
+    versions = {
+        c.description.rsplit(" ", 1)[-1]
+        for c in planners.plan_migration_oca(env)
+        if c.description.startswith("Link OCA")
+    }
+    assert versions == {"13.0", "14.0"}  # the steps, not the source
