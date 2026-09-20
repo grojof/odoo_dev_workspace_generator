@@ -86,9 +86,18 @@ effect; when `pyvenv.cfg` cannot be read, the ready venv is kept.
 
 ### Requirement: Per-step migration config
 
+An existing generated file that would change SHALL first be copied to `<file>.bak-<date>`, as the workspace
+surface does: a step's config is where an operator adds `limit_time_real = 0` or an extra addons path while
+chasing a failure, and re-generating an environment is routine.
+
 The system SHALL write a per-step `odoo.conf` whose `addons_path` includes the step's per-version custom and
 OCA directories, the OpenUpgrade checkout root (14.0 and later) or the fork's `addons` (13.0 and earlier), and
 the target version's Odoo add-ons, and whose database connection targets the shared migration cluster.
+
+#### Scenario: A hand-tuned step config is kept
+
+- **WHEN** an environment whose `conf/odoo17.conf` was edited by hand is generated again
+- **THEN** the plan copies it to `conf/odoo17.conf.bak-<date>` before writing the new one
 
 #### Scenario: Config includes the OpenUpgrade checkout
 

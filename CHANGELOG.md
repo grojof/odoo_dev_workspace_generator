@@ -85,6 +85,24 @@ All notable changes to this project are documented here. The format is based on
   first run: dead variables in `setup_venv.sh`, and a failure path written as `a && b || c`).
 
 ### Fixed
+- **"Stage custom modules" was unusable on a host with `commit.gpgsign = true`.** The throwaway commit the
+  staging step makes inherited the operator's git config, and git exits 128 when it cannot sign as the
+  identity the step interpolates — after the module had already been copied, so the next attempt demanded
+  the `RESTAGE` phrase to reach the same failure. That commit is now independent of the global config
+  (`--no-gpg-sign`, `--no-verify`, no hooks path), as its `-c user.name`/`-c user.email` already intended.
+- **A workspace generation interrupted before its profile was written was a dead end**: create refused the
+  directory ("already exists"), manage refused to load it ("no workspace.json"), and the name was taken
+  until the operator deleted the tree by hand. `workspace.json` is written first now, so **Manage → Refresh
+  generated files** completes an interrupted tree.
+- **A file's mode could be left unset and never repaired.** Writing a file and setting its mode were two
+  steps, so an interruption between them left a script that was not executable — and a refresh, which
+  compares content only, then reported the workspace up to date. They are one step now.
+- **A migration environment's generated files were overwritten with no backup**, while the workspace surface
+  promises one in writing. A step's `odoo.conf` that would change is kept as `<file>.bak-<date>` first.
+- The migration flow shows the interpreter **a step's venv was really built with** when it differs from the
+  one about to be planned, so a pin that was never persisted is visible before the preview rather than
+  silently rebuilt away.
+
 - **A newly generated workspace dead-ended at F5.** Its README never said to create a database, so the
   debugger's default (the workspace name) hit `database "<name>" does not exist`. The README now opens with
   the `createdb` to run, the URL to open, Odoo's own database manager and its `admin_passwd`, where mail

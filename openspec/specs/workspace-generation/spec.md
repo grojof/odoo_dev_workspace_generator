@@ -48,9 +48,13 @@ The system SHALL generate, under `<base>/<name>/`:
 - a `.vscode/` directory (`tasks.json`, `launch.json`, `settings.json`, `extensions.json`);
 - an `odools.toml` when at least one version is supported by the language server;
 - a per-workspace `README.md`;
-- a `workspace.json` holding the resolved profile, so the workspace can be managed later.
+- a `workspace.json` holding the resolved profile, so the workspace can be managed later. It SHALL be
+  written **first**: it is what makes a directory a manageable workspace, and a generation interrupted
+  before it left a tree that create refused to touch and manage refused to load.
 
-All generated files SHALL be English text and SHALL hold exactly the rendered content.
+All generated files SHALL be English text and SHALL hold exactly the rendered content. Writing a file and
+setting its mode SHALL be one step, so an interruption cannot leave a script that exists but is not
+executable — which a refresh, comparing content only, would report as up to date.
 
 #### Scenario: Full tree is planned
 

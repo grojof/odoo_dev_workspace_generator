@@ -12,11 +12,14 @@ def _cfg(**kw) -> WorkspaceConfig:
     return cfg
 
 
-def test_write_text_file_command_is_heredoc_plus_chmod():
+def test_write_text_file_command_writes_and_chmods_in_one_step():
+    """One command, so a plan cannot be interrupted between the two and leave a
+    script that exists but is not executable — which a refresh, comparing content
+    only, would then report as up to date."""
     cmds = planners.write_text_file_command("/tmp/x.conf", "hello\n", "640")
-    assert len(cmds) == 2
+    assert len(cmds) == 1
     assert "cat > " in cmds[0].command and "<<'EOF'" in cmds[0].command
-    assert cmds[1].command.startswith("chmod 640 ")
+    assert cmds[0].command.rstrip().endswith("chmod 640 /tmp/x.conf")
 
 
 def test_heredoc_delimiter_never_matches_a_content_line():
@@ -35,10 +38,11 @@ def test_write_text_file_command_contains_hostile_content():
     header, _, rest = command.partition("\n")
     delimiter = header.split("<<")[1].strip("'")
     body_lines = rest.split("\n")
-    # The heredoc ends only at its final line, so every content line is data.
-    assert body_lines[-1] == delimiter
-    assert delimiter not in body_lines[:-1]
-    assert "\n".join(body_lines[:-1]) + "\n" == content  # exactly the content, no extra line
+    # The chmod follows the heredoc's closing line.
+    assert body_lines[-1].startswith("chmod ")
+    assert body_lines[-2] == delimiter
+    assert delimiter not in body_lines[:-2]
+    assert "\n".join(body_lines[:-2]) + "\n" == content  # exactly the content, no extra line
 
 
 def test_repo_cache_clones_each_version_and_oca():
@@ -282,8 +286,8 @@ def test_refresh_backs_up_and_rewrites_only_what_changed():
     cmds = [c.command for c in planners.plan_refresh_files(cfg, None, current.get)]
     assert cmds[0] == f"cp -p {launch} {launch}.bak"
     assert cmds[1].startswith(f"cat > {launch} <<")
-    assert cmds[2].startswith("chmod 644 ")
-    assert len(cmds) == 3  # nothing else is touched
+    assert cmds[1].rstrip().endswith(f"chmod 644 {launch}")  # write and mode, one step
+    assert len(cmds) == 2  # nothing else is touched
 
 
 def test_refresh_creates_a_missing_file_without_a_backup():
@@ -327,4 +331,10 @@ def test_staging_commit_no_longer_hides_git_failures():
     worktree = [c.command for c in cmds if " init -q && " in c.command]
     assert worktree, "the stage still prepares a git worktree"
     for command in worktree:
-        assert "|| true" not in command and command.endswith("--allow-empty")
+        # A failure must surface, never be swallowed…
+        assert "|| true" not in command
+        # …and the operator's own git config must not decide whether this
+        # throwaway commit works: a global `commit.gpgsign = true` exits 128.
+        for flag in ("--allow-empty", "--no-gpg-sign", "--no-verify",
+                     "-c core.hooksPath=/dev/null"):
+            assert flag in command, flag

@@ -11,11 +11,18 @@ from __future__ import annotations
 
 import re
 import shlex
+from datetime import datetime
 from pathlib import Path
 
 from .. import analysis, planners, preflight, templates
 from ..i18n import t, tf
-from ..models import DB_NAME_RE, MODULE_NAME_RE, Command, MigrationEnv
+from ..models import (
+    DB_NAME_RE,
+    MODULE_NAME_RE,
+    Command,
+    MigrationEnv,
+    interpreter_from_pyvenv,
+)
 from ..planners import write_text_file_command
 from ..prompts import ask_bool, ask_text, choose, confirm_with_phrase
 from ..system import apply_commands, list_dirs, preview_commands
@@ -32,6 +39,11 @@ def _read_text(path: Path) -> str | None:
         return path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return None
+
+
+def _stamp() -> str:
+    """Suffix for this run's backups, so a later generation never overwrites one."""
+    return datetime.now().strftime("%Y%m%d-%H%M%S")
 
 
 def _ask_env() -> MigrationEnv | None:
@@ -53,6 +65,14 @@ def _interpreter_rows(env: MigrationEnv) -> list[tuple[str, str, str]]:
     for version in env.chain():
         choice = env.interpreter_choice(version)
         detail = t("pinned by you") if version in env.interpreter_overrides else t("recommended")
+        # A pin is not persisted anywhere, so a later generation resolves the
+        # recommendation again and would rebuild a venv that was deliberately
+        # built on something else. Say what is on disk, before the preview.
+        built = interpreter_from_pyvenv(
+            version, _read_text(env.venv_dir(version) / "pyvenv.cfg") or ""
+        )
+        if built and built.python and built.python != choice.python:
+            detail = tf("{} — the venv on disk was built with {}", detail, built.python)
         rows.append((version, choice.describe(), detail))
     return rows
 
@@ -122,7 +142,9 @@ def _generate_environment() -> None:
             print(level_text("INFO", t("Cancelled.")))
             return
 
-    commands = planners.plan_generate_migration(env, exists=_exists, read=_read_text)
+    commands = planners.plan_generate_migration(
+        env, exists=_exists, read=_read_text, stamp=_stamp()
+    )
     preview_commands(commands)
     if ask_bool("Apply this plan now?", False):
         apply_commands(commands)

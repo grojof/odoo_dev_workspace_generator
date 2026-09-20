@@ -37,6 +37,11 @@ def _never(_path: Path) -> bool:
     return False
 
 
+def _unread(_path: Path) -> str | None:
+    """Default reader: nothing exists yet, so everything is written (create path)."""
+    return None
+
+
 def heredoc_delimiter(content: str, base: str = "EOF") -> str:
     """A heredoc delimiter that no line of ``content`` equals.
 
@@ -53,15 +58,22 @@ def heredoc_delimiter(content: str, base: str = "EOF") -> str:
 
 
 def write_text_file_command(path: Path | str, content: str, mode: str = "644") -> list[Command]:
-    """Emit a file via a quoted heredoc plus a ``chmod`` — mirrors the sibling app."""
+    """Emit a file via a quoted heredoc, then set its mode — as one command.
+
+    One command, not two: a plan interrupted between them left a script written
+    but not executable, and a refresh compares content only, so it reported the
+    workspace up to date and never repaired the mode."""
     target = str(path)
     end = heredoc_delimiter(content)
     # The heredoc body ends with a newline of its own, so content that already
     # ends in one must not get a second: the file then holds exactly ``content``.
     body = content if content.endswith("\n") else f"{content}\n"
     return [
-        Command(tf("Write {}", target), f"cat > {shlex.quote(target)} <<'{end}'\n{body}{end}"),
-        Command(tf("Set mode {} on {}", mode, target), f"chmod {mode} {shlex.quote(target)}"),
+        Command(
+            tf("Write {} (mode {})", target, mode),
+            f"cat > {shlex.quote(target)} <<'{end}'\n{body}{end}\n"
+            f"chmod {mode} {shlex.quote(target)}",
+        ),
     ]
 
 
@@ -168,7 +180,13 @@ def generated_files(
 
     One list for creating a workspace and for refreshing an existing one, so the
     two can never disagree about what a workspace contains."""
-    files: list[tuple[Path, str, str]] = []
+    # The profile marker goes first, not last: it is what makes a directory a
+    # *manageable* workspace. Written last, an interrupted generation left a tree
+    # that create refused to touch ("already exists") and manage refused to load
+    # ("no workspace.json") — a name the operator could only free with rm -rf.
+    # Written first, any interruption from here on is repaired by Manage →
+    # Refresh generated files, which writes every file that is missing.
+    files: list[tuple[Path, str, str]] = [(cfg.profile_file, cfg.to_json(), "644")]
     # Per-version odoo.conf and run scripts.
     for version in cfg.versions:
         major = odoo_major(version)
@@ -189,8 +207,6 @@ def generated_files(
     if templates.odools_versions(cfg):
         files.append((cfg.odools_file, templates.render_odools_toml(cfg), "644"))
     files.append((cfg.readme_file, templates.render_workspace_readme(cfg, interpreters), "644"))
-    # The profile marker, so the workspace can be re-loaded for management.
-    files.append((cfg.profile_file, cfg.to_json(), "644"))
     return files
 
 
@@ -807,8 +823,15 @@ def plan_migration_venvs(
     return commands
 
 
-def plan_migration_configs(env: MigrationEnv) -> list[Command]:
-    """Write the per-step odoo.conf and the run_migration.sh driver."""
+def plan_migration_configs(
+    env: MigrationEnv, read: Read = _unread, stamp: str = ""
+) -> list[Command]:
+    """Write the per-step odoo.conf and the run_migration.sh driver.
+
+    A step's `odoo.conf` is the natural place to add `limit_time_real = 0` or an
+    extra addons path while chasing a stuck step, and re-generating an environment
+    is routine — so an existing file that would change is kept as
+    ``<file>.bak-<stamp>`` first, exactly as the workspace surface does."""
     dirs: list[Path] = [env.conf_dir, env.checkpoints_dir, env.logs_dir, env.requirements_dir]
     for version in env.chain():
         dirs += [env.addons_custom_dir(version), env.addons_oca_dir(version)]
@@ -818,14 +841,26 @@ def plan_migration_configs(env: MigrationEnv) -> list[Command]:
             "mkdir -p " + " ".join(shlex.quote(str(p)) for p in dirs),
         )
     ]
-    for version in env.chain():
-        commands += write_text_file_command(
-            env.config_file(version), templates.render_migration_conf(env, version)
-        )
-    commands += write_text_file_command(
-        env.root / "run_migration.sh", templates.render_run_migration_sh(env), "755"
-    )
+    files = [
+        (env.config_file(version), templates.render_migration_conf(env, version), "644")
+        for version in env.chain()
+    ]
+    files.append((env.root / "run_migration.sh", templates.render_run_migration_sh(env), "755"))
+    for path, content, mode in files:
+        current = read(path)
+        if current is not None and current.rstrip("\n") == content.rstrip("\n"):
+            continue
+        if current is not None:
+            backup = Path(f"{path}.bak-{stamp}" if stamp else f"{path}.bak")
+            commands.append(
+                Command(
+                    tf("Back up {} to {}", str(path), str(backup)),
+                    f"cp -p {shlex.quote(str(path))} {shlex.quote(str(backup))}",
+                )
+            )
+        commands += write_text_file_command(path, content, mode)
     return commands
+
 
 
 def _venv_python(env: MigrationEnv, version: str, read: Read) -> str | None:
@@ -837,13 +872,14 @@ def _venv_python(env: MigrationEnv, version: str, read: Read) -> str | None:
 
 
 def plan_generate_migration(
-    env: MigrationEnv, exists: Exists = _never, read: Read = _never_read
+    env: MigrationEnv, exists: Exists = _never, read: Read = _never_read, stamp: str = ""
 ) -> list[Command]:
     """Full migration-environment plan: clones + uv venvs + configs + driver."""
     return (
         plan_migration_clones(env, exists)
         + plan_migration_venvs(env, exists, read)
-        + plan_migration_configs(env)
+        # The same reader: a hand-tuned step config is kept as .bak-<stamp>.
+        + plan_migration_configs(env, read, stamp)
     )
 
 
@@ -905,8 +941,14 @@ def plan_stage_module(env: MigrationEnv, module: str, source_dir: Path) -> list[
                 f"git -C {shlex.quote(str(target_parent))} init -q && "
                 f"git -C {shlex.quote(str(target_parent))} add -A && "
                 f"git -C {shlex.quote(str(target_parent))} "
+                # Independent of the operator's git config, all of it: a global
+                # `commit.gpgsign = true` fails this throwaway commit outright
+                # (git exits 128, since the interpolated identity has no key),
+                # and a global hook has no business running on it either.
                 f"-c user.name=odoo-dwg -c user.email=odoo-dwg@localhost "
-                f"commit -qm {shlex.quote(f'stage {module} {version} input')} --allow-empty",
+                f"-c core.hooksPath=/dev/null "
+                f"commit -qm {shlex.quote(f'stage {module} {version} input')} "
+                f"--allow-empty --no-gpg-sign --no-verify",
             ),
             Command(
                 tf("Migrate {} code {} -> {}", module, previous_version, version),
