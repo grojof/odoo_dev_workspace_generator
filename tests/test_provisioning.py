@@ -24,7 +24,7 @@ def test_bare_host_reports_missing():
     states = _states(provision_rows(facts))
     assert states["Odoo build dependencies"] == "MISSING"
     assert states["PostgreSQL"] == "MISSING"
-    assert states["Dev role (odoo)"] == "MISSING"
+    assert states["Development role (odoo)"] == "MISSING"
     assert states["wkhtmltopdf"] == "MISSING"
 
 
@@ -45,7 +45,7 @@ def test_ready_host_reports_ok():
     states = _states(provision_rows(facts))
     assert states["Odoo build dependencies"] == "OK"
     assert states["PostgreSQL"] == "OK"
-    assert states["Dev role (odoo)"] == "OK"
+    assert states["Development role (odoo)"] == "OK"
     assert states["wkhtmltopdf"] == "OK"
 
 
@@ -175,7 +175,7 @@ def test_apply_rejects_an_unsafe_role_before_probing_or_planning(monkeypatch, ca
 def test_an_unknown_role_is_a_warning_not_missing():
     facts = ProvisionFacts(os_id="ubuntu", os_version_id="24.04", postgres_installed=True,
                            postgres_running=True, dev_role="odoo", dev_role_exists=None)
-    state = {check: (st, detail) for st, check, detail in provision_rows(facts)}["Dev role (odoo)"]
+    state = {check: (st, detail) for st, check, detail in provision_rows(facts)}["Development role (odoo)"]
     assert state[0] == "WARN" and "without sudo" in state[1]
 
 

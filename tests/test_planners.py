@@ -12,14 +12,17 @@ def _cfg(**kw) -> WorkspaceConfig:
     return cfg
 
 
-def test_write_text_file_command_writes_and_chmods_in_one_step():
-    """One command, so a plan cannot be interrupted between the two and leave a
-    script that exists but is not executable — which a refresh, comparing content
-    only, would then report as up to date."""
+def test_a_file_is_written_beside_its_target_and_renamed_into_place():
+    """One command, so a plan cannot be interrupted between write and chmod and
+    leave a script that is not executable — which a refresh, comparing content
+    only, would report as up to date. And a rename, not a truncating rewrite: bash
+    reads a running script by byte offset, so rewriting one in place resumed it
+    mid-token."""
     cmds = planners.write_text_file_command("/tmp/x.conf", "hello\n", "640")
     assert len(cmds) == 1
-    assert "cat > " in cmds[0].command and "<<'EOF'" in cmds[0].command
-    assert cmds[0].command.rstrip().endswith("chmod 640 /tmp/x.conf")
+    command = cmds[0].command
+    assert command.startswith("cat > /tmp/x.conf.odwg-tmp <<'EOF'")
+    assert command.rstrip().endswith("chmod 640 /tmp/x.conf.odwg-tmp && mv -f /tmp/x.conf.odwg-tmp /tmp/x.conf")
 
 
 def test_heredoc_delimiter_never_matches_a_content_line():
@@ -285,8 +288,8 @@ def test_refresh_backs_up_and_rewrites_only_what_changed():
     current[launch] = '{"configurations": []}\n'  # an older generator's file
     cmds = [c.command for c in planners.plan_refresh_files(cfg, None, current.get)]
     assert cmds[0] == f"cp -p {launch} {launch}.bak"
-    assert cmds[1].startswith(f"cat > {launch} <<")
-    assert cmds[1].rstrip().endswith(f"chmod 644 {launch}")  # write and mode, one step
+    assert cmds[1].startswith(f"cat > {launch}.odwg-tmp <<")
+    assert cmds[1].rstrip().endswith(f"mv -f {launch}.odwg-tmp {launch}")  # atomic
     assert len(cmds) == 2  # nothing else is touched
 
 

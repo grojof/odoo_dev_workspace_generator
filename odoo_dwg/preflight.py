@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import system
+from .i18n import tf
 from .models import DEFAULT_DB_ROLE, MigrationEnv, odoo_major
 
 Exists = Callable[[Path], bool]
@@ -252,67 +253,81 @@ def preflight_rows(
     rows: list[tuple[str, str, str]] = []
 
     rows.append(("OK" if host.uv else "MISSING", "uv",
-                 "present" if host.uv else "not installed (needed to build the native venvs)"))
+                 tf("present") if host.uv
+                 else tf("not installed (needed to build the native venvs)")))
 
     if not host.postgres_running:
-        rows.append(("MISSING", "PostgreSQL", "not reachable"))
+        rows.append(("MISSING", "PostgreSQL", tf("not reachable")))
     else:
-        rows.append(("OK", "PostgreSQL", "reachable"))
+        rows.append(("OK", "PostgreSQL", tf("reachable")))
+        # The same name as the provision check's row: one thing, one name.
+        role_label = tf("Development role ({})", host.dev_role)
         if host.dev_role_exists is None:
-            rows.append(("WARN", f"DB role ({host.dev_role})", "could not check without sudo — run it with sudo, or connect as the role once"))
+            rows.append(("WARN", role_label,
+                         tf("could not check without sudo — run it with sudo, or connect as the "
+                            "role once")))
         else:
-            rows.append(("OK" if host.dev_role_exists else "MISSING",
-                         f"DB role ({host.dev_role})",
-                         "present" if host.dev_role_exists else "not found (see provision)"))
+            rows.append(("OK" if host.dev_role_exists else "MISSING", role_label,
+                         tf("present") if host.dev_role_exists
+                         else tf("not found (see provision)")))
 
+    dump_label = tf("Source dump")
     if host.dump_path is None:
-        rows.append(("INFO", "Source dump", "skipped (no dump given)"))
+        rows.append(("INFO", dump_label, tf("skipped (no dump given)")))
     elif not host.dump_readable:
-        rows.append(("MISSING", "Source dump", f"not readable: {host.dump_path}"))
+        rows.append(("MISSING", dump_label, tf("not readable: {}", host.dump_path)))
     elif not host.dump_listable:
-        rows.append(("MISSING", "Source dump",
-                     f"pg_restore cannot list it — a custom-format dump (pg_dump -Fc) is required. {host.dump_detail}".strip()))
+        rows.append(("MISSING", dump_label,
+                     tf("pg_restore cannot list it — a custom-format dump (pg_dump -Fc) is "
+                        "required. {}", host.dump_detail).strip()))
     else:
-        rows.append(("OK", "Source dump", host.dump_path))
+        rows.append(("OK", dump_label, host.dump_path))
 
-    rows.append(("OK" if host.addons_layout_present else "WARN", "Addons layout",
-                 "present" if host.addons_layout_present
-                 else "addons/odoo<major>/{custom,oca} dirs absent — regenerate the environment"))
+    rows.append(("OK" if host.addons_layout_present else "WARN", tf("Addons layout"),
+                 tf("present") if host.addons_layout_present
+                 else tf("addons/odoo<major>/{custom,oca} dirs absent — regenerate the "
+                         "environment")))
 
     if db is None:
-        rows.append(("INFO", "Database checks", "skipped (no database named)"))
+        rows.append(("INFO", tf("Database checks"), tf("skipped (no database named)")))
         return rows
 
+    db_label = tf("Database version")
     if db.base_version is None:
-        rows.append(("MISSING", "Database version", "cannot read ir_module_module (is it an Odoo database?)"))
+        rows.append(("MISSING", db_label,
+                     tf("cannot read ir_module_module (is it an Odoo database?)")))
     elif _same_major(db.base_version, db.declared_source):
-        rows.append(("OK", "Database version", f"base {db.base_version} matches source {db.declared_source}"))
+        rows.append(("OK", db_label,
+                     tf("base {} matches source {}", db.base_version, db.declared_source)))
     else:
-        rows.append(("MISSING", "Database version",
-                     f"base is {db.base_version} but the environment was generated for source {db.declared_source}"))
+        rows.append(("MISSING", db_label,
+                     tf("base is {} but the environment was generated for source {}",
+                        db.base_version, db.declared_source)))
 
-    rows.append(("OK", "Installed modules", f"{len(db.installed_modules)} installed"))
+    rows.append(("OK", tf("Installed modules"), tf("{} installed", len(db.installed_modules))))
 
     for version in sorted(coverage.ungenerated if coverage else ()):
-        rows.append(("MISSING", f"Coverage ({version})",
-                     "that step's sources are not on disk — generate the environment before "
-                     "reading coverage"))
+        rows.append(("MISSING", tf("Coverage ({})", version),
+                     tf("that step's sources are not on disk — generate the environment before "
+                        "reading coverage")))
 
     for version, missing_modules in sorted((coverage.blocking if coverage else {}).items()):
         target = str(custom_dir_for(version)) if custom_dir_for else f"addons/odoo{odoo_major(version)}/custom"
         listing = ", ".join(missing_modules[:8]) + ("…" if len(missing_modules) > 8 else "")
-        rows.append(("MISSING", f"Coverage ({version})",
-                     f"{listing} — place each module's {version} branch in {target}"))
+        rows.append(("MISSING", tf("Coverage ({})", version),
+                     tf("{} — place each module's {} branch in {}", listing, version, target)))
 
     # Odoo's own modules, dropped upstream: named, but never a reason to refuse —
     # the upgrade uninstalls them and there is nothing for the operator to supply.
     for version, dropped in sorted((coverage.warnings if coverage else {}).items()):
         listing = ", ".join(dropped[:8]) + ("…" if len(dropped) > 8 else "")
-        rows.append(("WARN", f"Dropped by Odoo ({version})",
-                     f"{listing} — not in {version} and not renamed; OpenUpgrade removes them"))
+        rows.append(("WARN", tf("Dropped by Odoo ({})", version),
+                     tf("{} — not in {} and not renamed; OpenUpgrade removes them",
+                        listing, version)))
 
     for module in sorted(customs or ()):
-        rows.append(("WARN", f"Custom module {module}",
-                     "needs per-version adapted code (and migrations/ scripts when data changes) — presence is not sufficient; see the staging workflow"))
+        rows.append(("WARN", tf("Custom module {}", module),
+                     tf("needs per-version adapted code (and migrations/ scripts when data "
+                        "changes) — presence is not sufficient; see the staging workflow")))
 
     return rows

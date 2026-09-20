@@ -182,9 +182,10 @@ whose `odoo-bin` failed (it names the step's log file), a step whose OpenUpgrade
 would migrate nothing and say nothing in that case, so the driver checks before running it — or checkpoints
 that came from a different source dump.
 
-**The working database.** Every environment upgrades a database called `migration` on the shared PostgreSQL,
-which a fresh run drops and recreates from the dump. Two environments therefore cannot run at the same time,
-and a previous run's database is replaced. Nothing ever touches the source database.
+**The working database.** Each environment upgrades **its own** database on the shared PostgreSQL, named
+after its chain — `migration_13_to_18` for a 13 → 18 environment — which a fresh run drops and recreates
+from the dump. Two *different* chains can therefore run at once; two runs of the *same* chain cannot, and
+the second would drop the first's database. Nothing ever touches the source database.
 
 **When a step fails.** The driver names the step and its log (`[fail] step 16.0 failed — see
 logs/16.0.log`). Read that log: the cause is usually one of your own modules under
@@ -197,7 +198,7 @@ shared cluster. To look at it, start that step's Odoo by hand:
 
 ```bash
 cd ~/odoo-migrations/13-to-18
-.venv/odoo18/bin/python .repos/odoo-18.0/odoo-bin -c conf/odoo18.conf -d migration
+.venv/odoo18/bin/python .repos/odoo-18.0/odoo-bin -c conf/odoo18.conf -d migration_13_to_18
 ```
 
 To take it away: `pg_dump -Fc -h 127.0.0.1 -U odoo migration -f migrated-18.0.dump` (and the filestore
@@ -230,7 +231,8 @@ The migration menu's **Clean a migration environment** action removes an environ
 (venvs, configs, checkpoints, logs, requirements, driver) after preview and an exact-phrase
 confirmation (`DELETE`) — use it to retest from scratch or clear leftovers. Removing the shared
 `.repos` clone cache is a separate opt-in (it serves *every* migration environment). The PostgreSQL
-migration database is never touched; drop it manually (`dropdb -h 127.0.0.1 -U odoo migration`) for a fully
+migration database is never touched; drop it manually (`dropdb -h 127.0.0.1 -U odoo migration_13_to_18`,
+named after the chain) for a fully
 clean run — the `-h`/`-U` are needed because the development role is trusted over loopback TCP, not over the
 Unix socket.
 

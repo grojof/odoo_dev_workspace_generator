@@ -68,13 +68,38 @@ def write_text_file_command(path: Path | str, content: str, mode: str = "644") -
     # The heredoc body ends with a newline of its own, so content that already
     # ends in one must not get a second: the file then holds exactly ``content``.
     body = content if content.endswith("\n") else f"{content}\n"
+    # Written beside the target and renamed, never truncated in place: `cat >`
+    # rewrites the same inode, and bash reads a running script by byte offset, so
+    # regenerating `run_migration.sh` while it runs resumed it mid-token
+    # ("oint: command not found"). A rename is atomic, so a running process keeps
+    # the file it started with, and no reader ever sees a half-written one.
+    temp = f"{target}.odwg-tmp"
     return [
         Command(
             tf("Write {} (mode {})", target, mode),
-            f"cat > {shlex.quote(target)} <<'{end}'\n{body}{end}\n"
-            f"chmod {mode} {shlex.quote(target)}",
+            f"cat > {shlex.quote(temp)} <<'{end}'\n{body}{end}\n"
+            f"chmod {mode} {shlex.quote(temp)} && mv -f {shlex.quote(temp)} {shlex.quote(target)}",
         ),
     ]
+
+
+def _clone_command(url: str, version: str, dest: Path) -> str:
+    """Clone into a sibling and rename, so the final path exists only when the
+    clone finished.
+
+    A clone is skipped on the directory being there, and git leaves a partial
+    working tree behind when it is interrupted after fetching objects — so an
+    interrupted clone poisoned the shared cache permanently: nothing re-cloned it,
+    the migration driver's advice ("regenerate the environment") was a no-op, and
+    the workspace side failed later at `pip install -r` on a requirements.txt that
+    was not there."""
+    staging = f"{dest}.partial"
+    return (
+        f"rm -rf {shlex.quote(staging)} && "
+        f"git clone --depth 1 --branch {shlex.quote(version)} --single-branch "
+        f"{shlex.quote(url)} {shlex.quote(staging)} && "
+        f"mv -T {shlex.quote(staging)} {shlex.quote(str(dest))}"
+    )
 
 
 def plan_repo_cache(cfg: WorkspaceConfig, exists: Exists = _never) -> list[Command]:
@@ -96,8 +121,7 @@ def plan_repo_cache(cfg: WorkspaceConfig, exists: Exists = _never) -> list[Comma
         commands.append(
             Command(
                 tf("Clone Odoo {} into the shared cache", version),
-                f"git clone --depth 1 --branch {shlex.quote(version)} --single-branch "
-                f"{shlex.quote(cfg.odoo_repo_url)} {shlex.quote(str(dest))}",
+                _clone_command(cfg.odoo_repo_url, version, dest),
             )
         )
     for repo in cfg.oca_repos:
@@ -109,8 +133,7 @@ def plan_repo_cache(cfg: WorkspaceConfig, exists: Exists = _never) -> list[Comma
             commands.append(
                 Command(
                     tf("Clone OCA {} ({}) into the shared cache", repo, version),
-                    f"git clone --depth 1 --branch {shlex.quote(version)} --single-branch "
-                    f"{shlex.quote(url)} {shlex.quote(str(dest))}",
+                    _clone_command(url, version, dest),
                 )
             )
     return commands
@@ -723,8 +746,7 @@ def plan_migration_clones(env: MigrationEnv, exists: Exists = _never) -> list[Co
             commands.append(
                 Command(
                     tf("Clone OpenUpgrade {}", version),
-                    f"git clone --depth 1 --branch {shlex.quote(version)} --single-branch "
-                    f"{shlex.quote(env.openupgrade_url)} {shlex.quote(str(ou_dest))}",
+                    _clone_command(env.openupgrade_url, version, ou_dest),
                 )
             )
         if not env.uses_legacy_layout(version):
@@ -733,8 +755,7 @@ def plan_migration_clones(env: MigrationEnv, exists: Exists = _never) -> list[Co
                 commands.append(
                     Command(
                         tf("Clone Odoo {}", version),
-                        f"git clone --depth 1 --branch {shlex.quote(version)} --single-branch "
-                        f"{shlex.quote(env.odoo_repo_url)} {shlex.quote(str(odoo_dest))}",
+                        _clone_command(env.odoo_repo_url, version, odoo_dest),
                     )
                 )
     return commands

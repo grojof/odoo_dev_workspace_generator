@@ -12,6 +12,7 @@ import json
 from dataclasses import dataclass, field
 
 from . import egress, planners, system
+from .i18n import tf
 from .models import (
     DEFAULT_DB_ROLE,
     ODOO_SUPPORT,
@@ -101,30 +102,30 @@ def gather_facts(dev_role: str = DEFAULT_DB_ROLE, versions: list[str] | None = N
 
 def _pg_hba_rows(facts: ProvisionFacts) -> list[tuple[str, str, str]]:
     """How loopback authentication is set up for the development role. Pure."""
-    label = "PostgreSQL loopback auth"
+    label = tf("PostgreSQL loopback auth")
     if not facts.postgres_installed:
         return []
     if facts.pg_hba_blanket_trust is None:
         return [(
             "WARN", label,
-            "PostgreSQL could not be asked for its rules — it may be stopped, the view needs sudo, "
-            "or it reported a rule it could not parse; apply narrows the rules either way",
+            tf("PostgreSQL could not be asked for its rules — it may be stopped, the view needs "
+               "sudo, or it reported a rule it could not parse; apply narrows the rules either way"),
         )]
     if facts.pg_hba_blanket_trust:
         return [(
             "WARN", label,
-            "every role may connect over loopback without a password — apply narrows it to "
-            f"{facts.dev_role}",
+            tf("every role may connect over loopback without a password — apply narrows it to {}",
+               facts.dev_role),
         )]
     if not facts.pg_hba_role_trusted:
         # Not "no line": it may be there and never reached, and an operator who
         # greps the file would then think the check is wrong.
         return [(
             "INFO", label,
-            f"{facts.dev_role}'s loopback trust rule is missing or is never reached — "
-            "apply adds one that is",
+            tf("{}'s loopback trust rule is missing or is never reached — apply adds one that is",
+               facts.dev_role),
         )]
-    return [("OK", label, f"trust for {facts.dev_role} only")]
+    return [("OK", label, tf("trust for {} only", facts.dev_role))]
 
 
 def _postgres_version_rows(facts: ProvisionFacts) -> list[tuple[str, str, str]]:
@@ -135,49 +136,50 @@ def _postgres_version_rows(facts: ProvisionFacts) -> list[tuple[str, str, str]]:
     scoped = facts.versions or [ODOO_SUPPORT[major].version for major in sorted(ODOO_SUPPORT)]
     floor = postgres_floor_for(scoped)
     installed = str(facts.postgres_version)
+    label = tf("PostgreSQL version")
     if floor is None:
-        return [("INFO", "PostgreSQL version", f"{installed} (no version declares a floor)")]
+        return [("INFO", label, tf("{} (no version declares a floor)", installed))]
     required, version = floor
     if python_tuple(installed) < python_tuple(required):
         return [
-            (
-                "WARN",
-                "PostgreSQL version",
-                f"{installed} is below the {required} Odoo {version} requires",
-            )
+            ("WARN", label, tf("{} is below the {} Odoo {} requires", installed, required, version))
         ]
-    return [("OK", "PostgreSQL version", f"{installed} (Odoo {version} requires {required})")]
+    return [("OK", label, tf("{} (Odoo {} requires {})", installed, version, required))]
 
 
 def _opensnitch_deviations() -> list[str]:
     text = system.read_text(egress.OPENSNITCH_CONFIG)
     if text is None:
-        return ["config: unreadable"]
+        return [tf("config: unreadable")]
     try:
         return egress.config_deviations(json.loads(text))
     except ValueError:
-        return ["config: not valid JSON"]
+        return [tf("config: not valid JSON")]
 
 
 def _egress_rows(facts: ProvisionFacts) -> list[tuple[str, str, str]]:
     rows: list[tuple[str, str, str]] = []
-    label = "Egress firewall — OpenSnitch (optional)"
+    # "Outbound firewall" everywhere else in the UI; this row said "Egress".
+    label = tf("Outbound firewall — OpenSnitch (optional)")
     if not facts.opensnitch_version:
-        rows.append(("INFO", label, "not installed"))
+        rows.append(("INFO", label, tf("not installed")))
     elif not facts.opensnitch_active:
-        rows.append(("WARN", label, f"{facts.opensnitch_version} installed but not running"))
+        rows.append(("WARN", label, tf("{} installed but not running", facts.opensnitch_version)))
     elif facts.opensnitch_deviations:
         softened = ", ".join(facts.opensnitch_deviations)
-        rows.append(("WARN", label, f"{facts.opensnitch_version} running, not hardened: {softened}"))
+        rows.append(("WARN", label,
+                     tf("{} running, not hardened: {}", facts.opensnitch_version, softened)))
     else:
-        rows.append(("OK", label, f"{facts.opensnitch_version} running, hardened (default deny)"))
-    label = "Mail capture — Mailpit (optional)"
+        rows.append(("OK", label,
+                     tf("{} running, hardened (default deny)", facts.opensnitch_version)))
+    label = tf("Mail capture — Mailpit (optional)")
     if not facts.mailpit_version:
-        rows.append(("INFO", label, "not installed"))
+        rows.append(("INFO", label, tf("not installed")))
     elif facts.mailpit_active:
-        rows.append(("OK", label, f"{facts.mailpit_version} running — SMTP 127.0.0.1:1025, UI :8025"))
+        rows.append(("OK", label,
+                     tf("{} running — SMTP 127.0.0.1:1025, UI :8025", facts.mailpit_version)))
     else:
-        rows.append(("WARN", label, f"{facts.mailpit_version} installed but not running"))
+        rows.append(("WARN", label, tf("{} installed but not running", facts.mailpit_version)))
     return rows
 
 
@@ -186,69 +188,74 @@ def provision_rows(facts: ProvisionFacts) -> list[tuple[str, str, str]]:
     rows: list[tuple[str, str, str]] = []
 
     host = supported_host(facts.os_id, facts.os_version_id)
+    host_label = tf("Host release")
     if host is not None:
         detail = host.name + (f" ({host.codename})" if host.codename else "")
-        rows.append(("OK", "Host release", detail))
+        rows.append(("OK", host_label, detail))
     else:
         detected = facts.os_pretty_name or f"{facts.os_id or 'unknown'} {facts.os_version_id}".strip()
         rows.append(
-            (
-                "WARN",
-                "Host release",
-                f"{detected} is not supported — supported: {supported_hosts_text()}",
-            )
+            ("WARN", host_label,
+             tf("{} is not supported — supported: {}", detected, supported_hosts_text()))
         )
 
+    deps_label = tf("Odoo build dependencies")
     if not facts.build_deps_missing:
-        rows.append(("OK", "Odoo build dependencies", "all present"))
+        rows.append(("OK", deps_label, tf("all present")))
     else:
-        rows.append(("MISSING", "Odoo build dependencies", f"{len(facts.build_deps_missing)} missing"))
+        rows.append(("MISSING", deps_label, tf("{} missing", len(facts.build_deps_missing))))
 
     if not facts.postgres_installed:
-        rows.append(("MISSING", "PostgreSQL", "not installed"))
+        rows.append(("MISSING", "PostgreSQL", tf("not installed")))
     elif facts.postgres_running:
-        rows.append(("OK", "PostgreSQL", "installed and running"))
+        rows.append(("OK", "PostgreSQL", tf("installed and running")))
     else:
-        rows.append(("WARN", "PostgreSQL", "installed but not running"))
+        rows.append(("WARN", "PostgreSQL", tf("installed but not running")))
 
     rows += _postgres_version_rows(facts)
 
+    # One name for this role across both tables and the docs: "development role".
+    role_label = tf("Development role ({})", facts.dev_role)
     if facts.dev_role_exists:
-        rows.append(("OK", f"Dev role ({facts.dev_role})", "present"))
+        rows.append(("OK", role_label, tf("present")))
     elif facts.dev_role_exists is None:
-        detail = ("could not be checked: PostgreSQL is not running" if not facts.postgres_running
-                  else "could not be checked without sudo — run with sudo, or log in as the role once")
-        rows.append(("WARN", f"Dev role ({facts.dev_role})", detail))
+        detail = (tf("could not be checked: PostgreSQL is not running")
+                  if not facts.postgres_running
+                  else tf("could not be checked without sudo — run with sudo, or log in as the "
+                          "role once"))
+        rows.append(("WARN", role_label, detail))
     else:
-        rows.append(("MISSING", f"Dev role ({facts.dev_role})", "not found"))
+        rows.append(("MISSING", role_label, tf("not found")))
 
     rows += _pg_hba_rows(facts)
 
     if not facts.wkhtmltopdf:
-        rows.append(("MISSING", "wkhtmltopdf", "not installed — PDF reports will fail"))
+        rows.append(("MISSING", "wkhtmltopdf", tf("not installed — PDF reports will fail")))
     elif "with patched qt" in facts.wkhtmltopdf.lower():
         rows.append(("OK", "wkhtmltopdf", facts.wkhtmltopdf))
     else:
-        rows.append(("WARN", "wkhtmltopdf", f"{facts.wkhtmltopdf} (un-patched — reports may be degraded)"))
+        rows.append(("WARN", "wkhtmltopdf",
+                     tf("{} (un-patched — reports may be degraded)", facts.wkhtmltopdf)))
 
-    rows.append(("OK" if facts.node else "INFO", "Node.js (optional)", "present" if facts.node else "not installed (only for right-to-left languages)"))
-    rows.append(("OK" if facts.rtlcss else "INFO", "rtlcss (optional)", "present" if facts.rtlcss else "not installed (only for right-to-left languages)"))
+    rtl_only = tf("not installed (only for right-to-left languages)")
+    rows.append(("OK" if facts.node else "INFO", tf("Node.js (optional)"),
+                 tf("present") if facts.node else rtl_only))
+    rows.append(("OK" if facts.rtlcss else "INFO", tf("rtlcss (optional)"),
+                 tf("present") if facts.rtlcss else rtl_only))
 
+    uv_label = tf("uv (interpreters)")
     if facts.uv:
-        provides = ", ".join(facts.uv_pythons) if facts.uv_pythons else "no interpreters listed"
-        rows.append(("OK", "uv (interpreters)", f"present — provides {provides}"))
+        provides = ", ".join(facts.uv_pythons) if facts.uv_pythons else tf("no interpreters listed")
+        rows.append(("OK", uv_label, tf("present — provides {}", provides)))
     else:
         rows.append(
-            (
-                "INFO",
-                "uv (interpreters)",
-                "not installed (needed for migration steps and for any Odoo version "
-                "the host python3 is out of range for — docs.astral.sh/uv)",
-            )
+            ("INFO", uv_label,
+             tf("not installed (needed for migration steps and for any Odoo version the host "
+                "python3 is out of range for — docs.astral.sh/uv)"))
         )
 
     if facts.host_python:
-        rows.append(("INFO", "Host python3", facts.host_python))
+        rows.append(("INFO", tf("Host python3"), facts.host_python))
 
     rows += _egress_rows(facts)
     return rows

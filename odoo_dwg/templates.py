@@ -840,7 +840,7 @@ def render_run_migration_sh(env: MigrationEnv) -> str:
 set -euo pipefail
 
 SRC_DUMP="${{1:?usage: run_migration.sh <source-db-custom-format-dump>}}"
-DB={shlex.quote(env.working_db)}
+DB={shlex.quote(env.database)}
 export PGHOST={shlex.quote(env.db_host)} PGPORT={int(env.db_port)} PGUSER={shlex.quote(env.db_user)}
 CK={shlex.quote(str(env.checkpoints_dir))}
 LOGS={shlex.quote(str(env.logs_dir))}

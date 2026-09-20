@@ -823,7 +823,11 @@ class MigrationEnv:
     db_host: str = "127.0.0.1"
     db_port: int = 5432
     db_user: str = DEFAULT_DB_ROLE
-    working_db: str = "migration"
+    # Empty means "derive it from the chain": every environment sharing one name
+    # let a second driver drop the first one's database between its steps, and the
+    # first then upgraded — and checkpointed — the second's data as if it were its
+    # own. Set it explicitly only to point a run at a database you named.
+    working_db: str = ""
     # Per-step interpreter overrides, ``{version: python}``. Empty means every
     # step uses the matrix's recommendation. An override exists so a migration
     # can be rehearsed on the exact Python a client runs.
@@ -857,6 +861,13 @@ class MigrationEnv:
 
     def chain(self) -> list[str]:
         return migration_chain(self.source, self.target)
+
+    @property
+    def database(self) -> str:
+        """The database this environment upgrades — its own, unless one was set."""
+        if self.working_db:
+            return self.working_db
+        return f"migration_{odoo_major(self.source)}_to_{odoo_major(self.target)}"
 
     def interpreter_choice(self, version: str) -> InterpreterChoice:
         """The resolved interpreter for one chain step, applying an override when
@@ -1012,7 +1023,9 @@ class MigrationEnv:
         # (``DB=``, ``dropdb``, ``db_host =``), so they are checked like a
         # workspace profile's — an environment may be hand-edited on disk.
         errors: list[str] = []
-        if not (isinstance(self.working_db, str) and DB_NAME_RE.fullmatch(self.working_db)):
+        if self.working_db and not (
+            isinstance(self.working_db, str) and DB_NAME_RE.fullmatch(self.working_db)
+        ):
             errors.append(f"invalid working_db: {self.working_db!r}.")
         if not (isinstance(self.db_user, str) and DB_ROLE_RE.fullmatch(self.db_user)):
             errors.append(f"invalid db_user: {self.db_user!r} (a PostgreSQL role).")

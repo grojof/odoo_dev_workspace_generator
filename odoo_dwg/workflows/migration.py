@@ -43,7 +43,9 @@ def _read_text(path: Path) -> str | None:
 
 def _stamp() -> str:
     """Suffix for this run's backups, so a later generation never overwrites one."""
-    return datetime.now().strftime("%Y%m%d-%H%M%S")
+    # Microseconds: two runs inside the same second shared a name, and the
+    # second copy overwrote the first's backup.
+    return datetime.now().strftime("%Y%m%d-%H%M%S-%f")
 
 
 def _ask_env() -> MigrationEnv | None:
@@ -202,8 +204,13 @@ def _clean_environment() -> None:
         return
     apply_commands(commands)
     print(level_text("OK", t("Migration environment removed.")))
-    print(level_text("INFO", t("The PostgreSQL migration database (if any) is untouched — drop it with "
-        "`dropdb -h 127.0.0.1 -U odoo migration` when you want a fully clean run.")))
+    # The environment is known here by its directory (e.g. `13-to-18`), which is
+    # what its database is named after.
+    print(level_text("INFO", tf(
+        "The PostgreSQL migration database (if any) is untouched — drop it with "
+        "`dropdb -h 127.0.0.1 -U odoo {}` when you want a fully clean run.",
+        f"migration_{name.replace('-', '_')}",
+    )))
 
 
 def _step_analysis_records(env: MigrationEnv, version: str) -> list[analysis.AnalysisRecord]:

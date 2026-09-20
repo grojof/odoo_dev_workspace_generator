@@ -94,9 +94,23 @@ def test_every_ui_string_has_a_spanish_translation():
     literals = _ui_literals()
     assert len(literals) > 150  # the extractor still sees the UI
     missing = {text: where for text, where in literals.items() if text not in i18n._ES}
-    assert not missing, f"add these to i18n._ES_TO_EN: {missing}"
+    assert not missing, f"add these to i18n._ES: {missing}"
 
 
-def test_catalog_has_one_spanish_text_per_english_key():
-    english = list(i18n._ES_TO_EN.values())
-    assert len(english) == len(set(english))
+def test_the_catalog_is_authored_in_the_direction_it_is_read():
+    """English keys, Spanish values — the same direction `t()` looks up.
+
+    The catalog used to be written Spanish→English and inverted at import, which
+    silently merged any two English strings whose Spanish happened to match."""
+    for english, spanish in i18n._ES.items():
+        assert isinstance(english, str) and isinstance(spanish, str)
+    # No key appears twice (Python would have merged them), and the values are
+    # free to repeat — two English strings may legitimately share one Spanish.
+    assert len(i18n._ES) > 250
+    # A key is the literal the code passes to t()/tf(), so it must be English:
+    # nothing that is only in the Spanish half may be a key.
+    spanish_only = {"í", "ó", "¿", "¡", "ñ"}
+    # "Español" is the language's own name: the same word on both sides.
+    suspicious = [k for k in i18n._ES
+                  if k != "Español" and any(ch in k for ch in spanish_only)]
+    assert not suspicious, f"these keys look Spanish: {suspicious}"

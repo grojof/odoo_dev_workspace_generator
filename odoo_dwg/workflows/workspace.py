@@ -162,7 +162,9 @@ def _load_existing(name: str) -> WorkspaceConfig | None:
 
 def _stamp() -> str:
     """Suffix for this run's backups, so a later refresh never overwrites one."""
-    return datetime.now().strftime("%Y%m%d-%H%M%S")
+    # Microseconds: two runs inside the same second shared a name, and the
+    # second copy overwrote the first's backup.
+    return datetime.now().strftime("%Y%m%d-%H%M%S-%f")
 
 
 def _read(path: Path) -> str | None:

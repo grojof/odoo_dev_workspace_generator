@@ -185,16 +185,16 @@ def _row(facts: ProvisionFacts, label_start: str) -> tuple[str, str]:
 
 
 def test_readiness_rows_for_egress_and_mail():
-    assert _row(_facts(), "Egress firewall")[0] == "INFO"
+    assert _row(_facts(), "Outbound firewall")[0] == "INFO"
     assert _row(_facts(), "Mail capture")[0] == "INFO"
     hardened = _facts(opensnitch_version="1.8.0-1", opensnitch_active=True)
-    assert _row(hardened, "Egress firewall") == ("OK", "1.8.0-1 running, hardened (default deny)")
+    assert _row(hardened, "Outbound firewall") == ("OK", "1.8.0-1 running, hardened (default deny)")
     softened = _facts(opensnitch_version="1.8.0-1", opensnitch_active=True,
                       opensnitch_deviations=["DefaultAction: 'allow'"])
-    state, detail = _row(softened, "Egress firewall")
+    state, detail = _row(softened, "Outbound firewall")
     assert state == "WARN" and "DefaultAction: 'allow'" in detail
     stopped = _facts(opensnitch_version="1.8.0-1", opensnitch_active=False)
-    assert _row(stopped, "Egress firewall")[0] == "WARN"
+    assert _row(stopped, "Outbound firewall")[0] == "WARN"
     assert _row(_facts(mailpit_version="1.31.2", mailpit_active=True), "Mail capture")[0] == "OK"
 
 
