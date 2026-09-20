@@ -101,12 +101,16 @@ def _probe(kind: str, model: str = "sale.order", field: str = "") -> tester.Prob
 def test_the_four_verdicts():
     gone = _probe("removed_field", field="qty_delivered_manual")
     quiet = _probe("moved_field", field="partner_shipping_id")
-    present = [["field", "sale.order", "qty_delivered_manual"],
+    # The model row belongs in any fixture judging a field: without it the
+    # probe reports that nothing was there to lose.
+    model = ["model", "sale.order", ""]
+    present = [model,
+               ["field", "sale.order", "qty_delivered_manual"],
                ["field", "sale.order", "partner_shipping_id"]]
     states = {v.probe.name: v.state for v in tester.read_probe_states([gone, quiet], present)}
     assert states["p_removed_field"] == "still there"   # a script did not run
     assert states["p_moved_field"] == "intact"
-    states = {v.probe.name: v.state for v in tester.read_probe_states([gone, quiet], [])}
+    states = {v.probe.name: v.state for v in tester.read_probe_states([gone, quiet], [model])}
     assert states["p_removed_field"] == "gone as predicted"
     assert states["p_moved_field"] == "gone unannounced"  # the quiet loss
 
@@ -115,7 +119,8 @@ def test_the_findings_come_first():
     verdicts = tester.read_probe_states(
         [_probe("moved_field", field="a"), _probe("removed_field", field="b"),
          _probe("unstored_field", field="c")],
-        [["field", "sale.order", "b"], ["field", "sale.order", "c"]],
+        [["model", "sale.order", ""],
+         ["field", "sale.order", "b"], ["field", "sale.order", "c"]],
     )
     # The one that behaved is last, whatever it is: findings are what this is for.
     assert verdicts[-1].state == "intact" and not verdicts[-1].is_finding
@@ -226,7 +231,7 @@ def test_not_observed_is_neither_a_finding_nor_counted_as_a_pass():
             _probe("moved_field", field="kept"),           # intact
             _probe("removed_field", field="gone"),         # gone as predicted
         ],
-        [["field", "sale.order", "kept"]],
+        [["model", "sale.order", ""], ["field", "sale.order", "kept"]],
     )
     assert [v.state for v in mixed] == ["gone as predicted", "intact", "not observed"]
 
@@ -244,9 +249,10 @@ def test_a_quiet_probe_is_not_blamed_for_what_a_later_step_did():
     removed it entirely, and the probe read that as a silent loss at 15.0.
     """
     probe = _probe("unfunction_field", field="inventory_quantity")   # declared for 16.0
-    quiet = tester.read_probe_states([probe], [], at_version="16.0.1.0")
+    model = [["model", "sale.order", ""]]   # the owner is installed; the field is gone
+    quiet = tester.read_probe_states([probe], model, at_version="16.0.1.0")
     assert quiet[0].state == "gone unannounced" and quiet[0].is_finding
-    later = tester.read_probe_states([probe], [], at_version="19.0.1.3")
+    later = tester.read_probe_states([probe], model, at_version="19.0.1.3")
     assert later[0].state == "past its step" and not later[0].is_finding
 
 
@@ -254,6 +260,37 @@ def test_an_expected_removal_is_still_judged_from_any_later_version():
     # "It should be gone from its step onward" holds at every later version.
     probe = _probe("removed_field", field="auto_search")
     for version in ("16.0.1.0", "19.0.1.3"):
-        assert tester.read_probe_states([probe], [], at_version=version)[0].state == (
-            "gone as predicted"
-        )
+        assert tester.read_probe_states(
+            [probe], [["model", "sale.order", ""]], at_version=version
+        )[0].state == "gone as predicted"
+
+
+def test_a_probe_whose_step_has_not_run_is_not_a_finding():
+    """The mirror of `past its step`, and it matters when checking between steps:
+    at 14.0, a probe about 18.0 says nothing — its subject is *supposed* to be
+    there still."""
+    probe = tester.Probe(name="p", kind="removed_field", version="18.0",
+                         model="ir.cron", field="doall", detail="d")
+    rows = [["model", "ir.cron", ""], ["field", "ir.cron", "doall"]]
+    early = tester.read_probe_states([probe], rows, at_version="14.0.1.0")
+    assert early[0].state == "not yet reached" and not early[0].is_finding
+    at_its_step = tester.read_probe_states([probe], rows, at_version="18.0.1.3")
+    assert at_its_step[0].state == "still there" and at_its_step[0].is_finding
+
+
+def test_a_field_is_not_lost_from_a_model_the_database_never_had():
+    """Four alarms at one step of a real run were about `stock.quant` and
+    `purchase.order` in a database where neither module was installed."""
+    probe = _probe("unfunction_field", model="stock.quant", field="inventory_quantity")
+    # The model is absent: nothing was there to lose.
+    absent = tester.read_probe_states([probe], [], at_version="16.0.1.0")
+    assert absent[0].state == "not observed" and not absent[0].is_finding
+    # The model is there and the field is not: that is the finding.
+    present = tester.read_probe_states([probe], [["model", "stock.quant", ""]],
+                                       at_version="16.0.1.0")
+    assert present[0].state == "gone unannounced" and present[0].is_finding
+
+
+def test_the_state_query_asks_about_the_model_of_a_field_subject():
+    sql = tester.probe_state_sql([_probe("removed_field", model="sale.order", field="x")])
+    assert "FROM ir_model WHERE model IN ('sale.order')" in sql

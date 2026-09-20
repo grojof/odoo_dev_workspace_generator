@@ -220,10 +220,18 @@ def main() -> int:
                     if probe is kept:
                         cluster.sql(
                             f"INSERT INTO ir_model (model) VALUES ('{probe.model}')", "probe")
-                elif probe is not quiet:
+                else:
+                    # A field's owning model is present — otherwise the probe
+                    # reports that nothing was there to lose, which is right but
+                    # is not the case under test here.
                     cluster.sql(
-                        "INSERT INTO ir_model_fields (model, name) VALUES "
-                        f"('{probe.model}', '{probe.field}')", "probe")
+                        f"INSERT INTO ir_model (model) SELECT '{probe.model}' WHERE NOT "
+                        f"EXISTS (SELECT 1 FROM ir_model WHERE model = '{probe.model}')",
+                        "probe")
+                    if probe is not quiet:
+                        cluster.sql(
+                            "INSERT INTO ir_model_fields (model, name) VALUES "
+                            f"('{probe.model}', '{probe.field}')", "probe")
                 cluster.sql(
                     f"INSERT INTO {tester.PROBE_TABLE} "
                     "(name, kind, step, subject_model, subject_field, successor, "

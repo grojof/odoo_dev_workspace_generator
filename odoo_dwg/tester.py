@@ -144,7 +144,9 @@ def probe_state_sql(probes: list[Probe]) -> str:
     running, which matters because a step where the module failed to load is
     exactly the step worth asking about.
     """
-    models = sorted({p.model for p in probes if p.subject_kind == "model"})
+    # Every model named, including the owner of a field subject: a field cannot
+    # be reported as lost from a model this database never had.
+    models = sorted({p.model for p in probes if p.subject_kind in ("model", "field")})
     fields = sorted({(p.model, p.field) for p in probes if p.subject_kind == "field"})
     # The successor too: a subject *and* its successor both absent means neither
     # was ever there, which is not the chain behaving.
@@ -189,7 +191,7 @@ class ProbeVerdict:
 #: be observed at all, which is neither.
 _VERDICT_ORDER = (
     "gone unannounced", "still there", "gone as predicted", "intact",
-    "past its step", "not observed",
+    "not yet reached", "past its step", "not observed",
 )
 
 
@@ -220,9 +222,25 @@ def read_probe_states(
         (row[0], row[1], row[2]) for row in rows if len(row) >= 3
     }
     verdicts: list[ProbeVerdict] = []
+    at = _series(at_version) if at_version else ()
     for probe in probes:
         key = (probe.subject_kind, probe.model, probe.field if probe.field else "")
         there = key in present
+        if (
+            probe.subject_kind == "field"
+            and ("model", probe.model, "") not in present
+        ):
+            # Its model is not in this database, so the field was never here to
+            # lose. Reporting that as a silent loss produced four alarms at one
+            # step about `stock` and `purchase`, neither of them installed.
+            verdicts.append(ProbeVerdict(probe, "not observed"))
+            continue
+        if at and at < _series(probe.version):
+            # The step this probe is about has not run yet. Its subject being
+            # present proves nothing, and calling that "still there" would be a
+            # finding about a step that has not happened.
+            verdicts.append(ProbeVerdict(probe, "not yet reached"))
+            continue
         if there:
             state = "still there" if probe.expected_gone else "intact"
         elif not probe.expected_gone:

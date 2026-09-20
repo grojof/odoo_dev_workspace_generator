@@ -472,6 +472,11 @@ The others are printed too, one line each, so you can see the question was asked
 
 If the module never installed, every probe reports `absent` rather than a reassuring `intact`.
 
+**A probe can only report a loss if there was something to lose.** A field whose *model* is not in the
+database, a module whose successor is not there either — neither was ever present, so the probe measured
+nothing and says `not observed`. A real 12 → 19 run produced four alarms at one step about `stock.quant`
+and `purchase.order` in a database where neither module was installed.
+
 **Check after each step, not only at the end.** A probe claims something about *its own* step — *at 15.0
 this field stops being computed, so it should survive that step*. A database carried on to 19.0 has had
 four more steps at it, and a subject a later step removed is not a silent loss at 15.0. Checking a 12 → 19
