@@ -990,8 +990,14 @@ class MigrationEnv:
     def source_database(self) -> str:
         """The database a seed builds. Distinct from ``database``, which is the
         one the chain upgrades: the seed is dumped and the driver restores it into
-        the working database, exactly as it would a client's dump."""
-        return f"seed_{odoo_major(self.source)}"
+        the working database, exactly as it would a client's dump.
+
+        Named for the whole chain, not just the source. Two chains from the same
+        source — a 12 → 14 and a 12 → 19 — would otherwise want the same database,
+        and the second refuses to seed until the first's is dropped, for no reason
+        except the name.
+        """
+        return f"seed_{odoo_major(self.source)}_to_{odoo_major(self.target)}"
 
     @property
     def source_odoo_bin(self) -> Path:

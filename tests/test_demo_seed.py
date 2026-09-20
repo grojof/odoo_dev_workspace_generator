@@ -200,3 +200,14 @@ def test_the_seed_runs_the_plain_odoo_bin_not_an_openupgrade_fork(tmp_path):
     script = templates.render_seed_demo_sh(env, [])
     assert "openupgrade-12.0" not in script
     assert str(env.source_odoo_bin) in script
+
+
+def test_two_chains_from_the_same_source_do_not_collide(tmp_path):
+    # A 12 -> 14 and a 12 -> 19 both seed from 12.0. Sharing one database name
+    # made the second refuse until the first's was dropped, for no reason but
+    # the name — seen when starting the full chain after the short one.
+    MigrationEnv.base_dir = str(tmp_path / "envs")
+    short = MigrationEnv(source="12.0", target="14.0")
+    full = MigrationEnv(source="12.0", target="19.0")
+    assert short.source_database != full.source_database
+    assert short.source_dump_file != full.source_dump_file
