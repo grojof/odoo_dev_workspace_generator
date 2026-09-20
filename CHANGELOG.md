@@ -166,8 +166,9 @@ All notable changes to this project are documented here. The format is based on
   stopped at collection with zero tests run, which is what a distribution packager would see as their gate.
   A `MANIFEST.in` now ships what the suite reads; the wheel is unchanged.
 - **The README told anyone who installed the package to go and clone the repository.** It documented only
-  `git clone`, never the `odoo-dwg` console script, and its 19 relative links resolved to nothing outside a
-  checkout. They are absolute now, and installing with `uv tool`/`pipx` is the first thing the section says.
+  `git clone` and never the `odoo-dwg` console script the wheel installs. Installing it is the first thing
+  the section says now. (Its links stay relative: the repository is where this README is read, and every
+  git platform resolves them there.)
 - **`~/.psqlrc` could still change what five `psql` commands did.** An earlier round added `-X` to the
   probes it found; the version probe, the role-login probe, the role-existence probe, `psql_scalar` and the
   mail redirect did not have it. A test now asserts it for every `psql` the probes run.
