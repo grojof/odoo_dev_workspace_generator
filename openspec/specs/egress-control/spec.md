@@ -97,7 +97,13 @@ Uninstalling OpenSnitch SHALL:
 - first show the packages `apt` would remove;
 - then remove only the tool's own `00-odwg-*` rules, keeping the operator's.
 
-Uninstalling Mailpit SHALL remove its unit, binary and captured mail.
+Uninstalling OpenSnitch SHALL also unload the packet-queue kernel modules it brought in, which stay
+loaded once the daemon has run.
+
+Mailpit SHALL run as a systemd unit with an identity and state directory systemd owns, restarted on
+failure, so its captured mail has one place to live and no account of its own to leave behind.
+Uninstalling it SHALL remove its unit, binary and captured mail — from both paths a systemd-owned state
+directory can take.
 
 #### Scenario: Turned off stays off
 

@@ -84,6 +84,19 @@ All notable changes to this project are documented here. The format is based on
 - `tools/verify_generated_shell.py` runs ShellCheck over every generated script (it found two defects on its
   first run: dead variables in `setup_venv.sh`, and a failure path written as `a && b || c`).
 
+### Changed
+- **The operator surface has a specification** (change `name-the-operator-surface`). The twelve capabilities
+  all described what the tool does to the *host*: nothing described the CLI, the language, the menus, the
+  file browser or the error handling, and "previewed and confirmed" was restated in six capabilities with no
+  one place defining what a preview shows or what applying reports. Two capabilities now do —
+  `command-plan` and `operator-interface` — and `openspec validate --specs` covers 14.
+- **Cleaning a migration environment names the staged modules it is about to delete**, before asking for the
+  phrase. `rm -rf <root>` takes `addons/odoo<major>/custom`, which is where the operator's own migrated code
+  lives, and the confirmation named only the directory.
+- **The staging report says that each stage directory is a throwaway git repository**, which staging creates
+  because `odoo-module-migrate` refuses to run outside one. An operator used to find a `.git` they had not
+  made, holding their code.
+
 ### Fixed
 - **A file name in a staged module could write code into the generated
   `pre-migration.py`.** The scaffold put each finding's path into a `#` comment unescaped, and that path

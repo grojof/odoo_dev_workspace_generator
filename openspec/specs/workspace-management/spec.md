@@ -64,12 +64,14 @@ from the workspace's `workspace.json`:
 - the per-version configs and run scripts;
 - `setup_venv.sh`;
 - `.vscode/*`;
+- `<name>.code-workspace`;
 - `odools.toml`;
 - the README;
 - the profile.
 
 Only files whose content would change SHALL be written. An existing file that changes SHALL first be copied
-to `<file>.bak-<date>`. The interpreter of each version SHALL be read from its venv's `pyvenv.cfg`, so the files
+to `<file>.bak-<date>`, stamped finely enough that two runs in the same second cannot share a name and
+overwrite each other's backup. The interpreter of each version SHALL be read from its venv's `pyvenv.cfg`, so the files
 describe and rebuild the venvs as they are; a version without a venv SHALL get the default interpreter. The
 action SHALL NOT touch addons, venvs, clones or databases, and SHALL be previewed and confirmed. **Add a
 version** SHALL write files the same way.

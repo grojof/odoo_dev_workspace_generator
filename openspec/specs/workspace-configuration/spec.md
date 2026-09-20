@@ -67,12 +67,20 @@ The system SHALL derive workspace conventions deterministically from the profile
 instance name SHALL be `odoo<major><name>`, the per-instance venv SHALL be `.venv/odoo<major>`, and the config
 file SHALL be `config/odoo<major>.conf`. The HTTP port for a version SHALL be `http_port_base + step * k`,
 where `k` is the version's rank among the configured versions ordered by major and `step` is a fixed offset,
-so ports never collide across versions in the same workspace.
+so ports never collide across versions in the same workspace. Each instance SHALL also get a bus port
+derived from its own HTTP port by a fixed offset, so bus ports cannot collide either, written under the key
+that version's Odoo reads — `longpolling_port` up to Odoo 15, `gevent_port` from Odoo 16.
 
 #### Scenario: Instance naming
 
 - **WHEN** deriving the instance for workspace `acme` and version `18.0`
 - **THEN** the instance name is `odoo18acme`, the venv is `odoo18`, and the config is `odoo18.conf`
+
+#### Scenario: The bus port key follows the version
+
+- **WHEN** the configs for `15.0` and `18.0` of the same workspace are rendered
+- **THEN** the first sets `longpolling_port` and the second `gevent_port`, each a fixed offset above its
+  own HTTP port, and the two values differ
 
 #### Scenario: Non-colliding per-version ports
 

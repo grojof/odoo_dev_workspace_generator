@@ -30,7 +30,8 @@ workspace interpreters). `check` MUST NOT modify the host in any way.
 The system SHALL detect whether PostgreSQL is installed, whether its service is running, whether a usable
 development role exists, and which server version is installed, reporting each as a distinct signal in the
 table. The probes SHALL never prompt for a password:
-- the service state and server version come from `pg_lsclusters`, or `pg_isready`;
+- the service state comes from `pg_lsclusters`, else `pg_isready`, which answers *running*, not *which*;
+  the server version comes from `pg_lsclusters`, else `SHOW server_version` through a non-prompting `sudo`;
 - the role is checked by connecting as it over loopback, then through `sudo -n`.
 
 When the role cannot be checked that way, it SHALL be reported as unknown (WARN), not MISSING. The installed server version SHALL be compared against the minimum PostgreSQL the support matrix

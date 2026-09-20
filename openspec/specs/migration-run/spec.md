@@ -27,6 +27,28 @@ production database.
 - **WHEN** the driver starts with a source dump
 - **THEN** it creates a working database, restores the dump into it, and writes an initial checkpoint before any step runs
 
+### Requirement: The working database is the environment's own, and is recreated on every restore
+
+The driver SHALL operate on a working database named for its own chain
+(`migration_<source major>_to_<target major>`) unless the environment names one explicitly, so two
+environments running side by side can neither use nor destroy each other's database. A name given
+explicitly MUST be a valid PostgreSQL database name before it reaches the script.
+
+Every restore — of the source dump or of a checkpoint — SHALL drop that database and create it again
+before restoring into it: `pg_restore` onto a populated database would merge two states. The environment's
+documentation SHALL name the database the driver destroys, because the driver itself asks for no
+confirmation: the only thing between an operator and a lost database is that name not being theirs.
+
+#### Scenario: Two chains do not share a database
+
+- **WHEN** a 12 → 15 environment and a 15 → 18 environment are generated under the same base directory
+- **THEN** their drivers name different working databases, so neither can drop the other's
+
+#### Scenario: A resume replaces the database rather than restoring onto it
+
+- **WHEN** the driver resumes from the 16.0 checkpoint
+- **THEN** it drops and creates the working database again before restoring that checkpoint into it
+
 ### Requirement: Per-branch odoo-bin command shape
 
 The system SHALL run each step with the target version's `odoo-bin` from that step's virtualenv, using

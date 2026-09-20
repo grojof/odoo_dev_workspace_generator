@@ -583,6 +583,10 @@ def render_staging_report(module: str, steps: list[tuple[str, str, list, str | N
         "completes the migration.** Findings are candidates (name matches with the",
         "owning model present), not proof.",
         "",
+        "Each stage directory is a throwaway git repository: `odoo-module-migrate`",
+        "refuses to run outside one, so staging creates it and commits the",
+        "pre-migration state into it. It is not yours and is not pushed anywhere.",
+        "",
     ]
     for version, log_text, findings, scaffold in steps:
         # The tool's log is carried verbatim, so the fence has to be longer than

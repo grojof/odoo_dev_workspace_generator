@@ -120,8 +120,11 @@ capability) as the prepared path for this work.
 ### Requirement: Preflight is reusable from menu and flows
 
 The preflight SHALL be exposed as an independent migration-menu action (host scope always; database scope
-when the operator names an existing database) and the same implementation SHALL be reused by the generate
-flow and the run driver rather than duplicating checks ad hoc.
+when the operator names an existing database), and the same implementation SHALL back that action and the
+generate flow. The migration driver runs on a host that may have no interpreter of its own, so its checks
+SHALL be *rendered* from the same declared list rather than shared as code; that rendering SHALL be
+confined to one place, SHALL cover every check this capability names for the driver's scope, and tests
+SHALL assert that it does.
 
 A database named by the operator MUST be a valid PostgreSQL database name before any query is built with
 it; otherwise the action SHALL stop naming the value.
@@ -139,7 +142,9 @@ it; otherwise the action SHALL stop naming the value.
 ### Requirement: Host readiness for a native chain
 
 The system SHALL provide a read-only migration preflight that verifies the host tools every chain needs:
-`uv`, PostgreSQL reachability, and the development role. Because every step runs natively, no chain requires
+`uv`, PostgreSQL reachability, the development role, and the environment's per-version addons layout —
+absent `addons/odoo<major>/{custom,oca}` directories are a WARN, since a chain whose custom code has
+nowhere to sit will fail a step in, not before, the migration. Because every step runs natively, no chain requires
 a container runtime and the preflight SHALL NOT check for one. The result SHALL be rendered as a capability
 table (check, state, detail) with states OK / WARN / MISSING / INFO, and the check MUST NOT modify the host.
 
@@ -152,6 +157,11 @@ table (check, state, detail) with states OK / WARN / MISSING / INFO, and the che
 
 - **WHEN** `uv` is absent from the host
 - **THEN** the report marks it MISSING, because no step can be built without it
+
+#### Scenario: A missing addons layout is a warning
+
+- **WHEN** the environment's `addons/odoo<major>/{custom,oca}` directories are not on disk
+- **THEN** the report marks the layout WARN and says to generate the environment again
 
 #### Scenario: The check changes nothing
 

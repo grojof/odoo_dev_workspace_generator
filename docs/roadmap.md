@@ -88,6 +88,16 @@ items are host-dependent.
 
 ## Features (OpenSpec)
 
+- ~~The operator surface has a spec~~ — **done** (2026-09-20, change `name-the-operator-surface`).
+  The twelve capabilities all described what the tool does to the *host*; nothing described what the
+  operator touches, and "previewed and confirmed" was restated in six of them with no one place
+  defining it. Two capabilities were added: `command-plan` (plan → preview → confirm → apply, what a
+  step reports, stopping at the first failure, input closed, and that nothing a plan writes is visible
+  before it is complete) and `operator-interface` (entry points, the English source language and the
+  optional Spanish UI, that generated artifacts are never translated, menus, failure handling, colour).
+  Remaining tidy-up, deliberately not done in that change: the six "previewed and confirmed"
+  restatements, the three copies of the ready-marker rule and the three of `smtp 127.0.0.1:1025`
+  should become references.
 - ~~Support matrix~~ — **done** (2026-09-17, change `add-support-matrix`): one authoritative,
   evidence-tiered matrix in `models.py` + [`docs/support-matrix.md`](support-matrix.md), with
   `tools/verify_support_matrix.py` to re-derive every bound from its official source. Hosts narrowed to

@@ -57,7 +57,9 @@ outcome rather than the command's exit status:
 
 ### Requirement: Install and configure PostgreSQL with a development role
 
-`provision apply` SHALL install PostgreSQL, enable and start its service, and create a development login role
+`provision apply` SHALL install PostgreSQL, enable and start its service, and create a development login
+role **able to create databases**, since the generated workspace documentation tells the operator to run
+`createdb` as it,
 if it does not already exist, so a workspace's `odoo.conf` can connect. The role SHALL default to `odoo`, the
 role workspaces and migration environments use by default. The role name MUST match
 `^[a-z_][a-z0-9_]{0,62}$`; any other value SHALL be rejected before a plan is assembled. Creating an existing

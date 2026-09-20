@@ -23,13 +23,22 @@ The system SHALL offer an action that, for a chosen database, points every `ir_m
 `127.0.0.1:1025` with no encryption and no credentials, and deactivates `fetchmail_server` where that table
 exists. It SHALL touch only columns that exist in that database, so that it works on Odoo 12 to 19. It SHALL
 require a confirmation phrase, and its prompt SHALL state that it is meant for rehearsal copies, not for a
-database returning to production.
+database returning to production. Where the authentication-mode column exists, it SHALL be set back to the
+password default, so a server configured for a client certificate does not fail against the capture.
+
+A database named by the operator MUST be a valid PostgreSQL database name before any command is built
+with it; otherwise the action SHALL stop naming the value.
 
 #### Scenario: A copied production database stops mailing out
 
 - **WHEN** the redirect is applied to a database whose `ir_mail_server` points at a real SMTP host
 - **THEN** that server points at `127.0.0.1:1025`, its credentials are cleared, and the next mail Odoo sends
   appears in Mailpit
+
+#### Scenario: An invalid database name is refused
+
+- **WHEN** the operator names `db"; DROP DATABASE x --` as the database to redirect
+- **THEN** the action stops naming the value, and no command is planned
 
 #### Scenario: Refused without the phrase
 

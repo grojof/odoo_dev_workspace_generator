@@ -262,6 +262,18 @@ requirements as the generation plan.
 - **WHEN** a workspace with `18.0` is generated
 - **THEN** its venv installs an unpinned `setuptools`
 
+### Requirement: Editor tasks for the two things a workspace does
+
+The generated `.vscode/tasks.json` SHALL offer one task that builds every venv and one task per
+configured version that starts it, each running the generated script rather than repeating its command,
+so the editor and the terminal do the same thing.
+
+#### Scenario: A task exists for each version
+
+- **WHEN** a workspace is generated for 16.0 and 18.0
+- **THEN** `tasks.json` has a venv-building task and one run task per version, each invoking that
+  version's generated script
+
 ### Requirement: Debug launch configurations for everyday development
 
 The generated `.vscode/launch.json` SHALL contain four debugpy configurations for each configured version.

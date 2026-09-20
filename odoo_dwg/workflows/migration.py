@@ -199,7 +199,17 @@ def _clean_environment() -> None:
     )
     commands = planners.plan_clean_migration(root, base / ".repos" if include_repos else None)
     preview_commands(commands)
-    if not confirm_with_phrase(tf("This permanently deletes {}.", str(root)), "DELETE"):
+    # The environment holds the operator's per-version staged code, which may
+    # carry their own edits and exists nowhere else. `rm -rf <root>` takes it, so
+    # the phrase is asked for with those modules named.
+    staged = sorted({path.name for path in root.glob("addons/*/custom/*") if path.is_dir()})
+    question = (
+        tf("This permanently deletes {}, including the staged modules: {}.",
+           str(root), ", ".join(staged))
+        if staged
+        else tf("This permanently deletes {}.", str(root))
+    )
+    if not confirm_with_phrase(question, "DELETE"):
         print(level_text("INFO", t("Cancelled.")))
         return
     apply_commands(commands)

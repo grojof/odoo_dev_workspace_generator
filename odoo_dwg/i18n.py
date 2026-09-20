@@ -91,6 +91,8 @@ _ES: dict[str, str] = {
     "Also remove the shared clones cache (.repos)? It serves every migration environment.":
         "¿Eliminar también la caché compartida de clones (.repos)? La usan todos los entornos de migración.",
     "This permanently deletes {}.": "Esto elimina permanentemente {}.",
+    "This permanently deletes {}, including the staged modules: {}.":
+        "Esto elimina permanentemente {}, incluidos los módulos preparados (staging): {}.",
     "Cancelled.": "Cancelado.",
     "Migration environment removed.": "Entorno de migración eliminado.",
     "The PostgreSQL migration database (if any) is untouched — drop it with "

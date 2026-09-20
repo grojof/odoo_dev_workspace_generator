@@ -86,13 +86,17 @@ effect; when `pyvenv.cfg` cannot be read, the ready venv is kept.
 
 ### Requirement: Per-step migration config
 
-An existing generated file that would change SHALL first be copied to `<file>.bak-<date>`, as the workspace
-surface does: a step's config is where an operator adds `limit_time_real = 0` or an extra addons path while
+An existing generated file that would change SHALL first be copied to `<file>.bak-<date>`, stamped finely
+enough that two runs in the same second cannot share a name and overwrite each other's backup, as the
+workspace surface does: a step's config is where an operator adds `limit_time_real = 0` or an extra addons path while
 chasing a failure, and re-generating an environment is routine.
 
 The system SHALL write a per-step `odoo.conf` whose `addons_path` includes the step's per-version custom and
 OCA directories, the OpenUpgrade checkout root (14.0 and later) or the fork's `addons` (13.0 and earlier), and
 the target version's Odoo add-ons, and whose database connection targets the shared migration cluster.
+
+A step's config SHALL set `workers = 0` and `max_cron_threads = 0`: the step runs threaded so a failure
+is debuggable, and no scheduled action fires against what is a restored copy of a production database.
 
 #### Scenario: A hand-tuned step config is kept
 
@@ -105,11 +109,18 @@ the target version's Odoo add-ons, and whose database connection targets the sha
 - **THEN** its `addons_path` references the root of the OpenUpgrade 18.0 checkout, from which
   `openupgrade_framework` and `openupgrade_scripts` both resolve
 
+#### Scenario: No scheduled action runs against the restored database
+
+- **WHEN** the per-step config for version 17 is rendered
+- **THEN** it sets `max_cron_threads = 0`, so restoring a customer's database cannot fire its crons
+
 ### Requirement: Migration environment cleanup
 
 The system SHALL offer a cleanup action that removes an existing migration environment directory (venvs,
-configs, checkpoints, logs, requirements, driver) through the standard plan → preview → apply flow, gated by
-an exact-phrase confirmation. Removing the shared clones cache SHALL be a separate opt-in within the same
+configs, checkpoints, logs, requirements, driver, **and the per-version addons directories with whatever
+custom or staged code they hold, and the staging reports**) through the standard plan → preview → apply
+flow, gated by an exact-phrase confirmation. The confirmation SHALL name the staged modules among what
+is about to go, since that code may carry the operator's own edits and exists nowhere else. Removing the shared clones cache SHALL be a separate opt-in within the same
 plan, and the PostgreSQL migration database SHALL NOT be touched by the plan.
 
 #### Scenario: A leftover environment is removed after preview and confirmation
@@ -121,6 +132,11 @@ plan, and the PostgreSQL migration database SHALL NOT be touched by the plan.
 
 - **WHEN** the operator declines the shared-cache option
 - **THEN** the plan contains no command touching the shared `.repos` cache
+
+#### Scenario: The operator is told that staged code goes with it
+
+- **WHEN** the operator picks an environment that holds staged custom modules
+- **THEN** the confirmation names them as part of what will be deleted, before the phrase is asked for
 
 ### Requirement: Per-version custom and OCA addons layout
 
@@ -192,6 +208,12 @@ the dev workspace's job.
 
 - **WHEN** the operator pins a step to `3.x` or `3.10; rm -rf ~`
 - **THEN** the flow refuses it as an invalid Python version and pins nothing
+
+#### Scenario: A venv built with another interpreter is named before the preview
+
+- **WHEN** a step's venv on disk was built with an interpreter other than the one this run resolves
+- **THEN** the interpreter table names both, before the plan is previewed — a pin is not persisted, so
+  this is the only warning that re-generating would rebuild that venv on something else
 
 ### Requirement: Migration steps send mail to the local capture
 
