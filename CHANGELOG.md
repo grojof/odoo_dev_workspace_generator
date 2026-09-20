@@ -31,6 +31,10 @@ All notable changes to this project are documented here. The format is based on
   - `tools/verify_egress_pins.py` re-checks the pins, the signature and the signing key against upstream.
 
 ### Changed
+- **The version is declared once.** `pyproject.toml` read it from a literal of its own beside
+  `odoo_dwg.__version__`, with nothing tying the two together; it is now derived from the package attribute
+  that `--version` prints. The package list is discovered rather than hand-written, so a new subpackage
+  cannot be left out of the wheel — an omission that is silent until a menu opens.
 - **The tests now guard the contract the tool is built on.** An audit of the suite itself mutated the source
   ~55 ways and found 37 mutations that no test noticed: the preview and the "Apply this plan now?" gate could
   both be deleted, `confirm_with_phrase` could accept anything, four of the five destructive phrase gates
@@ -111,6 +115,13 @@ All notable changes to this project are documented here. The format is based on
   made, holding their code.
 
 ### Fixed
+- **The source distribution shipped a test suite it could not run.** `tests/` was in the sdist while
+  `tools/` and `docs/` were not, and three tests read files from both — so `pytest` on an unpacked sdist
+  stopped at collection with zero tests run, which is what a distribution packager would see as their gate.
+  A `MANIFEST.in` now ships what the suite reads; the wheel is unchanged.
+- **The README told anyone who installed the package to go and clone the repository.** It documented only
+  `git clone`, never the `odoo-dwg` console script, and its 21 relative links resolved to nothing outside a
+  checkout. They are absolute now, and installing with `uv tool`/`pipx` is the first thing the section says.
 - **`~/.psqlrc` could still change what five `psql` commands did.** An earlier round added `-X` to the
   probes it found; the version probe, the role-login probe, the role-existence probe, `psql_scalar` and the
   mail redirect did not have it. A test now asserts it for every `psql` the probes run.
