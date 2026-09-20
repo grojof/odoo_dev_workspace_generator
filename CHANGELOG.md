@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **A run can be followed while it happens.** The driver is started by hand and a 12 → 19 chain takes
+  hours; this shows where it is — every step of the chain, including the ones it has not reached, with how
+  long each took or has been taking — what the running step is saying, and what it has reached for outside
+  its own machine since that step began. It only reads: stopping the watch leaves the driver alone, and it
+  says so. When the run ends it reports how and points at the report, since the live view follows the
+  running step and its last frame holds no detail.
 - **A report on the runs so far**, from the driver's step log, each step's Odoo log and the outbound
   firewall's journal. It opens with what is **still open** — a step that failed, never finished, never
   ran, or *passed while its log holds an error*, since a step succeeding and its log being clean are not

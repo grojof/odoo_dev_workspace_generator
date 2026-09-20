@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 import shlex
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -27,9 +28,9 @@ from ..models import (
     interpreter_from_pyvenv,
 )
 from ..planners import write_text_file_command
-from ..prompts import ask_bool, ask_text, choose, confirm_with_phrase
+from ..prompts import ask_bool, ask_text, choose, clear_screen, confirm_with_phrase
 from ..system import apply_commands, journal_since, list_dirs, preview_commands
-from ..ui import level_text, render_table
+from ..ui import level_text, render_table, title
 from .common import redirect_mail
 
 
@@ -373,6 +374,85 @@ def _migration_report() -> None:
     print(level_text("OK", tf("Report written: {}", str(target))))
 
 
+#: How often the live view re-reads what the driver has written. The driver's
+#: steps take minutes; a shorter tick would only spend the terminal.
+WATCH_SECONDS = 2
+#: Rows of log and of firewall answers the live view shows at once.
+_WATCH_LINES = 8
+
+
+def _watch_run() -> None:
+    """Follow a chain while it runs, from what the driver writes as it goes.
+
+    The driver is started by hand in another terminal, so this only reads: the
+    step log for where the chain is, the current step's Odoo log for what it is
+    saying, and the firewall's journal for what it has reached for since that
+    step began.
+    """
+    env = _ask_env()
+    if env is None:
+        return
+    if not env.steps_file.exists():
+        print(level_text("INFO", tf(
+            "Nothing to follow yet: {} appears when the driver starts.", str(env.steps_file)
+        )))
+        return
+
+    print(level_text("INFO", t("Following the run. Ctrl-C stops watching; the driver keeps going.")))
+    try:
+        while True:
+            history = runlog.runs(runlog.parse_steps(_read_text(env.steps_file) or ""))
+            latest = history[-1] if history else None
+            rows = runlog.live_view(latest, list(env.chain()), datetime.now().astimezone().isoformat())
+            current = runlog.current_step(rows)
+
+            clear_screen()
+            print(title(tf("Migration {} → {}", env.source, env.target))
+                  + (f"  ({latest.run})" if latest else ""))
+            print(render_table(
+                [t("Step"), t("State"), t("Elapsed")],
+                [[row.version, t(row.state), row.elapsed or "—"] for row in rows],
+            ))
+
+            if current:
+                entries = runlog.summarise_log(
+                    _read_text(env.logs_dir / f"{current}.log") or ""
+                )[:_WATCH_LINES]
+                print(title(tf("{} — worth reading so far", current)))
+                if entries:
+                    print(render_table(
+                        [t("Level"), t("Logger"), t("Count"), t("Message")],
+                        [[e.level, e.logger, str(e.count), e.first[:90]] for e in entries],
+                    ))
+                else:
+                    print(t("  nothing above INFO yet"))
+
+                step = latest.step(current) if latest else None
+                journal = journal_since(
+                    egress.OPENSNITCH_JOURNAL_TAG, step.started if step else ""
+                )
+                reached = runlog.summarise_decisions(journal, process="odoo-bin")[:_WATCH_LINES]
+                if reached:
+                    print(title(t("Reached outside its own machine")))
+                    for answer in reached:
+                        print(f"  {answer.action} {answer.host} ×{answer.count} ({answer.rule})")
+
+            if latest is not None and latest.outcome in ("ok", "fail"):
+                print(level_text("OK" if latest.outcome == "ok" else "ERROR",
+                                 tf("The run finished: {}.", latest.outcome)))
+                # The live view follows the *running* step, so the last frame has
+                # no log detail. The report is where the whole run is read.
+                print(level_text("INFO", t(
+                    "Use \"Report on the runs so far\" for what each step logged and what is left open."
+                )))
+                return
+            time.sleep(WATCH_SECONDS)
+    except KeyboardInterrupt:
+        # Back to this menu rather than the top one: stopping a watch is not
+        # abandoning the migration, and the driver is still running elsewhere.
+        print(t("\nStopped watching. The driver is unaffected."))
+
+
 def _clean_environment() -> None:
     base = Path(MigrationEnv.base_dir).expanduser()
     environments = [name for name in list_dirs(str(base)) if "-to-" in name]
@@ -572,6 +652,7 @@ def migration_menu() -> None:
                 "Stage custom modules",
                 "Promote reviewed modules",
                 "Report on the runs so far",
+                "Follow a running migration",
                 "Clean a migration environment",
                 "Redirect a database's mail to Mailpit",
                 "Back",
@@ -590,6 +671,8 @@ def migration_menu() -> None:
             _promote_modules()
         elif action == "Report on the runs so far":
             _migration_report()
+        elif action == "Follow a running migration":
+            _watch_run()
         elif action == "Clean a migration environment":
             _clean_environment()
         elif action == "Redirect a database's mail to Mailpit":

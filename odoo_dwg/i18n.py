@@ -123,6 +123,29 @@ _ES: dict[str, str] = {
     "Stage custom modules": "Preparar módulos custom (staging)",
     "Promote reviewed modules": "Promover módulos revisados",
     "Report on the runs so far": "Informe de las ejecuciones hasta ahora",
+    "Follow a running migration": "Seguir una migración en marcha",
+    "Following the run. Ctrl-C stops watching; the driver keeps going.":
+        "Siguiendo la ejecución. Ctrl-C deja de mirar; el driver sigue.",
+    "Nothing to follow yet: {} appears when the driver starts.":
+        "Todavía no hay nada que seguir: {} aparece cuando arranca el driver.",
+    "\nStopped watching. The driver is unaffected.":
+        "\nDejamos de mirar. El driver no se ve afectado.",
+    "Migration {} → {}": "Migración {} → {}",
+    "Elapsed": "Tiempo",
+    "{} — worth reading so far": "{} — lo que merece leerse hasta ahora",
+    "  nothing above INFO yet": "  todavía nada por encima de INFO",
+    "Reached outside its own machine": "Alcanzó fuera de su propia máquina",
+    "The run finished: {}.": "La ejecución terminó: {}.",
+    "Use \"Report on the runs so far\" for what each step logged and what is left open.":
+        "Usa «Informe de las ejecuciones hasta ahora» para ver qué registró cada paso y qué queda abierto.",
+    "Level": "Nivel",
+    "Logger": "Logger",
+    "Count": "Veces",
+    "Message": "Mensaje",
+    "pending": "pendiente",
+    "ok": "ok",
+    "fail": "falló",
+    "skip": "omitido",
     "Create {}": "Crear {}",
     "Report written: {}": "Informe escrito: {}",
     "No run recorded yet in {} — the driver writes one line per event as it goes.":

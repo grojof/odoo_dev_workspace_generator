@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 
 #: One appended line of the driver's step log: when, run, step, event, detail.
 STEP_COLUMNS = 5
@@ -127,6 +128,67 @@ def runs(events: list[Event]) -> list[Run]:
             step.started = step.started or event.when
             step.ended, step.outcome = event.when, "skip"
     return ordered
+
+
+def _elapsed(start: str, end: str) -> str:
+    """How long a step took, or has been taking. "" when it cannot be told —
+    an unparseable timestamp is not worth a guess."""
+    try:
+        began = datetime.fromisoformat(start)
+        finished = datetime.fromisoformat(end)
+    except (TypeError, ValueError):
+        return ""
+    seconds = int((finished - began).total_seconds())
+    if seconds < 0:
+        return ""
+    hours, rest = divmod(seconds, 3600)
+    minutes, secs = divmod(rest, 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m"
+    if minutes:
+        return f"{minutes}m {secs:02d}s"
+    return f"{secs}s"
+
+
+@dataclass(frozen=True)
+class LiveStep:
+    version: str
+    state: str
+    elapsed: str = ""
+
+
+def live_view(run: Run | None, chain: list[str], now: str) -> list[LiveStep]:
+    """One row per step of the chain, as the run's own events describe it.
+
+    ``now`` is injected rather than read here: a view that asks the clock itself
+    cannot be tested against a fixed instant. A step the run has not reached is
+    *pending* — shown, because what has not happened yet is part of knowing where
+    a chain is.
+    """
+    rows: list[LiveStep] = []
+    for version in chain:
+        step = run.step(version) if run else None
+        if step is None:
+            rows.append(LiveStep(version=version, state="pending"))
+            continue
+        if step.outcome == "unfinished":
+            rows.append(
+                LiveStep(version=version, state="running", elapsed=_elapsed(step.started, now))
+            )
+            continue
+        rows.append(
+            LiveStep(
+                version=version,
+                state=step.outcome,
+                elapsed=_elapsed(step.started, step.ended),
+            )
+        )
+    return rows
+
+
+def current_step(rows: list[LiveStep]) -> str:
+    """The step a watcher should be reading the log of, or ""."""
+    return next((row.version for row in rows if row.state == "running"), "")
 
 
 # Odoo's own log line, stated once in `odoo/netsvc.py` and unchanged from 13.0 to

@@ -80,6 +80,40 @@ step reached for while it ran.
 - **WHEN** an operator has a step's start and end from the step log
 - **THEN** they are accepted by the journal's time filters as they are written
 
+### Requirement: A run can be followed while it happens
+
+The driver is started by hand and may take hours. The system SHALL offer an action that follows a run from
+what the driver writes as it goes, and that only **reads**: where the chain is, what the running step is
+saying, and what it has reached for outside its own machine since that step began.
+
+It SHALL show every step of the chain, including those the run has not reached — what has not happened yet
+is part of knowing where a chain is — with each step's state and how long it took, or has been taking.
+
+Stopping the watch SHALL NOT touch the run: the driver is another process, and the action SHALL say so on
+leaving. It SHALL return to the migration menu rather than abandoning the section, since stopping a watch is
+not abandoning the migration.
+
+When the run ends, the action SHALL say how it ended and SHALL point at the report, because the live view
+follows the *running* step and its last frame therefore holds no step detail.
+
+Where nothing has been recorded yet, it SHALL say so rather than present an empty chain as an idle one.
+
+#### Scenario: A chain in progress
+
+- **WHEN** a run is on its third step of seven
+- **THEN** the first two are shown with the time they took, the third as running with its elapsed time, and
+  the remaining four as pending
+
+#### Scenario: Stopping the watch leaves the run alone
+
+- **WHEN** the operator interrupts the watch
+- **THEN** it says the driver is unaffected and returns to the migration menu
+
+#### Scenario: The run ends while being watched
+
+- **WHEN** the run records its outcome
+- **THEN** the watch reports it and names the report as where the detail is
+
 ### Requirement: The runs can be reported on, and what is open is named first
 
 The system SHALL offer an action that reads back what the runs left — the driver's step log, each step's

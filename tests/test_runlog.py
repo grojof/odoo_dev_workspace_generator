@@ -85,3 +85,35 @@ def test_the_firewall_s_answers_are_read_for_the_step_s_own_process():
     mine = runlog.summarise_decisions(journal, process="odoo-bin")
     assert [(d.action, d.host, d.count) for d in mine] == [("reject", "pypi.org", 2)]
     assert mine[0].rule == "00-odwg-003-reject-odoo-external"
+
+
+def test_the_live_view_shows_where_the_chain_is_including_what_has_not_run():
+    """A step the run has not reached is shown as pending: what has not happened
+    yet is part of knowing where a chain is."""
+    history = runlog.runs(runlog.parse_steps("\n".join([
+        "2026-09-20T11:00:00+02:00\ta1\t-\trun-start\t12.0 -> 15.0",
+        "2026-09-20T11:00:01+02:00\ta1\t13.0\tstart\t",
+        "2026-09-20T11:08:08+02:00\ta1\t13.0\tok\t",
+        "2026-09-20T11:08:09+02:00\ta1\t14.0\tstart\t",
+    ])))
+    rows = runlog.live_view(history[-1], ["13.0", "14.0", "15.0"], "2026-09-20T11:11:21+02:00")
+
+    assert [(r.version, r.state) for r in rows] == [
+        ("13.0", "ok"), ("14.0", "running"), ("15.0", "pending"),
+    ]
+    # A finished step is timed by its own two instants; a running one against now.
+    assert rows[0].elapsed == "8m 07s"
+    assert rows[1].elapsed == "3m 12s"
+    assert rows[2].elapsed == ""
+    # And the log a watcher should be reading is the running step's.
+    assert runlog.current_step(rows) == "14.0"
+
+
+def test_the_live_view_has_no_clock_of_its_own():
+    """`now` is injected: a view that asks the clock cannot be tested against a
+    fixed instant, and a run's own timestamps are what it must be read against."""
+    rows = runlog.live_view(None, ["13.0"], "2026-09-20T11:00:00+02:00")
+    assert [(r.version, r.state, r.elapsed) for r in rows] == [("13.0", "pending", "")]
+    # An unparseable instant is not worth a guess.
+    history = runlog.runs(runlog.parse_steps("whenever\ta1\t13.0\tstart\t"))
+    assert runlog.live_view(history[-1], ["13.0"], "2026-09-20T11:00:00+02:00")[0].elapsed == ""

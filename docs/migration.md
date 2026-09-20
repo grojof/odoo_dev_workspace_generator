@@ -371,6 +371,41 @@ With the [outbound firewall](egress-control.md) installed, `odoo-bin` is rejecte
 anything in that window is a step reaching for the outside — worth knowing before that code reaches
 production.
 
+### Following a run while it happens
+
+You start the driver by hand, and a 12 → 19 chain takes hours. **Menu → Migration → Follow a running
+migration**, from another terminal, shows where it is:
+
+```
+Migration 12.0 → 19.0  (a1b2c3d4e5f6)
++------+-----------+---------+
+| Step | State     | Elapsed |
++------+-----------+---------+
+| 13.0 | ok        | 8m 07s  |
+| 14.0 | ok        | 12m 31s |
+| 15.0 | running   | 3m 12s  |
+| 16.0 | pending   | —       |
++------+-----------+---------+
+
+15.0 — worth reading so far
+| WARNING | odoo.modules.loading  | 412 | sale_x: field removed |
+| ERROR   | odoo.modules.registry | 1   | could not load sale_x |
+
+Reached outside its own machine
+  reject pypi.org ×3 (00-odwg-003-reject-odoo-external)
+```
+
+It only reads. **Ctrl-C stops watching; the driver keeps going** — it is another process. When the run ends
+the watch says how, and points you at the report, because the live view follows the *running* step and so
+its last frame holds no detail.
+
+If you would rather not leave a terminal on it, the two files behind that view are plain text:
+
+```bash
+tail -f ~/odoo-migrations/12-to-19/logs/steps.tsv    # where the chain is
+tail -f ~/odoo-migrations/12-to-19/logs/15.0.log     # what that step is saying
+```
+
 ### The report: what happened, and what is still open
 
 **Menu → Migration → Report on the runs so far** reads the step log, each step's Odoo log and the firewall's
