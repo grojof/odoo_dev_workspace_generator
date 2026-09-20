@@ -462,6 +462,31 @@ _ES: dict[str, str] = {
     "Create venv {}": "Crear el venv {}",
     "Upgrade pip/wheel/setuptools in {}": "Actualizar pip/wheel/setuptools en {}",
     "Install Odoo {} requirements": "Instalar los requisitos de Odoo {}",
+    # --- the read-only surface ---
+    'Source Odoo version (e.g. 12.0).': 'Versión de Odoo de origen (p. ej. 12.0).',
+    'Target Odoo version (e.g. 19.0).': 'Versión de Odoo de destino (p. ej. 19.0).',
+    'Print the cumulative run report. Writes nothing.':
+        'Imprimir el informe acumulado de las ejecuciones. No escribe nada.',
+    'Report what each tester probe found in a database. Reads only.':
+        'Informar de lo que encontró cada sonda del tester en una base de datos. Solo lee.',
+    'Database to read.': 'Base de datos a leer.',
+    'Check the outbound firewall rules. Reads only.':
+        'Comprobar las reglas del cortafuegos de salida. Solo lee.',
+    "Compare the host's rules with the tool's own.":
+        'Comparar las reglas del host con las propias de la herramienta.',
+    "Check a database's outgoing mail. Reads only.":
+        'Comprobar el correo saliente de una base de datos. Solo lee.',
+    'Report whether mail can leave a database.':
+        'Informar de si el correo puede salir de una base de datos.',
+    'Cannot read {}.': 'No se puede leer {}.',
+    'The {} rules are as the tool wrote them.':
+        'Las reglas {} están como las escribió la herramienta.',
+    '{} rule(s) to look at.': 'Hay {} regla(s) que mirar.',
+    "Nothing was changed. Menu -> Provision -> Outbound firewall and mail capture rewrites the tool's own rules; your own are yours to judge.":
+        'No se cambió nada. Menú -> Provision -> Cortafuegos de salida y captura de correo reescribe las reglas propias de la herramienta; las tuyas las juzgas tú.',
+    "Menu -> Migration -> Capture a database's mail in Mailpit stops it.":
+        'Menú -> Migración -> Capturar en Mailpit el correo de una base de datos lo detiene.',
+    'No run recorded yet in {}.': 'Todavía no hay ninguna ejecución registrada en {}.',
     # --- the rehearsal tester ---
     'Generate the migration tester': 'Generar el tester de migración',
     'Check the migration tester': 'Comprobar el tester de migración',

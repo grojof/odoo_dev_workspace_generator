@@ -15,9 +15,10 @@ import sys
 
 from . import __version__
 from .i18n import set_language, t, tf
+from .models import DEFAULT_DB_ROLE
 from .prompts import choose, clear_screen
 from .system import set_verbose
-from .workflows import migration_menu, provision_menu, workspace_menu
+from .workflows import checks, migration_menu, provision_menu, workspace_menu
 
 _LANG_ENV = "ODWG_LANG"
 
@@ -123,8 +124,38 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("workspace", parents=[common],
                    help=t("Create / manage per-client workspaces."))
     sub.add_parser("provision", parents=[common], help=t("Prepare a Linux host (optional)."))
-    sub.add_parser("migrate", parents=[common],
-                   help=t("Run an OpenUpgrade migration (12→19)."))
+
+    # The read-only commands. They write nothing, prompt for nothing, and carry
+    # their verdict in the exit code, so they are usable from a script and from a
+    # second terminal while a migration runs. Everything that changes the host
+    # stays in the menus, behind its confirmation phrase.
+    migrate = sub.add_parser("migrate", parents=[common],
+                             help=t("Run an OpenUpgrade migration (12→19)."))
+    chain = argparse.ArgumentParser(add_help=False)
+    chain.add_argument("--source", required=True, help=t("Source Odoo version (e.g. 12.0)."))
+    chain.add_argument("--target", required=True, help=t("Target Odoo version (e.g. 19.0)."))
+    migrate_actions = migrate.add_subparsers(dest="action")
+    migrate_actions.add_parser(
+        "report", parents=[common, chain],
+        help=t("Print the cumulative run report. Writes nothing."))
+    probes = migrate_actions.add_parser(
+        "probes", parents=[common, chain],
+        help=t("Report what each tester probe found in a database. Reads only."))
+    probes.add_argument("--database", required=True, help=t("Database to read."))
+
+    egress_parser = sub.add_parser("egress", parents=[common],
+                                   help=t("Check the outbound firewall rules. Reads only."))
+    egress_parser.add_subparsers(dest="action").add_parser(
+        "check", parents=[common], help=t("Compare the host's rules with the tool's own."))
+
+    mail = sub.add_parser("mail", parents=[common],
+                          help=t("Check a database's outgoing mail. Reads only."))
+    mail_check = mail.add_subparsers(dest="action").add_parser(
+        "check", parents=[common], help=t("Report whether mail can leave a database."))
+    mail_check.add_argument("--database", required=True, help=t("Database to read."))
+    mail_check.add_argument("--db-host", default="127.0.0.1")
+    mail_check.add_argument("--db-port", type=int, default=5432)
+    mail_check.add_argument("--db-user", default=DEFAULT_DB_ROLE)
     return parser
 
 
@@ -162,7 +193,18 @@ def main(argv: list[str] | None = None) -> int:
             workspace_menu()
         elif args.section == "provision":
             provision_menu()
+        elif args.section == "egress":
+            return checks.egress_check()
+        elif args.section == "mail":
+            return checks.mail_check(
+                args.database, args.db_host, args.db_port, args.db_user
+            )
         elif args.section == "migrate":
+            action = getattr(args, "action", None)
+            if action == "report":
+                return checks.migration_report(args.source, args.target)
+            if action == "probes":
+                return checks.probe_check(args.source, args.target, args.database)
             migration_menu()
     except (KeyboardInterrupt, EOFError):
         print(t("\nExiting."))

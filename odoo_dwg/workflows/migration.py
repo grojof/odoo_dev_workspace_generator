@@ -329,20 +329,12 @@ def _open_items(env: MigrationEnv, latest, logs: dict) -> list[tuple[str, str]]:
     return items
 
 
-def _migration_report() -> None:
-    """Read back what the runs left: the driver's step log, each step's Odoo log,
-    and what the outbound firewall answered inside each step's own window."""
-    env = _ask_env()
-    if env is None:
-        return
-    text = _read_text(env.steps_file)
-    if not text:
-        print(level_text("INFO", tf(
-            "No run recorded yet in {} — the driver writes one line per event as it goes.",
-            str(env.steps_file),
-        )))
-        return
+def build_report(env: MigrationEnv, text: str) -> tuple[str, list]:
+    """The cumulative report and its open items, from what the runs left behind.
 
+    Separate from the action that writes it, because the same report is what the
+    read-only `migrate report` command prints without writing anything.
+    """
     history = runlog.runs(runlog.parse_steps(text))
     latest = history[-1]
     logs = {
@@ -361,10 +353,28 @@ def _migration_report() -> None:
         answers = runlog.summarise_decisions(journal, process="odoo-bin")
         if answers:
             decisions[step.version] = answers
-
-    report = templates.render_migration_report(
-        env, history, logs, decisions, _open_items(env, latest, logs)
+    open_items = _open_items(env, latest, logs)
+    return (
+        templates.render_migration_report(env, history, logs, decisions, open_items),
+        open_items,
     )
+
+
+def _migration_report() -> None:
+    """Read back what the runs left: the driver's step log, each step's Odoo log,
+    and what the outbound firewall answered inside each step's own window."""
+    env = _ask_env()
+    if env is None:
+        return
+    text = _read_text(env.steps_file)
+    if not text:
+        print(level_text("INFO", tf(
+            "No run recorded yet in {} — the driver writes one line per event as it goes.",
+            str(env.steps_file),
+        )))
+        return
+
+    report, _open = build_report(env, text)
     target = env.reports_dir / f"report-{_stamp()}.md"
     commands = [
         Command(
@@ -758,29 +768,41 @@ def _check_tester() -> None:
     if not DB_NAME_RE.fullmatch(database):
         print(level_text("ERROR", tf("Invalid database name: {}", database)))
         return
+    verdicts = probe_verdicts(env, database)
+    if verdicts is None:
+        return
+    report_probes(database, verdicts)
+
+
+def probe_verdicts(env: MigrationEnv, database: str) -> list | None:
+    """What became of each probe's subject, or None having said why not.
+
+    Separate from the action that asks for a database: the read-only
+    `migrate probes` command needs the same reading without a prompt.
+    """
     where = (database, env.db_host, env.db_port, env.db_user)
     installed = psql_scalar(
         f"SELECT to_regclass('{tester.PROBE_TABLE}') IS NOT NULL", *where
     )
     if installed is None:
         print(level_text("ERROR", tf("Could not read database {}.", database)))
-        return
+        return None
     if installed != "t":
         print(level_text("WARN", tf("The tester is not installed in {}.", database)))
-        return
+        return None
     rows = psql_rows(tester.PROBE_ROWS_SQL, *where)
     probes = tester.probes_from_rows(rows or [])
     if not probes:
         print(level_text("WARN", tf("The tester in {} declares no probe.", database)))
-        return
+        return None
     states = psql_rows(tester.probe_state_sql(probes), *where)
     if states is None:
         print(level_text("ERROR", tf("Could not read the models of {}.", database)))
-        return
-    _report_probes(database, tester.read_probe_states(probes, states))
+        return None
+    return tester.read_probe_states(probes, states)
 
 
-def _report_probes(database: str, verdicts: list) -> None:
+def report_probes(database: str, verdicts: list) -> None:
     """Findings first — they are the reason the tester exists; the rest is what
     behaved, and is worth one line each so the operator can see it was asked."""
     findings = [verdict for verdict in verdicts if verdict.is_finding]

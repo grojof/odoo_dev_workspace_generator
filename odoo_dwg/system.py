@@ -15,6 +15,7 @@ import shlex
 import shutil
 import subprocess
 from dataclasses import replace
+from pathlib import Path
 
 from . import pghba
 from .i18n import t, tf
@@ -478,6 +479,29 @@ def pg_restore_lists(dump_path: str) -> tuple[bool, str]:
     text = (result.stderr or result.stdout).strip()
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     return False, lines[-1] if lines else "pg_restore --list failed"
+
+
+def read_dir_files(path: str, suffix: str = "") -> dict[str, str] | None:
+    """Every readable file of a directory as ``name -> content``, or None when the
+    directory itself cannot be listed.
+
+    None and {} are different answers: a rules directory that is not there is not
+    a rules directory that is empty, and reporting the first as the second would
+    say every rule is missing.
+    """
+    try:
+        entries = sorted(Path(path).iterdir())
+    except OSError:
+        return None
+    found: dict[str, str] = {}
+    for entry in entries:
+        if suffix and not entry.name.endswith(suffix):
+            continue
+        try:
+            found[entry.name] = entry.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+    return found
 
 
 def psql_rows(

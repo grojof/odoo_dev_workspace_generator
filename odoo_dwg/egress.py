@@ -443,3 +443,68 @@ def read_mail_state(rows: list[list[str]]) -> MailState:
         captured=captured,
         deactivated=deactivated,
     )
+
+
+@dataclass(frozen=True)
+class RuleFinding:
+    """Something about the rules directory worth an operator's attention."""
+
+    kind: str       # "absent" | "changed" | "disabled" | "unreadable" | "sorts first"
+    filename: str
+    detail: str = ""
+
+
+#: Worst first. A foreign rule evaluated ahead of ours is the only way the rule
+#: confining Odoo can be pre-empted, so it leads; an absent or disabled rule of
+#: ours is the next most consequential.
+_FINDING_ORDER = ("sorts first", "absent", "disabled", "changed", "unreadable")
+
+
+def audit_rules(present: dict[str, str], expected: list[dict]) -> list[RuleFinding]:
+    """The rules on the host, against the rules this tool would write.
+
+    ``present`` is every file in the rules directory as ``name -> content``.
+    Nothing here changes anything: a rule the operator wrote deliberately to sort
+    first is a legitimate thing to have, and only the operator knows which it is.
+    """
+    findings: list[RuleFinding] = []
+    owned = {rule_filename(rule): rule for rule in expected}
+    first_owned = min(owned, default="")
+    for filename, rule in sorted(owned.items()):
+        if filename not in present:
+            findings.append(RuleFinding("absent", filename, "the tool would write this rule"))
+            continue
+        try:
+            found = json.loads(present[filename])
+        except (ValueError, TypeError):
+            findings.append(RuleFinding("unreadable", filename, "not readable as JSON"))
+            continue
+        if not found.get("enabled", True):
+            findings.append(RuleFinding("disabled", filename, "enabled is false"))
+        # Compared as data, not as text: `indent` or key order differing is not a
+        # change to what OpenSnitch does, and reporting it would train the reader
+        # to ignore this check.
+        if found != rule:
+            findings.append(
+                RuleFinding("changed", filename, "differs from what the tool would write")
+            )
+    for filename, content in sorted(present.items()):
+        if filename in owned:
+            continue
+        if not filename.endswith(".json"):
+            continue
+        try:
+            json.loads(content)
+        except (ValueError, TypeError):
+            findings.append(RuleFinding("unreadable", filename, "not readable as JSON"))
+            continue
+        if first_owned and filename < first_owned:
+            findings.append(
+                RuleFinding(
+                    "sorts first",
+                    filename,
+                    f"evaluated before {first_owned}, so it can pre-empt the Odoo rule",
+                )
+            )
+    findings.sort(key=lambda finding: (_FINDING_ORDER.index(finding.kind), finding.filename))
+    return findings

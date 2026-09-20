@@ -77,6 +77,20 @@ def check_mail(db_host: str, db_port: int, db_user: str) -> None:
     database = _database_to_act_on("Database whose mail to check")
     if not database:
         return
+    state = mail_state(database, db_host, db_port, db_user)
+    if state is None:
+        return
+    report_mail_state(database, state)
+
+
+def mail_state(
+    database: str, db_host: str, db_port: int, db_user: str
+) -> egress.MailState | None:
+    """What the database can do with mail, or None having said why not.
+
+    Separate from the action that asks for a database, because the read-only
+    `mail check` command needs the same reading without a prompt.
+    """
     exists = "SELECT to_regclass('{}') IS NOT NULL"
     fetchmail = psql_scalar(exists.format("fetchmail_server"), database, db_host, db_port, db_user)
     captured = psql_scalar(
@@ -84,7 +98,7 @@ def check_mail(db_host: str, db_port: int, db_user: str) -> None:
     )
     if fetchmail is None or captured is None:
         print(level_text("ERROR", tf("Could not read database {}.", database)))
-        return
+        return None
     rows = psql_rows(
         egress.mail_state_sql(fetchmail=fetchmail == "t", captured=captured == "t"),
         database,
@@ -94,11 +108,11 @@ def check_mail(db_host: str, db_port: int, db_user: str) -> None:
     )
     if rows is None:
         print(level_text("ERROR", tf("Could not read the mail configuration of {}.", database)))
-        return
-    _report_mail_state(database, egress.read_mail_state(rows))
+        return None
+    return egress.read_mail_state(rows)
 
 
-def _report_mail_state(database: str, state: egress.MailState) -> None:
+def report_mail_state(database: str, state: egress.MailState) -> None:
     """The verdict first, then what it rests on: the question is whether mail can
     leave, and a table of servers does not answer it by itself."""
     if state.escaping:

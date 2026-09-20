@@ -84,6 +84,23 @@ Every menu shows a numbered list; `0` (or `Back`/`Cancel`) always returns withou
 | Preflight check | Read-only verification: chain tools, PostgreSQL, dump integrity, and — against a named database — version match, installed modules, per-step addons coverage | Never mutates |
 | Stage custom modules | Per chain step, copies the previous stage and runs `odoo-module-migrator` on it; then analysis findings, inert `pre-migration.py` scaffolds, and a per-module report | Source dir never modified; phrase `RESTAGE` to replace staged code |
 | Clean a migration environment | Removes one `<src>-to-<tgt>` directory; the shared `.repos` cache is a separate opt-in | Phrase `DELETE`; the PostgreSQL DB is never touched |
+### Read-only commands (no menu, no prompt, nothing written)
+
+These exist so an answer can be had from a script, from a pipe, or from a second terminal while a
+migration runs. Each exits **0** when it found nothing, **1** when it found something, **2** when it could
+not tell — and exit 2 is never a clean result.
+
+| Command | Answers |
+|---|---|
+| `odoo-dwg egress check` | Are the tool's OpenSnitch rules still as it wrote them, and does anything sort ahead of them? |
+| `odoo-dwg mail check --database X` | Can mail leave this database? |
+| `odoo-dwg migrate report --source A --target B` | The cumulative run report, to stdout (the menu action writes a file; this does not). |
+| `odoo-dwg migrate probes --source A --target B --database X` | What became of each rehearsal probe's subject. |
+
+Anything that changes the host stays in the menus behind its confirmation phrase. A read-only command that
+finds something to act on names the menu action; it does not perform it. Three skills in `.claude/skills/`
+are thin wrappers over these four commands.
+
 | Generate the migration tester | Writes an add-on of the tool's own into each step's `custom`, with one probe per class of change *this chain* contains, taken from its own analysis files. Names the classes the chain never exercises ([migration](migration.md#rehearsing-against-a-module-built-to-break)). | Previewed, confirmed |
 | Check the migration tester | Reads only. Asks a database what became of each probe's subject; reports what disappeared unannounced and what a script left behind, first. | — |
 | Capture a database's mail in Mailpit | Same as the workspace action, for the migration's databases. | Phrase `CAPTURE` |

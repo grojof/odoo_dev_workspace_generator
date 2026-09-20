@@ -270,6 +270,23 @@ A database with **no** active mail server is reported as falling back to the `sm
 configuration file — which the generated `odoo.conf` points at Mailpit, but another `odoo.conf` may not.
 That is why the capture adds a server rather than relying on the fallback.
 
+### Checking the rules are still yours
+
+OpenSnitch evaluates rules in file-name order and the first match decides, which is why the tool's rules
+are named `00-odwg-`. Whether they are still first, and still what the tool wrote, is a question:
+
+```bash
+odoo-dwg egress check
+```
+
+It reports a rule of the tool's that is absent, changed or disabled, a file that is not JSON, and — the one
+that matters — a rule the tool does not own that **sorts before** its own, because that is the only way the
+rule confining Odoo can be pre-empted. Note that `000-something.json` does *not* sort first (`-` sorts
+before a digit); `00-aaa.json` does.
+
+It changes nothing, including a rule it reports: a rule you wrote deliberately to sort first is a
+legitimate thing to have, and only you know which it is.
+
 ## Live production migrations
 
 When the migrated database **goes back to production**:

@@ -7,6 +7,18 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **The read-only answers, without the menu.** `odoo-dwg egress check`, `mail check --database`,
+  `migrate report` and `migrate probes` write nothing, prompt for nothing and need no terminal, and each
+  exits 0 / 1 / 2 for *nothing to report* / *found something* / *could not tell* — so they work in a
+  script and in a second terminal while a migration runs. Anything that changes the host stays in the
+  menus behind its phrase: a check that finds something names the menu action and does not perform it.
+- **The OpenSnitch rules on the host can be checked against the rules the tool wrote** — one of ours that
+  is absent, changed or disabled, a file that is not JSON, and a rule we do not own that **sorts before**
+  ours, which is the only way the rule confining Odoo can be pre-empted. Rules are compared as data, so
+  re-indenting one is not reported as a change. It modifies nothing, including what it reports.
+- **Three skills** (`.claude/skills/`) over those commands: migration triage, the OpenSnitch rule check,
+  and Mailpit configuration. Thin by design — none of them parses a log, a rule file or a database
+  itself, because that work is the tool's, and it is tested there.
 - **A rehearsal can be run against a module built to break.** The tool generates an add-on of its own for
   a chain, carrying one probe per class of change *that chain* contains — a field removed, a field that
   moved module, a model made obsolete or renamed, a field that stopped being stored, stopped being

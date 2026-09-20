@@ -84,8 +84,13 @@ generated per chain, carrying one probe per class of change that chain contains,
 analysis files — so a step can be asked what it took away, and the quiet classes (a field that moved
 module, one that stopped being stored) stop being invisible.
 
-Still to come in this phase: three thin skills — migration triage, an OpenSnitch rule check, and Mailpit
-configuration.
+Finally, the read-only answers came out from behind the menu (change `answer-without-the-menu`):
+`egress check`, `mail check`, `migrate report` and `migrate probes` write nothing and carry their verdict
+in an exit code, and the three thin skills — migration triage, the OpenSnitch rule check, Mailpit
+configuration — are wrappers over them rather than parsers of their own. The rule audit also answers a
+question nothing answered before: whether anything on the host now sorts ahead of the rule confining Odoo.
+
+**Next:** a real rehearsal migration of the 12 client, which is what this whole phase was built for.
 
 ## F0 — Foundation ✅
 
