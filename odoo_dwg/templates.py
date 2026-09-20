@@ -915,12 +915,11 @@ if ! have_ck 00_source; then
   checkpoint 00_source
 else
   # Three states, not two: recorded and equal, recorded and different, or not
-  # recorded at all — which is what an environment generated before 0.2.0 leaves
-  # behind. Calling the third one "another source dump" was false, and the
-  # remedy it named threw away every completed step of the chain.
+  # recorded at all. Calling the third one "another source dump" was false, and
+  # the remedy it named threw away every completed step of the chain.
   CK_SHA=$(cat "$CK/source.sha256" 2>/dev/null || true)
   if [ -z "$CK_SHA" ]; then
-    die "the checkpoints in $CK do not record which dump they came from (an older version wrote them).
+    die "the checkpoints in $CK do not record which dump they came from.
   If they came from $SRC_DUMP, adopt them with:
     sha256sum $SRC_DUMP | cut -d' ' -f1 > $CK/source.sha256
   If they came from another dump, remove $CK to start over."

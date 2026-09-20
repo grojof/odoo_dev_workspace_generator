@@ -96,11 +96,10 @@ All notable changes to this project are documented here. The format is based on
   file browser or the error handling, and "previewed and confirmed" was restated in six capabilities with no
   one place defining what a preview shows or what applying reports. Two capabilities now do —
   `command-plan` and `operator-interface` — and `openspec validate --specs` covers 14.
-- **Each migration environment upgrades its own database.** Every environment used to share one database
-  called `migration`, so a second driver could drop the first one's database between its steps and the first
-  would then upgrade — and checkpoint — the second's data as its own. The name is derived from the chain
-  (`migration_13_to_18`). An environment generated before this left a database called `migration` behind:
-  **Clean a migration environment** now says so, and you can drop it once no environment still uses it.
+- **Each migration environment upgrades its own database**, named for its chain (`migration_13_to_18`).
+  Every environment used to share one called `migration`, so a second driver could drop the first one's
+  database between its steps and the first would then upgrade — and checkpoint — the second's data as its
+  own.
 - **Adding a version to a workspace says which ports move.** Ports are derived from a version's rank, so
   adding an older major renumbers every version above it — visible before only by reading the heredoc bodies
   in the preview, while a running instance kept a port its config no longer named.
@@ -115,12 +114,12 @@ All notable changes to this project are documented here. The format is based on
 - **`~/.psqlrc` could still change what five `psql` commands did.** An earlier round added `-X` to the
   probes it found; the version probe, the role-login probe, the role-existence probe, `psql_scalar` and the
   mail redirect did not have it. A test now asserts it for every `psql` the probes run.
-- **A migration started before 0.2.0 refused to resume, and said to delete every checkpoint.** The driver
-  binds a run to its source dump by a SHA it records beside the checkpoints; an environment generated before
-  that has checkpoints and no recorded SHA, which read as *"came from another source dump — remove that whole
-  directory to start over"*. It was not another dump, it was an unknown one, and the remedy threw away every
-  completed step of a chain. The three states are now told apart, and the unknown one prints the command that
-  adopts those checkpoints for the dump you have.
+- **Checkpoints with no recorded source dump said to delete every one of them.** The driver binds a run to
+  its dump by a SHA it records beside the checkpoints, and a checkpoint directory without that record read
+  as *"came from another source dump — remove that whole directory to start over"*. It was not another
+  dump, it was an unknown one, and the remedy threw away every completed step of a chain. The three states
+  are told apart now, and the unknown one prints the command that adopts those checkpoints for the dump you
+  have.
 - **A venv built with an unsupported interpreter is now called out** when a workspace's files are refreshed.
   The interpreter on disk is what the regenerated files describe and rebuild, so an out-of-range one was
   quietly baked back in; the README says so too.
@@ -138,8 +137,8 @@ All notable changes to this project are documented here. The format is based on
 - **Migration checkpoints and logs were world-readable.** A checkpoint is a `pg_dump` of the restored copy
   of a customer's production database. The driver now runs under `umask 077` and both directories are
   `700` — it relied entirely on the home directory's mode before. An environment that already exists is
-  narrowed the next time you generate over it, or the next time its regenerated driver runs; upgrading the
-  tool alone changes nothing on disk, and files already inside those directories keep the mode they have.
+  narrowed the next time you generate over it; files already inside those directories keep the mode they
+  have.
 - **A restored database could repaint the terminal.** Module names and authors are read from the database
   under migration and printed in the preflight table; only colour was ever stripped, so `\x1b[2J` or an OSC
   sequence reached the terminal and was counted in the column width. Table cells now carry colour and

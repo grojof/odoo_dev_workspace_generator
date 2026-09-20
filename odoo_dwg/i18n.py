@@ -465,10 +465,6 @@ _ES: dict[str, str] = {
     'Cannot read {}: {}': 'No se puede leer {}: {}',
     "Edit {} and run this again.": "Edita {} y vuelve a ejecutarlo.",
     "Make {} executable again": "Volver a hacer ejecutable {}",
-    "An environment generated before 0.2.0 used a single database named `migration`; drop that "
-    "one too if no other environment is still using it.":
-        "Un entorno generado antes de 0.2.0 usaba una única base de datos llamada `migration`; "
-        "bórrala también si ningún otro entorno la sigue usando.",
     "These OCA repos are in the profile but not on disk: {}. The refreshed files name them "
     "in addons_path; run Refresh shared repos to clone and link them.":
         "Estos repos de OCA están en el perfil pero no en disco: {}. Los ficheros regenerados los "

@@ -152,9 +152,9 @@ def main() -> int:
               other.returncode != 0 and "another source dump" in other.stderr,
               other.stderr)
 
-        # Checkpoints written before 0.2.0 carry no recorded dump. That is not
-        # "another dump", and saying so told the operator to delete a chain that
-        # may be seven completed steps of a customer's database.
+        # A checkpoint directory with no recorded dump is not one from another
+        # dump, and saying so told the operator to delete a chain that may be
+        # seven completed steps of a customer's database.
         (env.checkpoints_dir / "source.sha256").unlink()
         legacy = _run(root, script)
         check("checkpoints with no recorded dump are not called another dump's",
