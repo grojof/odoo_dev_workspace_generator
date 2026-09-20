@@ -274,6 +274,9 @@ def test_loopback_trust_covers_only_the_development_role():
     assert "database field is quoted" in hba
     refusals = [line for line in hba.splitlines() if "grep -q" in line]
     assert any('host[a-z]*[[:space:]]+"' in line for line in refusals), refusals
+    # `@file` names roles from a file the server expands and this step cannot see.
+    assert any("[[:space:],])?@" in line for line in refusals), refusals
+    assert "from a file (@…)" in hba
     assert "line continuations" in hba and "include directive" in hba
     # The role's line is inserted before the first host rule of any kind, never
     # after one that would match the same connection first.

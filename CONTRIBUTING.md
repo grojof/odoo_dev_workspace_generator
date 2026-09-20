@@ -78,7 +78,8 @@ caught by, and the server's verification step over ten more. The shapes it must 
 written as CIDR, as `localhost`/`samehost`, indented, in `address netmask` form, as `hostnossl`, `hostssl` or
 `hostgssenc`, on `all`, on `0.0.0.0/0`, on `127.0.0.0/8`, on one database, and with a quoted address. The
 shapes it must leave alone: the Ubuntu default, a file with no `host` rules, one this tool already narrowed,
-a password rule whose comment merely mentions trust, and a role literally named `all`. And the shapes where
+and a password rule whose comment merely mentions trust — a role literally named `all` is covered where
+it matters, in the verification step's own cases. And the shapes where
 it must insert the role's line rather than read one as reached: a role line shadowed by an earlier rule, the
 role's own trust rule on `hostssl`, its own password rule above its trust rule, a shadowing rule that is not
 `host all all`, and a file with no trailing newline. The count is deliberately not repeated here — `CASES`

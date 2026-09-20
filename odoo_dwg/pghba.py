@@ -210,9 +210,20 @@ def role_elements(line: str) -> tuple[str, ...] | None:
     The field is read as the list it may be: PostgreSQL matches the keyword
     anywhere in ``all,bob``, so reading only a bare ``all`` called that rule
     narrow while the server let every role in.
+
+    None is also the answer whenever the *view* knows more than the line, and
+    the line must not override it. The line knows one thing the view lost —
+    whether `all` was quoted — and nothing else, so a record continued onto the
+    next line, or one naming its roles from a file (``@admins``, which the server
+    has already expanded), is left to the server's reading.
     """
-    fields = _scan_fields(line.split("#", 1)[0])
+    body = line.split("#", 1)[0]
+    if body.rstrip().endswith("\\"):
+        return None
+    fields = _scan_fields(body)
     if len(fields) < 3 or not fields[0][0][0].lower().startswith("host"):
+        return None
+    if any(text.startswith("@") for text, _quoted in fields[2]):
         return None
     return tuple(
         '"all"' if quoted and text == "all" else text for text, quoted in fields[2]

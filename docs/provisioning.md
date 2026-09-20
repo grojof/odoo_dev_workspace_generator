@@ -103,9 +103,10 @@ password:
   that had not happened, so success is now something PostgreSQL confirms.
 
   The **rewriter** still reads text, and refuses rather than rewrite a file whose rules it cannot read one
-  line at a time — an `include` directive, a record continued with a trailing backslash, or a rule whose
-  database field is quoted (it may then contain blanks, and the rewriter counts fields by whitespace). It
-  says which of the three it found: narrow that rule by hand, or inline what it cannot see, then run apply
+  line at a time — an `include` directive, a record continued with a trailing backslash, a rule whose
+  database field is quoted (it may then contain blanks, and the rewriter counts fields by whitespace), or
+  one naming its databases or roles from another file (`@admins`), which the server expands and this
+  cannot read. It says which of the four it found: narrow that rule by hand, or inline what it cannot see, then run apply
   again.
 
   The check says **unknown** (WARN) instead of claiming either answer — and apply plans the narrowing rather

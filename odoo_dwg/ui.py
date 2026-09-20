@@ -95,7 +95,7 @@ _TERMINAL_CONTROL_RE = re.compile(
     r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"  # OSC …BEL / …ST
     r"|\x1b\[[0-9;?]*[A-Za-z]"             # any other CSI
     r"|\x1b[@-Z\\-_]"                      # two-character escapes
-    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"   # C0 controls, keeping \t and \n
+    r"|[\x00-\x08\x0b-\x0d\x0e-\x1f\x7f]"  # C0 controls, keeping \t and \n
 )
 
 

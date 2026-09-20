@@ -115,6 +115,16 @@ All notable changes to this project are documented here. The format is based on
   made, holding their code.
 
 ### Fixed
+- **A role list read from a file was read as narrow.** `pg_hba.conf` accepts `@admins` in the role field and
+  the server expands it, so `host all @admins 127.0.0.1/32 trust` with `all` in that file lets every role in.
+  The reading added earlier in this release took the rule's own line as authoritative, and the line does not
+  know what the file holds — so `provision check` reported *"trust for odoo only"* while any local account
+  could connect as `postgres`, and every step of the apply plan said OK. The line now corrects the server
+  only where it knows more (whether `all` was quoted) and never where the server knows more: an `@file` list
+  or a continued record is left to the server's own reading, and the rewriter refuses a file holding one
+  rather than narrowing what it can see.
+- **A table cell's carriage return is removed** rather than left to split the cell, as the code always
+  claimed.
 - **A role field listing `all` among others was read as narrow.** PostgreSQL matches the keyword anywhere
   in a comma list, so `host all all,bob 127.0.0.1/32 trust` lets every role in — and the reading introduced
   earlier in this release asked for a bare `all`, so `provision check` printed *"trust for odoo only"* on a

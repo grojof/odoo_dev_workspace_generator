@@ -124,7 +124,9 @@ def test_a_table_cell_carries_colour_and_nothing_else():
     for control in ("\x1b[2J", "\x1b]0;", "\r", "\t"):
         assert control not in out, control
     assert "\x1b[1;31m" in out and "\x1b[0m" in out       # colour survives
-    assert out.count("\n") == 5                            # and the borders hold
+    # Four borders and one row: the `\r` is removed rather than left to split the
+    # cell, which is what used to make this cell two rows tall.
+    assert out.count("\n") == 4
 
     # Colour a cell opens and never closes would run past the border: `\x1b[8m`
     # (conceal) from a module name hides every row printed after it.
@@ -134,3 +136,9 @@ def test_a_table_cell_carries_colour_and_nothing_else():
     for row in opened.splitlines():
         assert row.count("\x1b[") == 0 or row.endswith("|"), row
     assert ui.sanitize_cell("sale\x1b[8m").endswith("\x1b[0m")
+    # Asserted on the sanitizer itself, not only through the table: the table
+    # survives a `\r` because `splitlines()` breaks on it, so removing the
+    # control class entirely left the table test green.
+    assert ui.sanitize_cell("a\rb") == "ab"
+    assert ui.sanitize_cell("a\x1bb") == "ab"
+    assert ui.sanitize_cell("a\nb") == "a\nb"      # a cell may span lines

@@ -454,6 +454,13 @@ def plan_pg_hba_trust(role: str) -> list[Command]:
         '{ echo "$PGHBA has a rule whose database field is quoted; this step reads '
         'fields by whitespace and cannot rewrite it — narrow that rule by hand" >&2; '
         'exit 1; }',
+        # `@file` names its databases or roles from another file, which the server
+        # expands and this step cannot see. Leaving such a rule while reporting
+        # success is how a blanket trust survived a narrowing that said it worked.
+        'grep -qE \'^[[:space:]]*host[a-z]*[[:space:]]+([^#]*[[:space:],])?@\' "$PGHBA" && '
+        '{ echo "$PGHBA has a rule naming its databases or roles from a file (@…); '
+        'this step cannot read what that file holds — inline those names, or narrow '
+        'the rule by hand" >&2; exit 1; }',
         # \1 is everything up to the method, \5 the whitespace or end of line
         # after it — keep both in step with BLANKET_TRUST_RULE's groups, which
         # the role list adds two of.
@@ -537,7 +544,11 @@ def _pg_hba_audit(role: str) -> str:
         "names_every_role() {",
         '  hba_file=${1%:*}; hba_line=${1##*:}',
         '  [ -f "$hba_file" ] || return 0',
-        '  sed -n "${hba_line}p" "$hba_file" | sed "s/#.*//" | grep -qE "$ROLEALL"',
+        '  hba_text=$(sed -n "${hba_line}p" "$hba_file" | sed "s/#.*//")',
+        # A role list read from a file, or a record continued onto the next line:
+        # the server expanded it and this cannot, so its answer stands.
+        '  case $hba_text in *@*) return 0 ;; *\\\\) return 0 ;; esac',
+        '  printf "%s" "$hba_text" | grep -qE "$ROLEALL"',
         "}",
         # A file the server cannot parse is a file it did not load: `pg_ctl reload`
         # returns 0 whatever happens, so without this the steps below would read a

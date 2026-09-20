@@ -200,3 +200,21 @@ def test_the_role_rule_counts_only_when_it_covers_every_database():
     assert not pghba.role_is_reached(
         pghba.parse_rules(_row(databases="acme", users="odoo")), "odoo"
     )
+
+
+def test_the_line_never_overrides_the_server_where_the_server_knows_more(monkeypatch):
+    """The line is read for one thing only — whether `all` was quoted. On a role
+    list named from a file the server has already expanded it, and on a continued
+    record the server has already folded it, so there the view's answer stands.
+
+    Letting the line win on `@admins` reported a host as narrowed while every
+    local account could connect as `postgres`.
+    """
+    assert pghba.role_elements("host all @admins 127.0.0.1/32 trust") is None
+    assert pghba.role_elements("host all bob,@admins 127.0.0.1/32 trust") is None
+    assert pghba.role_elements("host all bob,\\") is None
+    assert pghba.role_elements("host @dbs all 127.0.0.1/32 trust") == ("all",)
+
+    monkeypatch.setattr(system, "pg_hba_rules", lambda port=5432: pghba.parse_rules(_row()))
+    monkeypatch.setattr(system, "read_text", lambda _path: "host all @admins 127.0.0.1/32 trust\n")
+    assert system.pg_hba_loopback_state("odoo") == (True, False)

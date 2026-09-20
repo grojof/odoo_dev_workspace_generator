@@ -166,14 +166,6 @@ local   all             postgres                                peer
 host    all             all             "127.0.0.1/32"          trust
 """
 
-# A role *named* `all`, which the server does not match a connection against
-# though `pg_hba_file_rules` reports it exactly like the keyword.
-QUOTED_ROLE = """\
-local   all             postgres                                peer
-host    all             "all"           127.0.0.1/32            trust
-host    all             all             127.0.0.1/32            scram-sha-256
-"""
-
 # A rule matching the role's connection above its trust line, in a shape that is
 # not `host all all`: the rewriter used to read its own line as reached, insert
 # nothing, and then fail its own verification — a failure re-running cannot fix.
@@ -465,6 +457,15 @@ def main() -> int:
             ("rules pulled in from another file",
              "local all postgres peer\ninclude_dir conf.d\n",
              "include"),
+            # The server expands `@file` and this step cannot: leaving such a
+            # rule while reporting success is how a blanket trust survived a
+            # narrowing that said it had worked.
+            ("roles named from another file",
+             "local all postgres peer\nhost all @admins 127.0.0.1/32 trust\n",
+             "@"),
+            ("databases named from another file",
+             "local all postgres peer\nhost @dbs all 127.0.0.1/32 trust\n",
+             "@"),
         ):
             unseeable = root / "unseeable.conf"
             unseeable.write_text(content, encoding="utf-8")
@@ -599,6 +600,9 @@ AUDIT_CASES = [
     ("a trust rule naming its roles by pattern",
      'local all all trust\nhost all odoo 127.0.0.1/32 trust\n'
      'host all "/.*" 127.0.0.1/32 trust\n', True),
+    ("roles named from a file the server expanded to every role",
+     "local all trust\nhost all odoo 127.0.0.1/32 trust\n"
+     "host all @admins 127.0.0.1/32 trust\n", True),
     ("a role list naming all among others",
      "local all all trust\nhost all odoo 127.0.0.1/32 trust\n"
      "host all all,bob 127.0.0.1/32 trust\n", True),
@@ -626,6 +630,9 @@ def _the_audit_step(check, cluster: Cluster) -> None:
     audit = command.replace(
         prefix, f"{cluster.bin / 'psql'} -h {cluster.root} -p {cluster.port} -U postgres"
     )
+    # The `@file` case needs the file to exist, or the server reports a rule it
+    # could not parse and the audit would refuse it for the wrong reason.
+    (cluster.data / "admins").write_text("all\n", encoding="utf-8")
     for label, content, should_fail in AUDIT_CASES:
         cluster.load(content)
         result = subprocess.run(["bash", "-c", audit], capture_output=True, text=True)
