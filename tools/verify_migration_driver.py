@@ -17,7 +17,6 @@ directory. Exits non-zero on the first case that does not behave as documented.
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 import shutil
 import subprocess
@@ -28,7 +27,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from odoo_dwg import templates  # noqa: E402
-from odoo_dwg.models import MigrationEnv  # noqa: E402
+from odoo_dwg.models import (  # noqa: E402
+    MigrationEnv,
+    ModuleDecision,
+    decisions_to_json,
+)
 
 SOURCE, TARGET = "16.0", "18.0"
 # A chain that crosses the <= 13 layout, so the legacy step command and its own
@@ -303,11 +306,14 @@ def main() -> int:
         script, env = _build(root, absorbed=("acme_orphan", "acme_absent"))
         for version in env.chain():
             shutil.rmtree(Path(env.addons_custom_dir(version)) / "acme_absent")
+        # Written the way the tool itself writes it — a wrapper object, not a
+        # bare list. A fixture using the other shape passed against a driver
+        # that could not read the real file at all.
         Path(env.decisions_file).write_text(
-            json.dumps([{
-                "module": "acme_orphan", "source": SOURCE, "target": TARGET,
-                "decision": "dropped", "reason": "OCA never ported it",
-            }]),
+            decisions_to_json([ModuleDecision(
+                module="acme_orphan", source=SOURCE, target=TARGET,
+                decision="dropped", reason="OCA never ported it",
+            )]),
             encoding="utf-8",
         )
         decided = _run(root, script)
