@@ -59,13 +59,22 @@ rule, not a shape: the rule's own line may *confirm* the server's reading — th
 may never narrow it. Alongside: the test suite was mutation-audited (37 unnoticed mutations, all guarded
 now), the sdist ships what its tests read, and the operator surface has a spec.
 
-**Carrying the migration work forward (in flight).** A migration is rehearsed several times and run
-once, and the corrections the rehearsals produce lived in the environment, which cleaning deletes.
-Reviewed code is now promoted to a location the operator owns and taken as given by the next run;
-what was decided about a module with no successor is recorded, reused between clients and reported
-as stale when the sources overtake it; and a migration environment can name OCA repositories, so
-that half of coverage is derived instead of filled by hand. Change:
-`carry-the-migration-work-forward`.
+**Carrying the migration work forward** (change `carry-the-migration-work-forward`, archived). A
+migration is rehearsed several times and run once, and the corrections the rehearsals produce lived in
+the environment, which cleaning deletes. Reviewed code is now promoted to a location the operator owns
+and taken as given by the next run; what was decided about a module with no successor is recorded,
+reused between clients and reported as stale when the sources overtake it; and a migration environment
+can name OCA repositories, so that half of coverage is derived instead of filled by hand.
+
+**Seeing what a run did (in flight).** A chain of seven steps takes hours and used to leave only seven
+Odoo logs. The driver now records each step as it runs it (`logs/steps.tsv`, one appended line per
+event); a run can be **followed live** from those marks, and reported on **afterwards and
+cumulatively** — every run of the environment, opening with what is still unresolved. The parsing is
+the tool's, not an assistant's: `odoo_dwg/runlog.py` is pure and reads three sources it does not write
+(the step log, Odoo's own log line, the firewall's journal). Still to come in this phase: a generated
+tester add-on covering what changes between versions, mail capture and **restore** (the migrated
+database becomes production, so the redirection must be undoable), and three thin skills — migration
+triage, an OpenSnitch rule check, and Mailpit configuration.
 
 ## F0 — Foundation ✅
 
