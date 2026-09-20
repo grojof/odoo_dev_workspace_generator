@@ -59,6 +59,14 @@ rule, not a shape: the rule's own line may *confirm* the server's reading — th
 may never narrow it. Alongside: the test suite was mutation-audited (37 unnoticed mutations, all guarded
 now), the sdist ships what its tests read, and the operator surface has a spec.
 
+**Carrying the migration work forward (in flight).** A migration is rehearsed several times and run
+once, and the corrections the rehearsals produce lived in the environment, which cleaning deletes.
+Reviewed code is now promoted to a location the operator owns and taken as given by the next run;
+what was decided about a module with no successor is recorded, reused between clients and reported
+as stale when the sources overtake it; and a migration environment can name OCA repositories, so
+that half of coverage is derived instead of filled by hand. Change:
+`carry-the-migration-work-forward`.
+
 ## F0 — Foundation ✅
 
 Package skeleton mirroring `odoo_instance_manager`, OpenSpec + `CLAUDE.md`, i18n (English/Spanish), CLI/menu.

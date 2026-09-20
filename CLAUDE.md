@@ -106,6 +106,7 @@ python tools/verify_egress_pins.py         # OpenSnitch/Mailpit pins vs their si
 python tools/verify_migration_driver.py    # the generated migration driver, against stub binaries
 python tools/verify_generated_shell.py     # ShellCheck over every generated script
 python tools/verify_pg_hba_trust.py        # the pg_hba rewriter, against a throwaway PostgreSQL
+python tools/verify_promoted_modules.py    # the promote / consume cycle, with a stub module migrator
 ```
 
 End-to-end validation (cloning Odoo, building venvs, running `odoo-bin`, migrations) happens on a real

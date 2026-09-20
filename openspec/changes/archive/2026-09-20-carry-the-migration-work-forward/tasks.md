@@ -48,8 +48,8 @@
 
 ## 6. Prove it end to end
 
-- [ ] 6.1 A `tools/verify_*.py` that runs promote → consume over a throwaway environment with stub module
+- [x] 6.1 A `tools/verify_*.py` that runs promote → consume over a throwaway environment with stub module
       code, and asserts the second run derives nothing.
-- [ ] 6.2 `docs/migration.md`: the rehearsal-to-final-run cycle, the durable location, the branch-per-version
+- [x] 6.2 `docs/migration.md`: the rehearsal-to-final-run cycle, the durable location, the branch-per-version
       shape, and the boundary between the operator's repository and the throwaway ones.
-- [ ] 6.3 `CHANGELOG.md`, `docs/roadmap.md`, and `openspec validate --specs`.
+- [x] 6.3 `CHANGELOG.md`, `docs/roadmap.md`, and `openspec validate --specs`.

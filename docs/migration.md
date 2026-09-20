@@ -137,6 +137,114 @@ of OpenUpgrade, with migration scripts for every bump through 18.0→19.0):
 The tool itself installs into a shared uv venv (`~/odoo-migrations/.tools/module-migrator`) through a
 previewed plan the first time you stage.
 
+## Keeping the work: rehearse many times, run once
+
+A real migration is rehearsed several times and run once against the client's latest dump. The rehearsals are
+where the work happens — the migrator does what it can mechanically and you fix the rest, version by version
+— and the final run should **apply** that, not derive it again.
+
+The corrections live in the environment's `addons/odoo<major>/custom`, which **cleaning deletes** and
+re-staging replaces. So when a version is reviewed, promote it.
+
+**Menu → Migration → Promote reviewed modules** copies a module's code, for the steps you pick, to a
+directory you name — one subdirectory per version:
+
+```
+~/odoo-acme/            # yours; the tool refuses a location inside ~/odoo-migrations
+├── 13.0/client_sales/  # reviewed, for that version
+├── 14.0/client_sales/
+└── …
+```
+
+It **copies**, so the environment stays runnable and a promotion is not a point of no return. The throwaway
+git repository that staging creates inside each stage directory is *not* copied — see below.
+
+Then staging **consumes** it. Ask for the same directory when you stage, and a step whose code is already
+promoted is taken as given, with **no migrator run for it**:
+
+```
+[3/6] Take client_sales stage 14.0 from the promoted copy … [OK]
+```
+
+The report says, per step, whether it was *derived* or *taken* — a step that was not derived is a step whose
+warnings you will not see this run, and that is worth knowing. A chain with nothing promoted behaves exactly
+as it did before.
+
+### Divergence
+
+Because promotion copies, the two can drift: you keep working in the environment, or you edit the promoted
+copy directly. The staging report names it, comparing **content** (a `cp -a` and a `git checkout` both
+preserve timestamps that say nothing about what the files hold):
+
+```
+| Step | Environment vs promoted |
+| --- | --- |
+| 13.0 | diverged |
+| 14.0 | same |
+```
+
+Neither copy is authoritative. The report says they differ; you decide which is right.
+
+### Git, and two repositories that are not the same thing
+
+The promoted directory is yours. A git repository over it, **one branch per version**, is what we recommend:
+`git diff 13.0..14.0` then answers "what did that hop change", and the target version's branch is what you
+hand to the client — which is the only version that gets maintained afterwards.
+
+Do not confuse it with the `.git` you will find inside each *stage* directory. `odoo-module-migrate` refuses
+to run outside a repository, so staging creates a throwaway one there and commits the pre-migration state
+into it with an identity, hook path and signing of its own — deliberately insulated from your global git
+config, so that a mandatory signature or a global hook cannot fail the step. That history is scaffolding.
+Yours is the promoted one, committed with your identity.
+
+### Decisions about modules nobody will port
+
+When a module resolves nowhere and OpenUpgrade declares no successor, the preflight names it and stops there.
+What follows is a decision only you can make — dropped, replaced by another module, ported by us — and for
+an **official or OCA** module that decision is the same for every client migrating between the same two
+versions.
+
+Record it once, in a file you own, and pass it to **Preflight check**:
+
+```json
+{
+  "decisions": [
+    {
+      "module": "sale_x",
+      "source": "12.0",
+      "target": "18.0",
+      "decision": "dropped",
+      "reason": "no successor; the client stopped using it in 2024"
+    }
+  ]
+}
+```
+
+Coverage then shows it as *Decided* instead of asking again, and reports what is still **undecided** as its
+own class, separate from code that is simply not on disk.
+
+A decision is **never believed over the sources**. The fates of Odoo and OCA modules are derived from that
+step's checkout and `apriori.py` every time the question is asked — never frozen into this tool or into your
+file — so when the sources say otherwise the decision is reported as stale and *not* applied:
+
+```
+WARN  Decision no longer holds (18.0)  sale_x was decided dropped — the module now resolves in this step's sources
+```
+
+That matters most for OCA, which ports modules continuously: a module recorded as dead a year ago may have a
+branch today, and a frozen answer would keep a client on a workaround they no longer need.
+
+### OCA repositories
+
+Name them when you generate the environment and they are cloned per version into the shared cache and linked
+into each step's `addons/odoo<major>/oca`, exactly as a workspace does. Without them that directory is filled
+by hand, and whether a module is ported to a step's version — a fact the branch states — depends on whoever
+last copied something in.
+
+A repository OCA has **not** ported to one of your versions is reported for that step and does not fail the
+generation: the branch is asked for before it is cloned, and its absence is a fact you need, not a reason to
+refuse to build the environment.
+
 ## Preflight: verify before you burn hours
 
 **Menu → Migration → Preflight check** runs a read-only verification, and the same checks run
