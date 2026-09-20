@@ -1295,7 +1295,12 @@ def render_seed_demo_sh(env: MigrationEnv, modules: list[str]) -> str:
         '# silently; the caller confirms and removes it.',
         '[ -e "$DUMP" ] && die "$DUMP exists — remove it to seed again"',
         "",
-        'if psql -X -w -lqt | cut -d\\| -f1 | grep -qw "$DB"; then',
+        # The same connection every other command here uses. Without -h/-U this
+        # connects as the OS user over the default socket, fails with "role does
+        # not exist", and the pipeline quietly yields nothing — so the check
+        # never found an existing database on a real host.
+        f'if psql -X -w -h {q(env.db_host)} -p {int(env.db_port)} -U {q(env.db_user)} '
+        '-lqt | cut -d\\| -f1 | grep -qw "$DB"; then',
         '  die "database $DB exists — drop it to seed again"',
         "fi",
         'echo "[init] creating $DB"',

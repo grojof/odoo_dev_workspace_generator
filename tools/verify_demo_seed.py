@@ -51,9 +51,15 @@ def _build(
     stubs = root / "bin"
     _stub(stubs / "createdb", 'echo "createdb $*" >> "$CALLS"')
     # `psql -lqt` is how the script asks whether the database is already there.
+    # The stub refuses a call with no -U, the way a real psql does when the OS
+    # user has no role of their own ("FATAL: role ... does not exist"). Without
+    # that, a check missing its connection arguments passed here and silently
+    # found nothing on a real host — the existence check never fired.
     _stub(
         stubs / "psql",
-        f'echo "{env.source_database}|x|y" ' if existing_db else 'echo "postgres|x|y"',
+        'case " $* " in *" -U "*) ;; '
+        '*) echo "psql: FATAL: role does not exist" >&2; exit 2 ;; esac\n'
+        + (f'echo "{env.source_database}|x|y"' if existing_db else 'echo "postgres|x|y"'),
     )
     # A failing pg_dump writes part of its output first, the way a real one
     # interrupted does. Failing without writing made the "leaves nothing behind"
