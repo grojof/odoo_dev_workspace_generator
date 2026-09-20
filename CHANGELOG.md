@@ -6,6 +6,27 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- **Reviewed module code can be promoted out of a migration environment** and taken as given by the next
+  run. A migration is rehearsed several times and run once, and the corrections a rehearsal produces lived
+  in `addons/odoo<major>/custom` inside the environment — which cleaning removes and re-staging replaces.
+  Promotion copies them to a location the operator names, one directory per version, refused if it sits
+  inside the migration environments. Staging then takes a promoted step as given and runs no migrator for
+  it, so a final run against a fresh dump applies proven work instead of deriving it a second time, and the
+  report says per step which of the two happened. Because promotion copies, the report also names
+  divergence — by content, not timestamps — and calls neither copy authoritative.
+- **What was decided about a module with no successor is recorded and reused.** For a given source →
+  target pair the fate of an official or OCA module is the same for every client, and it was being decided
+  again for each one. Coverage applies a decision from a file the operator owns, reports what is still
+  undecided as its own class, and — because a decision is never believed over the sources — reports one
+  the sources have overtaken as **stale** rather than applying it: an OCA module recorded as dead that has
+  since been ported would otherwise keep a client on a workaround they no longer need.
+- **A migration environment can name OCA repositories**, cloned per version into the shared cache and
+  linked into each step, as the workspace surface already does. `addons/odoo<major>/oca` was created empty
+  for the operator to fill by hand, so whether a module is ported to a step's version — a fact the branch
+  states — was answered by whoever last copied something in. A repository OCA has not ported to a version
+  is reported for that step and does not fail the generation.
+
 ### Fixed
 - **The 12 → 13 step found no OpenUpgrade analysis at all.** Up to 13.0 the analysis lives in each
   add-on's `migrations/<ver>/` directory and is called `openupgrade_analysis.txt`; from 14.0 it sits
