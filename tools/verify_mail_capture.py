@@ -24,6 +24,7 @@ cluster.
 
 from __future__ import annotations
 
+import shutil
 import socket
 import subprocess
 import sys
@@ -116,6 +117,10 @@ class Cluster:
             [str(self.bin / "pg_ctl"), "-D", str(self.data), "-m", "immediate", "-w", "stop"],
             check=False, capture_output=True, text=True,
         )
+        # The socket directory is outside the temp tree — a unix socket path over
+        # 107 bytes is refused and the session temp directory is longer — so
+        # nothing else removes it. Twenty-three were left in /tmp before this.
+        shutil.rmtree(self.sock, ignore_errors=True)
 
     def sql(self, query: str, db: str = "postgres") -> subprocess.CompletedProcess[str]:
         return subprocess.run(
