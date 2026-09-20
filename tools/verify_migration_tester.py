@@ -200,7 +200,7 @@ def main() -> int:
                 "state varchar);"
                 f"CREATE TABLE {tester.PROBE_TABLE} (id serial PRIMARY KEY, name varchar, "
                 "kind varchar, step varchar, subject_model varchar, subject_field varchar, "
-                "expected_gone boolean, source_line text);",
+                "successor varchar, expected_gone boolean, source_line text);",
                 "probe",
             )
             # The database keeps the model of a probe that predicted its removal,
@@ -226,12 +226,13 @@ def main() -> int:
                         f"('{probe.model}', '{probe.field}')", "probe")
                 cluster.sql(
                     f"INSERT INTO {tester.PROBE_TABLE} "
-                    "(name, kind, step, subject_model, subject_field, expected_gone, source_line) "
+                    "(name, kind, step, subject_model, subject_field, successor, "
+                    "expected_gone, source_line) "
                     f"VALUES ('{probe.name}', '{probe.kind}', '{probe.version}', "
-                    f"'{probe.model}', '{probe.field}', {probe.expected_gone}, "
-                    f"$line${probe.detail}$line$)", "probe")
+                    f"'{probe.model}', '{probe.field}', '{probe.successor}', "
+                    f"{probe.expected_gone}, $line${probe.detail}$line$)", "probe")
 
-            read_back = cluster.sql(tester.PROBE_ROWS_SQL, "probe")
+            read_back = cluster.sql(tester.probe_rows_sql(), "probe")
             check("the probe table reads back", read_back.returncode == 0, read_back.stderr.strip())
             stored = tester.probes_from_rows(
                 [line.split("\t") for line in read_back.stdout.splitlines() if line.strip()]

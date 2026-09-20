@@ -59,6 +59,7 @@ class Probe:
     model: str
     field: str       # "" for a model-level subject
     detail: str      # the analysis line, verbatim
+    successor: str = ""   # what the sources say it becomes, where they say so
 
     @property
     def subject(self) -> str:
@@ -118,6 +119,7 @@ def choose_probes(
                     model=record.model,
                     field=record.field,
                     detail=record.detail,
+                    successor=record.successor,
                 )
             )
     covered = {probe.kind for probe in probes}
@@ -209,11 +211,29 @@ def read_probe_states(
 #: that was actually installed and not for the one this version would choose.
 #: Tabs are replaced because the rows come back tab-separated; an analysis line
 #: holding one would split into a probe that does not exist.
-PROBE_ROWS_SQL = (
-    "SELECT name, kind, step, subject_model, coalesce(subject_field, ''), "
-    "replace(coalesce(source_line, ''), E'\\t', ' ') "
-    f"FROM {PROBE_TABLE} ORDER BY step, name"
-)
+def probe_rows_sql(successor: bool = True) -> str:
+    """The probes as the module itself recorded them, on the source version.
+
+    Read from the database rather than re-derived, so the check answers for the
+    tester that was actually installed and not for the one this version would
+    choose — which also means the *column set* is that tester's. A module
+    generated before ``successor`` existed has no such column, and naming it
+    would fail the whole query, so the caller asks first.
+
+    Tabs are replaced because the rows come back tab-separated; an analysis line
+    holding one would split into a probe that does not exist.
+    """
+    columns = [
+        "name", "kind", "step", "subject_model", "coalesce(subject_field, '')",
+        "replace(coalesce(source_line, ''), E'\\t', ' ')",
+    ]
+    if successor:
+        columns.append("coalesce(successor, '')")
+    return f"SELECT {', '.join(columns)} FROM {PROBE_TABLE} ORDER BY step, name"
+
+
+#: The column whose presence decides which form of the query to ask for.
+PROBE_SUCCESSOR_COLUMN = "successor"
 
 
 def probes_from_rows(rows: list[list[str]]) -> list[Probe]:
@@ -227,6 +247,8 @@ def probes_from_rows(rows: list[list[str]]) -> list[Probe]:
             Probe(
                 name=row[0], kind=row[1], version=row[2], model=row[3],
                 field=row[4], detail=row[5],
+                # A module generated before this column existed has six columns.
+                successor=row[6] if len(row) > 6 else "",
             )
         )
     return probes
@@ -253,7 +275,8 @@ def module_fate_changes(fates: list) -> list[ChangeRecord]:
         )
         changes.append(
             ChangeRecord(
-                module=fate.module, model=fate.module, field="", kind=kind, detail=detail
+                module=fate.module, model=fate.module, field="", kind=kind, detail=detail,
+                successor=fate.successor,
             )
         )
     return changes

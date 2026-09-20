@@ -207,6 +207,7 @@ class ChangeRecord:
     field: str       # "" for a model-level change
     kind: str
     detail: str
+    successor: str = ""   # what the sources say it becomes, where they say so
 
 
 def harvest_changes(text: str) -> list[ChangeRecord]:

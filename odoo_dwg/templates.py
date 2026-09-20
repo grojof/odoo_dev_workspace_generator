@@ -1126,6 +1126,11 @@ fi"""
     return header + "".join(steps) + footer
 
 
+#: Who the generated tester is by. Declared, because Odoo attributes a manifest
+#: without an author to "Odoo S.A." and that is not true of this one.
+TESTER_AUTHOR = "odoo_dwg"
+
+
 def render_tester_module(probes: list, uncovered: list[str], chain: str) -> dict[str, str]:
     """The rehearsal tester add-on, as ``relative path -> content``.
 
@@ -1164,6 +1169,7 @@ def _render_probe_model() -> str:
         "    step = fields.Char(required=True)\n"
         "    subject_model = fields.Char(required=True)\n"
         "    subject_field = fields.Char()\n"
+        "    successor = fields.Char()\n"
         "    expected_gone = fields.Boolean()\n"
         "    source_line = fields.Text()\n"
     )
@@ -1186,6 +1192,7 @@ def _render_probe_data(probes: list) -> str:
             f'      <field name="step">{escape(probe.version)}</field>',
             f'      <field name="subject_model">{escape(probe.model)}</field>',
             f'      <field name="subject_field">{escape(probe.field)}</field>',
+            f'      <field name="successor">{escape(probe.successor)}</field>',
             f'      <field name="expected_gone" '
             f'eval="{"True" if probe.expected_gone else "False"}"/>',
             # The analysis file's own words: a probe that paraphrased its source
@@ -1227,6 +1234,13 @@ def _render_tester_manifest(probes: list, uncovered: list[str], chain: str) -> s
         f'    "name": "odoo_dwg migration tester ({chain})",\n'
         '    "version": "1.0.0",\n'
         '    "category": "Technical",\n'
+        # Odoo defaults a manifest with no `author` to "Odoo S.A."
+        # (`load_information_from_description_file`). Left out, this module is
+        # attributed to Odoo in `ir_module_module`, which is false — and coverage
+        # reads that column to decide whether a missing module is Odoo's own
+        # dropped code (a warning) or somebody else's (blocking), so the omission
+        # also downgraded its own absence to a warning.
+        f'    "author": "{TESTER_AUTHOR}",\n'
         '    "license": "LGPL-3",\n'
         f'    "summary": {summary!r},\n'
         f'    "description": """{description}""",\n'

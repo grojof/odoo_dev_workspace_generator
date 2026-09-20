@@ -185,3 +185,15 @@ def test_the_tester_is_written_for_the_source_version_too(tmp_path):
     # `-u all` meets an installed module it cannot load.
     for major in ("odoo12", "odoo13", "odoo14"):
         assert f"{major}/custom/{tester.TESTER_MODULE}" in written
+
+
+def test_the_generated_manifest_says_who_it_is_by():
+    # Odoo attributes a manifest with no `author` to "Odoo S.A.", which is false
+    # here — and coverage reads that column to decide whether a missing module is
+    # Odoo's own dropped code (a warning) or somebody else's (blocking), so the
+    # omission downgraded the tester's own absence to a warning. Seen on a real
+    # 12 -> 14 run: "odwg_migration_tester ... Odoo dropped it".
+    probes, uncovered = tester.choose_probes({"16.0": analysis.harvest_changes(FIELDS)})
+    manifest = templates.render_tester_module(probes, uncovered, "12.0 - 19.0")["__manifest__.py"]
+    assert f'"author": "{templates.TESTER_AUTHOR}"' in manifest
+    assert templates.TESTER_AUTHOR.lower() not in ("odoo", "odoo s.a.", "odoo sa")

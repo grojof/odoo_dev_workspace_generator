@@ -804,7 +804,13 @@ def probe_verdicts(env: MigrationEnv, database: str) -> list | None:
     if installed != "t":
         print(level_text("WARN", tf("The tester is not installed in {}.", database)))
         return None
-    rows = psql_rows(tester.PROBE_ROWS_SQL, *where)
+    # The tester in the database may predate a column this version knows about.
+    has_successor = psql_scalar(
+        "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = "
+        f"'{tester.PROBE_TABLE}' AND column_name = '{tester.PROBE_SUCCESSOR_COLUMN}')",
+        *where,
+    )
+    rows = psql_rows(tester.probe_rows_sql(successor=has_successor == "t"), *where)
     probes = tester.probes_from_rows(rows or [])
     if not probes:
         print(level_text("WARN", tf("The tester in {} declares no probe.", database)))
