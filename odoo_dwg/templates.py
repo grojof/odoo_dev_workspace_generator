@@ -860,13 +860,25 @@ def _render_coverage_helper() -> str:
     return "\n".join(
         [
             "coverage_step() {",
-            '  local version="$1" apriori="$2" customdir="$3"; shift 3',
+            '  local version="$1" apriori="$2" customdir="$3" decisions="$4"; shift 4',
             # The module list travels in the environment, never on stdin: the
             # heredoc below *is* python's stdin, so anything piped in is lost and
             # the check would silently pass with nothing to check.
-            "  python3 - \"$version\" \"$apriori\" \"$customdir\" \"$@\" <<'PYCOV'",
-            "import ast, os, sys",
-            "version, apriori, customdir, *sources = sys.argv[1:]",
+            "  python3 - \"$version\" \"$apriori\" \"$customdir\" \"$decisions\" \"$@\" <<'PYCOV'",
+            "import ast, json, os, sys",
+            "version, apriori, customdir, decisions_file, *sources = sys.argv[1:]",
+            "# What the operator decided about modules no step can resolve. Read",
+            "# here and not only by the preflight menu action: without it a",
+            "# recorded decision was accepted there and refused by this, which",
+            "# left the record inert exactly where it mattered.",
+            "decided = {}",
+            "try:",
+            "    with open(decisions_file, encoding=\"utf-8\") as handle:",
+            "        for entry in json.load(handle):",
+            "            if isinstance(entry, dict) and entry.get(\"module\"):",
+            "                decided[entry[\"module\"]] = entry",
+            "except (OSError, ValueError, TypeError):",
+            "    pass",
             '# Exact spellings only: OCA authors contain "Odoo" and must not pass.',
             'ODOO_AUTHORS = {"odoo s.a.", "odoo sa", "openerp s.a.", "openerp sa", "odoo"}',
             "renames = {}",
@@ -899,7 +911,7 @@ def _render_coverage_helper() -> str:
             "    print('[coverage] %s: its sources are not on disk — regenerate the"
             " environment' % version, file=sys.stderr)",
             "    raise SystemExit(1)",
-            "blocking, dropped = [], []",
+            "blocking, dropped, settled = [], [], []",
             'modules_tsv = os.environ.get("ODWG_MODULES_TSV", "")',
             "if not modules_tsv.strip():",
             '    print("[coverage] %s: no module list to check" % version, file=sys.stderr)',
@@ -911,22 +923,40 @@ def _render_coverage_helper() -> str:
             "# stopped the run, asking for code that should not exist.",
             "carried = []",
             "for line in modules_tsv.splitlines():",
-            '    name, _, author = line.strip().partition("\\t")',
+            '    parts = line.strip().split("\\t")',
+            "    name = parts[0] if parts else \"\"",
+            '    author = parts[1] if len(parts) > 1 else ""',
+            "    # The name the operator's database had, kept beside the current one:",
+            "    # a decision is recorded against a module, and a rename does not make",
+            "    # it a different module.",
+            '    original = parts[2] if len(parts) > 2 else name',
             "    if not name:",
             "        continue",
             "    successor = renames.get(name)",
-            '    carried.append("%s\\t%s" % (successor or name, author))',
+            '    carried.append("%s\\t%s\\t%s" % (successor or name, author, original))',
             "    if resolves(name):",
             "        continue",
             "    if successor and resolves(successor):",
             "        continue",
-            "    if author.strip().lower() in ODOO_AUTHORS:",
+            "    # Under any name the module has in this chain: the one the",
+            "    # operator started with, the one this step knows it by, or the one",
+            "    # it is about to become. They copy whichever they were shown.",
+            "    answer = next((decided[a] for a in (name, original, successor)",
+            "                   if a and a in decided), None)",
+            "    if answer:",
+            "        # Applied only because the module resolves nowhere and has no",
+            "        # successor that does — the sources are never overruled.",
+            "        settled.append((name, answer.get(\"decision\", \"\"), answer.get(\"reason\", \"\")))",
+            "    elif author.strip().lower() in ODOO_AUTHORS:",
             "        dropped.append(name)",
             "    else:",
             "        blocking.append(name)",
             "for name in dropped:",
             '    print("[coverage] %s is not in %s and is not renamed — Odoo dropped it; '
             'OpenUpgrade removes it" % (name, version), file=sys.stderr)',
+            "for name, decision, reason in settled:",
+            '    print("[coverage] %s: %s for %s — as you recorded%s" % (name, decision, version,',
+            '          (" (" + reason + ")") if reason else ""), file=sys.stderr)',
             "for name in blocking:",
             '    print("[coverage] %s missing for %s — place it in %s" % (name, version, customdir),',
             "          file=sys.stderr)",
@@ -965,10 +995,11 @@ def _render_preflight_db(env: MigrationEnv) -> str:
         sources = " ".join(shlex.quote(str(p)) for p in env.coverage_dirs(version))
         apriori = shlex.quote(str(env.apriori_file(version)))
         custom = shlex.quote(str(env.addons_custom_dir(version)))
+        decisions = shlex.quote(str(env.decisions_file))
         lines += [
             f"  # coverage: step {version}",
             f'  next_tsv=$(ODWG_MODULES_TSV="$modules_tsv" coverage_step {version} {apriori} '
-            f'{custom} {sources}) || blocking=1',
+            f'{custom} {decisions} {sources}) || blocking=1',
             # Kept even when the step reported blocking modules: the later steps
             # still have to be checked, and against the names they will use.
             '  if [ -n "$next_tsv" ]; then modules_tsv="$next_tsv"; fi',

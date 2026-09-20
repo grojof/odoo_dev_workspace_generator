@@ -291,7 +291,16 @@ def gather_coverage(
                 # Declared is enough to carry it: the rename happens whether or
                 # not the successor is on disk for this step.
                 carried[module] = successor
-            answer = recorded.get(module)
+            # Under any name the module has in this chain — the one the operator
+            # started with, the one this step knows it by, or the one it is about
+            # to become. A decision is recorded against a module, and a rename
+            # does not make it a different module; the operator copies whichever
+            # name they were shown.
+            answer = next(
+                (recorded[alias] for alias in (module, name, successor)
+                 if alias and alias in recorded),
+                None,
+            )
             if answer is not None:
                 # A decision is never believed over the sources. It was made about
                 # a module that resolved nowhere and had no successor; if either

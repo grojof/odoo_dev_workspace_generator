@@ -980,6 +980,19 @@ class MigrationEnv:
         return self.logs_dir / "steps.tsv"
 
     @property
+    def decisions_file(self) -> Path:
+        """Where this environment records what was decided about modules no step
+        can resolve.
+
+        A known path, because the *driver* has to read it too. Without one the
+        record was only ever read by the preflight menu action, so an operator
+        could decide a module was dropped, see the preflight accept it, and still
+        be refused by the driver with no way past — which made the whole record
+        inert exactly where it mattered.
+        """
+        return self.root / "decisions.json"
+
+    @property
     def source_dump_file(self) -> Path:
         """Where a seeded source database is dumped, in the format the driver
         takes (``pg_dump -Fc``). Named for its version, so a 12.0 seed and a 13.0

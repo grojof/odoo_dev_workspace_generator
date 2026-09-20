@@ -374,3 +374,27 @@ def test_a_module_that_really_is_missing_is_still_blocking(tmp_path):
     coverage = preflight.gather_coverage(env, ["client_only_module"])
     # Carrying successors forward must not make everything resolve.
     assert coverage.blocking["13.0"] == ["client_only_module"]
+
+
+def test_a_decision_follows_the_module_through_a_rename(tmp_path):
+    """The operator decides about a module; the chain renames it two steps later.
+
+    It is the same module, so the decision still answers for it — under whichever
+    name they recorded, the one they started with or the one a step reported.
+    """
+    from odoo_dwg.models import ModuleDecision
+
+    env = MigrationEnv(source="12.0", target="14.0")
+    for version, mapping in (("13.0", '{"client_mod": "client_mod_oca"}'), ("14.0", "{}")):
+        path = preflight.apriori_path(env, version)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"renamed_modules = {mapping}\nmerged_modules = {{}}\n", encoding="utf-8")
+        env.addons_oca_dir(version).mkdir(parents=True, exist_ok=True)
+
+    for recorded_as in ("client_mod", "client_mod_oca"):
+        decision = ModuleDecision(module=recorded_as, source="12.0", target="14.0",
+                                  decision="dropped", reason="OCA never ported it")
+        coverage = preflight.gather_coverage(env, ["client_mod"], decisions=[decision])
+        assert coverage.blocking == {}, f"blocked when recorded as {recorded_as}"
+        # Named, not applied silently.
+        assert any("dropped" in str(row) for rows in coverage.decided.values() for row in rows)

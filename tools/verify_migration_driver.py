@@ -17,6 +17,7 @@ directory. Exits non-zero on the first case that does not behave as documented.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import shutil
 import subprocess
@@ -290,6 +291,50 @@ def main() -> int:
             "a module whose successor is nowhere still blocks",
             orphan.returncode != 0 and "acme_orphan missing" in orphan.stderr,
             orphan.stdout + orphan.stderr,
+        )
+
+    # A module nobody accounts for blocks — unless the operator recorded what
+    # they decided about it. Without this the record was read only by the
+    # preflight menu action, so a decision was accepted there and refused here,
+    # which left it inert exactly where it mattered. Found on a real 12 -> 19 run
+    # stopped by an OCA module never ported to 16.0.
+    with tempfile.TemporaryDirectory(prefix="odwg-driver-") as tmp:
+        root = Path(tmp)
+        script, env = _build(root, absorbed=("acme_orphan", "acme_absent"))
+        for version in env.chain():
+            shutil.rmtree(Path(env.addons_custom_dir(version)) / "acme_absent")
+        Path(env.decisions_file).write_text(
+            json.dumps([{
+                "module": "acme_orphan", "source": SOURCE, "target": TARGET,
+                "decision": "dropped", "reason": "OCA never ported it",
+            }]),
+            encoding="utf-8",
+        )
+        decided = _run(root, script)
+        check(
+            "a recorded decision lets the run past a module nobody supplies",
+            decided.returncode == 0 and "[done]" in decided.stdout,
+            decided.stdout + decided.stderr,
+        )
+        check(
+            "and the decision is named, not applied silently",
+            "acme_orphan: dropped" in decided.stderr
+            and "OCA never ported it" in decided.stderr,
+            decided.stderr,
+        )
+
+    # A decisions file that cannot be read must not let everything through.
+    with tempfile.TemporaryDirectory(prefix="odwg-driver-") as tmp:
+        root = Path(tmp)
+        script, env = _build(root, absorbed=("acme_orphan", "acme_absent"))
+        for version in env.chain():
+            shutil.rmtree(Path(env.addons_custom_dir(version)) / "acme_absent")
+        Path(env.decisions_file).write_text("{not json", encoding="utf-8")
+        broken = _run(root, script)
+        check(
+            "an unreadable decisions file decides nothing",
+            broken.returncode != 0 and "acme_orphan missing" in broken.stderr,
+            broken.stdout + broken.stderr,
         )
 
     # A failing step must name itself and its log, not die silently on set -e.
