@@ -389,26 +389,31 @@ def pg_hba_loopback_state(role: str, port: int = 5432) -> tuple[bool, bool] | No
         # A trust rule for `/regex` or `+group` roles: whether it covers every
         # role cannot be told from here, so this is unknown, not "fine".
         return None
-    # A rule for a database and a role *named* `all` is not the keyword, though
-    # the view reports it identically. Only its own text tells them apart, and
-    # there may be more than one.
+    # A rule for a role *named* `all` is not the keyword, though the view reports
+    # it identically. Only its own text tells them apart, and there may be more
+    # than one.
     remaining = list(rules)
     blanket = pghba.blanket_trust(remaining)
-    while blanket is not None and _rule_quotes_a_field(blanket):
+    while blanket is not None and not _rule_trusts_every_role(blanket):
         remaining = [rule for rule in remaining if rule is not blanket]
         blanket = pghba.blanket_trust(remaining)
     return (blanket is not None, pghba.role_is_reached(rules, role))
 
 
-def _rule_quotes_a_field(rule: pghba.Rule) -> bool:
-    """Read back the rule's own line, to tell `all` from a quoted `"all"`."""
+def _rule_trusts_every_role(rule: pghba.Rule) -> bool:
+    """Read back the rule's own line, to tell `all` from a quoted `"all"`.
+
+    A line that cannot be read leaves the view's answer standing: the rule counts
+    as a blanket trust, because reporting a host as narrowed on a file this cannot
+    open is the one mistake with a cost.
+    """
     text = read_text(rule.file) if rule.file else None
     if not text:
-        return False
+        return True
     lines = text.splitlines()
     if not 1 <= rule.line <= len(lines):
-        return False
-    return pghba.quotes_a_field(lines[rule.line - 1])
+        return True
+    return pghba.role_field_is_keyword_all(lines[rule.line - 1])
 
 
 # --- migration preflight probes --------------------------------------------

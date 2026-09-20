@@ -85,6 +85,23 @@ All notable changes to this project are documented here. The format is based on
   first run: dead variables in `setup_venv.sh`, and a failure path written as `a && b || c`).
 
 ### Fixed
+- **A `trust` for every role on one database was invisible to `provision`** (change
+  `agree-on-what-a-trust-rule-covers`). The classification asked for the rule's *database* field to be `all`
+  as well as its role field, so `host mydb all 127.0.0.1/32 trust` passed the check, survived apply and was
+  accepted by the verification step. Against a real server that rule lets any local user connect to `mydb`
+  as `postgres` — superuser, `pg_execute_server_program` included. A blanket trust is now any TCP `trust`
+  rule whose **role field** is the keyword `all`, on any database.
+- **A quote anywhere on a rule's line excused it.** The exception exists because `"all"` is a role *named*
+  `all`, which PostgreSQL does not match a connection against — but it was implemented as any double quote
+  on the line, and the server accepts `host all all "127.0.0.1/32" trust` like any other blanket trust. Only
+  the role's own field is read now.
+- **`provision apply` could fail on a host it could never finish provisioning.** The rewriter decided
+  whether the role's line was *reached* by matching one line shape (`host all all`), while the check and the
+  verification step stop at the first rule matching the connection, whatever its shape. With
+  `host mydb all 127.0.0.1/32 md5` — or the role's own `scram-sha-256` rule — above its trust line, the
+  rewriter reported success having inserted nothing and the verification step then failed; re-running gave
+  the same two answers. All three now read the same fields, and `tools/verify_pg_hba_trust.py` runs the real
+  rewriter and the real verification SQL over both cases against a throwaway PostgreSQL.
 - **"Stage custom modules" was unusable on a host with `commit.gpgsign = true`.** The throwaway commit the
   staging step makes inherited the operator's git config, and git exits 128 when it cannot sign as the
   identity the step interpolates — after the module had already been copied, so the next attempt demanded

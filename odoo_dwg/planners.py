@@ -352,13 +352,16 @@ def plan_postgresql(role: str) -> list[Command]:
 # Enumerating addresses was wrong twice over (`localhost`, then `all`/`0.0.0.0/0`):
 # an address can contain loopback without naming it, so the method is what this
 # tool reasons about. The address is one token, or an address and a netmask.
+# A TCP rule whose *role* field is the keyword `all` and whose method is `trust`,
+# on any database: the database bounds which database is exposed, never whether
+# one is. The role field is matched unquoted on purpose — `"all"` is a role named
+# `all`, which PostgreSQL does not match a connection against.
 BLANKET_TRUST_RULE = (
-    "^([[:space:]]*host[a-z]*([[:space:]]+all){2}[[:space:]]+[^[:space:]]+"
+    "^([[:space:]]*host[a-z]*[[:space:]]+[^[:space:]]+[[:space:]]+all[[:space:]]+[^[:space:]]+"
     "([[:space:]]+[0-9a-fA-F.:]+)?[[:space:]]+)trust([[:space:]]|$)"
 )
-# Any rule for every role, and any host rule at all: the two anchors the role's
-# own line is inserted before, so it is never shadowed by one of them.
-ANY_ALL_ROLES_RULE = "^[[:space:]]*host[a-z]*([[:space:]]+all){2}[[:space:]]"
+# Any host rule at all: the anchor the role's own line is inserted before, so it
+# is never shadowed by one of them.
 ANY_HOST_RULE = "^[[:space:]]*host[a-z]*[[:space:]]"
 
 
@@ -376,14 +379,23 @@ def plan_pg_hba_trust(role: str) -> list[Command]:
     reached = (
         "awk '"
         "/^[[:space:]]*#/ { next } "
+        "$1 !~ /^host/ { next } "
+        "NF < 5 { next } "
+        "{ "
+        # `type database user address [netmask] method`: the netmask is there only
+        # when the address carries no prefix length. Same reading as pghba.Rule.
+        'm = 5; if ($4 !~ /\\// && NF > 5 && $5 ~ /^[0-9a-fA-F.:]+$/) m = 6; '
+        # Quoting a plain name changes nothing, but `"all"` is a role *named* all
+        # and not the keyword, so that comparison stays exact.
+        'u = $3; gsub(/^"|"$/, "", u); '
+        f'if (u != "{role}" && $3 != "all") next; '
+        # The first rule matching this connection is the only one PostgreSQL
+        # reads, so the answer is given here — whatever that rule turns out to be.
         # Plain `host` only, like the probe and the verification step: with TLS on
         # a `hostnossl` rule is never consulted, and counting one as the role's
         # trust line would insert nothing and then fail the step it cannot fix.
-        f"$0 ~ /^[[:space:]]*host[[:space:]]+all[[:space:]]+{role}[[:space:]]+"
-        "[^[:space:]]+([[:space:]]+[0-9a-fA-F.:]+)?[[:space:]]+trust([[:space:]]|$)/ "
-        "{ found=1; exit } "
-        # Every host type can shadow, which is why this one stays wide.
-        "$0 ~ /^[[:space:]]*host[a-z]*[[:space:]]+all[[:space:]]+all[[:space:]]/ { exit } "
+        f'found = ($1 == "host" && u == "{role}" && $2 == "all" && $(m) == "trust"); '
+        "exit } "
         "END { exit !found }' \"$PGHBA\""
     )
     # Only the development role, not every role: a blanket loopback trust would let
@@ -405,9 +417,9 @@ def plan_pg_hba_trust(role: str) -> list[Command]:
         r'grep -qiE "^[[:space:]]*include(_if_exists|_dir)?[[:space:]]" "$PGHBA" && '
         r'{ echo "$PGHBA pulls in rules with an include directive; this step cannot '
         r'see them — narrow that file by hand, or inline its rules" >&2; exit 1; }',
-        # \1 is everything up to the method, \4 the whitespace or end of line
+        # \1 is everything up to the method, \3 the whitespace or end of line
         # after it — keep both in step with BLANKET_TRUST_RULE's groups.
-        f'sed -ri "s#{BLANKET_TRUST_RULE}#\\1scram-sha-256\\4#" "$PGHBA"',
+        f'sed -ri "s#{BLANKET_TRUST_RULE}#\\1scram-sha-256\\3#" "$PGHBA"',
         f"if ! {reached}; then",
         # The insertion must be at least as permissive as the downgrade above, or
         # the role's line lands *after* a rule that matches the same connection
@@ -435,7 +447,11 @@ def plan_pg_hba_trust(role: str) -> list[Command]:
     probe = "\n".join([
         # The retry is on the connection itself — the reload is asynchronous, and
         # retrying anything else proves nothing about it.
-        f"for attempt in 1 2 3 4 5; do {connect} && ok=1 && break; sleep 1; done",
+        "tries=0",
+        'while [ "$tries" -lt 5 ]; do',
+        f"  {connect} && ok=1 && break",
+        "  tries=$((tries + 1)); sleep 1",
+        "done",
         f'[ "${{ok:-}}" = 1 ] || {{ echo "{role} cannot connect over loopback after the reload — '
         f"check that PostgreSQL is running, and the rules above the ones this step added in "
         f'$(sudo -u postgres psql -X -tAc \"SHOW hba_file;\")" >&2; exit 1; }}',
@@ -477,6 +493,14 @@ def _pg_hba_audit(role: str) -> str:
         "  LOC=\"(SELECT setting FROM pg_settings WHERE name='hba_file') || ':' || line_number\"",
         "  ORD=line_number",
         "fi",
+        # Does the rule at `file:line` name every role, or a role *named* `all`?
+        # A file this cannot open leaves the view's answer standing: treating an
+        # unreadable line as narrow is the one mistake with a cost.
+        "names_every_role() {",
+        '  hba_file=${1%:*}; hba_line=${1##*:}',
+        '  [ -f "$hba_file" ] || return 0',
+        '  sed -n "${hba_line}p" "$hba_file" | sed "s/#.*//" | grep -qE "$ROLEALL"',
+        "}",
         # A file the server cannot parse is a file it did not load: `pg_ctl reload`
         # returns 0 whatever happens, so without this the steps below would read a
         # narrowed file while the rules in force are still the old ones.
@@ -491,35 +515,50 @@ def _pg_hba_audit(role: str) -> str:
         f'ORDER BY $ORD LIMIT 1")',
         '[ -z "$WIDE" ] || { echo "the trust rule at $WIDE names its roles by pattern or group, '
         'which this step cannot rule out — narrow it by hand" >&2; exit 1; }',
-        f'LEFT=$({ask} "SELECT $LOC FROM pg_hba_file_rules WHERE {tcp_trust} '
-        f'AND \'all\' = ANY(database) AND \'all\' = ANY(user_name) ORDER BY $ORD")',
-        # `"all"` in the file is a role *named* all, which PostgreSQL does not treat
-        # as the keyword though the view reports it identically. Only the line tells.
+        # `"all"` in the file is a role *named* all, which PostgreSQL does not
+        # match a connection against, though the view reports it exactly like the
+        # keyword. Only the line tells them apart — and only in that field: the
+        # server reads `host all all "127.0.0.1/32" trust` as the blanket trust it
+        # is. Both walks below ask the same question of the same field.
+        "ROLEALL='^[[:space:]]*host[a-z]*[[:space:]]+[^[:space:]]+[[:space:]]+all[[:space:]]'",
+        # -f: a glob character in a path must not be expanded while splitting, and
+        # a location is `file:line`, so splitting is on newlines only.
+        "set -f",
         'IFS="',
         '"',
-        # -f: a glob character in a path must not be expanded while splitting.
-        "set -f",
+        f'LEFT=$({ask} "SELECT $LOC FROM pg_hba_file_rules WHERE {tcp_trust} '
+        f'AND \'all\' = ANY(user_name) ORDER BY $ORD")',
         "for loc in $LEFT; do",
         '  [ -n "$loc" ] || continue',
-        '  file=${loc%:*}; line=${loc##*:}',
-        '  if [ -f "$file" ] && sed -n "${line}p" "$file" | sed "s/#.*//" | grep -q \'"\'; then',
-        "    continue",
-        "  fi",
+        '  names_every_role "$loc" || continue',
         '  echo "a rule still trusts every role over TCP, at $loc — this step did not narrow it '
         '(it may live in a file it cannot rewrite)" >&2',
         "  exit 1",
         "done",
+        # The rule PostgreSQL matches for the role: the first one covering it, by
+        # field — the same reading the rewriter's awk and `provision check` use, so
+        # none of the three can pass a file the others fail. Only a plain `host`
+        # rule reaches the role (with TLS on, `hostnossl` is never consulted), which
+        # is why the verdict is narrower than the rules walked.
+        f'ROWS=$({ask} "SELECT $LOC || \'|\' || '
+        f"CASE WHEN type = 'host' AND auth_method = 'trust' AND '{role}' = ANY(user_name) "
+        "AND 'all' = ANY(database) THEN 'ok' ELSE 'no' END || '|' || "
+        f"CASE WHEN '{role}' = ANY(user_name) THEN 'named' ELSE 'keyword' END "
+        f"FROM pg_hba_file_rules WHERE type LIKE 'host%' "
+        f"AND ('{role}' = ANY(user_name) OR 'all' = ANY(user_name)) "
+        f'ORDER BY $ORD")',
+        'FIRST=; WHERE=none',
+        "for row in $ROWS; do",
+        '  [ -n "$row" ] || continue',
+        '  loc=${row%%|*}; rest=${row#*|}; verdict=${rest%%|*}; how=${rest##*|}',
+        # Matched only through `all`: it covers the role only if that field really
+        # is the keyword.
+        '  if [ "$how" = keyword ]; then names_every_role "$loc" || continue; fi',
+        '  FIRST=$verdict; WHERE=$loc; break',
+        "done",
         "set +f",
         "unset IFS",
-        # Only a plain `host` rule reaches the role: with TLS on, which the
-        # supported host has, `hostnossl` is never consulted. Every host type can
-        # still shadow, which is why the WHERE is wider than the CASE.
-        f'FIRST=$({ask} "SELECT CASE WHEN type = \'host\' AND auth_method = \'trust\' '
-        f"AND '{role}' = ANY(user_name) AND 'all' = ANY(database) THEN 'ok' "
-        f'ELSE \'shadowed by \' || $LOC END FROM pg_hba_file_rules WHERE type LIKE \'host%\' '
-        f"AND ('{role}' = ANY(user_name) OR 'all' = ANY(user_name)) "
-        f'ORDER BY $ORD LIMIT 1")',
-        f'[ "$FIRST" = ok ] || {{ echo "the first rule PostgreSQL matches for {role} is $FIRST, '
+        f'[ "$FIRST" = ok ] || {{ echo "the first rule PostgreSQL matches for {role} is at $WHERE, '
         f'not the trust rule this step added" >&2; exit 1; }}',
     ])
 

@@ -150,6 +150,46 @@ local   all             postgres                                peer
 host    all             all             127.0.0.1/32            scram-sha-256 # was trust
 """
 
+# One database, every role: the server refuses a connection to `postgres` and
+# accepts one to `mydb` — as `postgres`, superuser, `pg_execute_server_program`
+# included. The database bounds which database is exposed, never whether one is.
+PER_DATABASE = """\
+local   all             postgres                                peer
+host    mydb            all             127.0.0.1/32            trust
+"""
+
+# A quoted address is still that address: the server accepts this connection like
+# any other blanket trust, so a quote on a field that is not the role's excuses
+# nothing.
+QUOTED_ADDRESS = """\
+local   all             postgres                                peer
+host    all             all             "127.0.0.1/32"          trust
+"""
+
+# A role *named* `all`, which the server does not match a connection against
+# though `pg_hba_file_rules` reports it exactly like the keyword.
+QUOTED_ROLE = """\
+local   all             postgres                                peer
+host    all             "all"           127.0.0.1/32            trust
+host    all             all             127.0.0.1/32            scram-sha-256
+"""
+
+# A rule matching the role's connection above its trust line, in a shape that is
+# not `host all all`: the rewriter used to read its own line as reached, insert
+# nothing, and then fail its own verification — a failure re-running cannot fix.
+SHADOWED_BY_ANOTHER_SHAPE = """\
+local   all             postgres                                peer
+host    mydb            all             127.0.0.1/32            md5
+host    all             odoo            127.0.0.1/32            trust
+"""
+
+# The same, with the role's own password rule above its trust rule.
+ROLE_SCRAM_FIRST = """\
+local   all             postgres                                peer
+host    all             odoo            127.0.0.1/32            scram-sha-256
+host    all             odoo            127.0.0.1/32            trust
+"""
+
 CASES = [
     ("the Ubuntu default", UBUNTU_DEFAULT),
     ("a blanket loopback trust (CIDR)", BLANKET_CIDR),
@@ -168,6 +208,10 @@ CASES = [
     ("a hostgssenc blanket trust", HOSTGSSENC),
     ("a file with no trailing newline", NO_FINAL_NEWLINE),
     ("the role's own trust rule on hostssl", ROLE_ON_HOSTSSL),
+    ("a trust for every role on one database", PER_DATABASE),
+    ("a blanket trust whose address is quoted", QUOTED_ADDRESS),
+    ("a shadowing rule that is not host all all", SHADOWED_BY_ANOTHER_SHAPE),
+    ("the role's own password rule above its trust rule", ROLE_SCRAM_FIRST),
 ]
 
 # --- an oracle that is not the implementation ------------------------------
@@ -206,20 +250,24 @@ def _records(text: str) -> list[tuple[str, str, str, str]]:
 
 
 def _has_blanket_trust(text: str) -> bool:
-    """Any TCP rule trusting every role, whatever address it names."""
+    """Any TCP rule whose *role* field is the keyword `all` and whose method is
+    `trust` — on any database, whatever address it names. A quoted `"all"` is a
+    role of that name, which the server does not match a connection against."""
     return any(
-        kind.startswith("host") and db == "all" and user == "all" and method == "trust"
+        kind.startswith("host") and user == "all" and method == "trust"
         for kind, db, user, method in _records(text)
     )
 
 
 def _role_is_reached(text: str) -> bool:
-    """First match wins: the role's own trust rule, before any rule for every role."""
+    """First match wins: the rule a connection meets is the first one covering the
+    role, and it counts only if it is the role's own plain `host … trust` rule."""
     for kind, db, user, method in _records(text):
-        if kind.startswith("host") and user == ROLE and method == "trust":
-            return True
-        if kind.startswith("host") and db == "all" and user == "all":
-            return False
+        if not kind.startswith("host"):
+            continue
+        if user.strip('"') != ROLE and user != "all":
+            continue
+        return kind == "host" and user.strip('"') == ROLE and db == "all" and method == "trust"
     return False
 
 
@@ -519,6 +567,18 @@ AUDIT_CASES = [
     ("a database and role literally named \"all\"",
      'local all all trust\nhost all odoo 127.0.0.1/32 trust\n'
      'host "all" "all" 127.0.0.1/32 trust\n', False),
+    ("a role literally named \"all\", on every database",
+     'local all all trust\nhost all odoo 127.0.0.1/32 trust\n'
+     'host all "all" 127.0.0.1/32 trust\n', False),
+    ("a blanket trust whose address is quoted",
+     'local all all trust\nhost all odoo 127.0.0.1/32 trust\n'
+     'host all all "127.0.0.1/32" trust\n', True),
+    ("a trust for every role on one database",
+     "local all all trust\nhost all odoo 127.0.0.1/32 trust\n"
+     "host mydb all 127.0.0.1/32 trust\n", True),
+    ("a rule matching the role above its own line",
+     "local all all trust\nhost mydb all 127.0.0.1/32 md5\n"
+     "host all odoo 127.0.0.1/32 trust\n", True),
     ("a trust rule naming its roles by pattern",
      'local all all trust\nhost all odoo 127.0.0.1/32 trust\n'
      'host all "/.*" 127.0.0.1/32 trust\n', True),

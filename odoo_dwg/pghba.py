@@ -13,6 +13,7 @@ Pure: the query itself lives in ``system``. See
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 # The columns SELECTed, in order, tab-separated (``psql -tAF'\t'``).
@@ -87,18 +88,23 @@ def unreadable(rules: list[Rule]) -> Rule | None:
 
 
 def blanket_trust(rules: list[Rule]) -> Rule | None:
-    """The first TCP rule trusting *every* role, whatever address it names.
+    """The first TCP rule trusting *every* role, on any database and whatever
+    address it names.
 
     The address is deliberately not interpreted: `all`, `0.0.0.0/0` and
     `127.0.0.0/8` all contain loopback without naming it, and a rule trusting
     every role on any address is not something this tool leaves behind.
+
+    Neither is the database: ``host mydb all 127.0.0.1/32 trust`` lets any local
+    user connect to `mydb` as `postgres`, and a superuser in one database runs
+    programs on the host. The database bounds *which* database is exposed, never
+    *whether* one is.
     """
     return next(
         (
             rule
             for rule in rules
-            if rule.is_tcp and "all" in rule.databases and "all" in rule.users
-            and rule.method == "trust"
+            if rule.is_tcp and "all" in rule.users and rule.method == "trust"
         ),
         None,
     )
@@ -149,13 +155,24 @@ def role_is_reached(rules: list[Rule], role: str) -> bool:
     return False
 
 
-def quotes_a_field(line: str) -> bool:
-    """Whether a rule's own text quotes one of its fields.
+#: A rule whose role field — the third — is an unquoted ``all``. The database
+#: field before it may be quoted and may contain blanks; anything after the role
+#: field is irrelevant here.
+_ROLE_FIELD_IS_ALL = re.compile(
+    r'^\s*host[a-z]*\s+("[^"]*"|[^\s"]+)\s+all\s', re.IGNORECASE
+)
 
-    ``host "all" "all" 127.0.0.1/32 trust`` is a rule for a database and a role
-    *named* `all`, which PostgreSQL does not treat as the keyword — but the view
-    reports both as `all`, indistinguishable from it. The raw line is the only
-    place that distinction survives, so a quoted rule is never classified as
-    blanket.
+
+def role_field_is_keyword_all(line: str) -> bool:
+    """Whether a rule's own text names *every role*, rather than one named `all`.
+
+    ``host all "all" 127.0.0.1/32 trust`` is a rule for a role *named* `all`,
+    which PostgreSQL does not match a connection against — but the view reports
+    it exactly like the keyword. The raw line is the only place that distinction
+    survives.
+
+    Only the role field is read. The server accepts ``host all all
+    "127.0.0.1/32" trust`` like any other blanket trust, so a quote elsewhere on
+    the line excuses nothing.
     """
-    return '"' in line.split("#", 1)[0]
+    return _ROLE_FIELD_IS_ALL.match(line.split("#", 1)[0]) is not None

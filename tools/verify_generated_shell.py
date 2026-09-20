@@ -29,7 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from odoo_dwg import templates  # noqa: E402
+from odoo_dwg import planners, templates  # noqa: E402
 from odoo_dwg.models import MigrationEnv, WorkspaceConfig, resolve_interpreter  # noqa: E402
 
 # Both OpenUpgrade layouts (<= 13 fork, >= 14 upgrade-path) and both interpreter
@@ -57,6 +57,12 @@ def _render(into: Path) -> list[Path]:
             f"run_migration_{source.split('.')[0]}_{target.split('.')[0]}.sh",
             templates.render_run_migration_sh(env),
         )
+    # The `pg_hba` steps are not files, but they are the longest shell this project
+    # writes and they run under `sh` (``system.run`` uses ``shell=True``), so they
+    # are linted as that shell rather than as bash.
+    for index, command in enumerate(planners.plan_pg_hba_trust("odoo"), start=1):
+        if "\n" in command.command:
+            write(f"pg_hba_step_{index}.sh", f"#!/bin/sh\n{command.command}\n")
     return written
 
 
@@ -91,7 +97,7 @@ def main() -> int:
         output = result.stdout.replace(tmp + "/", "")
         if result.returncode != 0:
             print(output or result.stderr)
-            print("\nFix the template in odoo_dwg/templates.py, not the rendered file.")
+            print("\nFix the renderer in odoo_dwg/templates.py or odoo_dwg/planners.py, not the rendered file.")
             return 1
 
     print("Every generated script is clean.")

@@ -68,12 +68,15 @@ password:
   before planning.
   The `pg_hba.conf` step runs on an already-provisioned host too, so a host left with a blanket loopback
   `trust` by an earlier version is narrowed the next time you apply; when the rules are already in that
-  shape, nothing is planned. What counts as a blanket `trust` is decided by the **method, not the address**,
-  on **every connection type** (`host`, `hostssl`, `hostnossl`, `hostgssenc`, `hostnogssenc`): any rule for
-  every role whose method is `trust` — `127.0.0.1/32`, `localhost`, `samehost`,
-  `127.0.0.1 255.255.255.255`, and equally `all`, `0.0.0.0/0` or `127.0.0.0/8`, which contain loopback
-  without naming it. `hostssl` matters in particular: Ubuntu 24.04 ships `ssl = on` and clients prefer TLS,
-  so a `hostssl` rule is the one your loopback connection is matched against.
+  shape, nothing is planned. What counts as a blanket `trust` is decided by the **role field and the
+  method — never the address or the database** — on **every connection type** (`host`, `hostssl`,
+  `hostnossl`, `hostgssenc`, `hostnogssenc`): any rule for every role whose method is `trust`, whether its
+  address is `127.0.0.1/32`, `localhost`, `samehost`, `127.0.0.1 255.255.255.255`, or equally `all`,
+  `0.0.0.0/0` or `127.0.0.0/8`, which contain loopback without naming it. `hostssl` matters in particular:
+  Ubuntu 24.04 ships `ssl = on` and clients prefer TLS, so a `hostssl` rule is the one your loopback
+  connection is matched against. A rule naming **one database** counts too — `host mydb all 127.0.0.1/32
+  trust` lets any local user connect to `mydb` as `postgres`, and a superuser in one database runs programs
+  on the host; the database bounds which database is exposed, never whether one is.
 
   Only a plain `host` rule counts as the role's own trust line — with TLS on, a `hostnossl` one is never
   consulted — so a host that already trusts the role on `hostssl` still gets a `host` line of its own. That
@@ -87,8 +90,10 @@ password:
   1. PostgreSQL reports a rule it could not parse. It then refused to load the file and is **still running
      the previous rules**, while the file on disk reads as narrowed. `pg_ctl reload` reports success either
      way, so nothing else would notice.
-  2. A rule still trusts every role over TCP — unless that rule's own line quotes its fields, since `"all"`
-     in quotes is a role literally named `all` and not the keyword.
+  2. A rule still trusts every role over TCP — unless that rule's own line quotes its **role field**, since
+     `"all"` in quotes is a role literally named `all` and not the keyword. Only that field is read: the
+     server accepts `host all all "127.0.0.1/32" trust` like any other blanket trust, so a quote elsewhere
+     on the line excuses nothing.
   3. A `trust` rule names its roles by pattern (`/…`) or group (`+…`), which apply cannot rule out: narrow
      that rule by hand.
   4. The first rule PostgreSQL matches for your role is not the plain `host` trust rule it just added.

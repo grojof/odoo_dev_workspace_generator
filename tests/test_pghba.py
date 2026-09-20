@@ -82,9 +82,25 @@ def test_the_role_is_reached_only_when_its_rule_is_the_first_that_matches():
 
 def test_a_rule_for_a_role_named_all_is_told_apart_by_its_own_text():
     # The view reports `"all"` and `all` identically; the line does not.
-    assert pghba.quotes_a_field('host "all" "all" 127.0.0.1/32 trust')
-    assert not pghba.quotes_a_field("host all all 127.0.0.1/32 trust")
-    assert not pghba.quotes_a_field('host all all 127.0.0.1/32 trust # "quoted" comment')
+    assert not pghba.role_field_is_keyword_all('host "all" "all" 127.0.0.1/32 trust')
+    assert not pghba.role_field_is_keyword_all('host all "all" 127.0.0.1/32 trust')
+    assert pghba.role_field_is_keyword_all("host all all 127.0.0.1/32 trust")
+    assert pghba.role_field_is_keyword_all('host all all 127.0.0.1/32 trust # "quoted" comment')
+    # Only the role's field decides: the server reads a quoted address as that
+    # address, so the rule is the blanket trust it looks like.
+    assert pghba.role_field_is_keyword_all('host all all "127.0.0.1/32" trust')
+    assert pghba.role_field_is_keyword_all('host "one db" all 127.0.0.1/32 trust')
+    assert pghba.role_field_is_keyword_all("  hostssl\tmydb\tall\t127.0.0.1/32\ttrust")
+    assert not pghba.role_field_is_keyword_all("host all odoo 127.0.0.1/32 trust")
+    assert not pghba.role_field_is_keyword_all("local all all trust")
+
+
+def test_a_trust_for_every_role_on_one_database_is_still_a_blanket_trust():
+    """It lets any local user connect to that database as `postgres`, and a
+    superuser in one database runs programs on the host."""
+    assert pghba.blanket_trust(pghba.parse_rules(_row(databases="mydb"))) is not None
+    # The role field is what decides, not the database one.
+    assert pghba.blanket_trust(pghba.parse_rules(_row(databases="mydb", users="odoo"))) is None
 
 
 def test_roles_named_by_pattern_or_group_cannot_be_ruled_out():
