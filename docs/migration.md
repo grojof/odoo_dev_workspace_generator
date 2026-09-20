@@ -472,6 +472,12 @@ The others are printed too, one line each, so you can see the question was asked
 
 If the module never installed, every probe reports `absent` rather than a reassuring `intact`.
 
+**What `not observed` cannot catch.** It fires when the subject *and* its successor are both missing. Where
+the successor is a core module that would be installed anyway — `base_vat_sanitized` is absorbed into
+`base_vat`, which any accounting database has — its presence says nothing about whether the subject was
+ever there, and the probe still reads `gone as predicted`. Module probes are therefore only as meaningful
+as the module set you seeded: probe what you installed.
+
 The tester is a rehearsal instrument. Its manifest says so, it depends on `base` alone, and it declares no
 menu, no group, no `auto_install` and read-only access to its own table.
 
