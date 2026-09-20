@@ -234,3 +234,26 @@ def test_not_observed_is_neither_a_finding_nor_counted_as_a_pass():
 def test_the_state_query_asks_about_successors_too():
     sql = tester.probe_state_sql([_module_probe("old_mod", "new_mod")])
     assert "'new_mod'" in sql and "'old_mod'" in sql
+
+
+def test_a_quiet_probe_is_not_blamed_for_what_a_later_step_did():
+    """Six false alarms on a real 12 -> 19 run came from checking only at the end.
+
+    A probe claims something about *its* step. `stock.quant/inventory_quantity`
+    stops being computed at 15.0 and should survive that step; by 19.0 Odoo had
+    removed it entirely, and the probe read that as a silent loss at 15.0.
+    """
+    probe = _probe("unfunction_field", field="inventory_quantity")   # declared for 16.0
+    quiet = tester.read_probe_states([probe], [], at_version="16.0.1.0")
+    assert quiet[0].state == "gone unannounced" and quiet[0].is_finding
+    later = tester.read_probe_states([probe], [], at_version="19.0.1.3")
+    assert later[0].state == "past its step" and not later[0].is_finding
+
+
+def test_an_expected_removal_is_still_judged_from_any_later_version():
+    # "It should be gone from its step onward" holds at every later version.
+    probe = _probe("removed_field", field="auto_search")
+    for version in ("16.0.1.0", "19.0.1.3"):
+        assert tester.read_probe_states([probe], [], at_version=version)[0].state == (
+            "gone as predicted"
+        )

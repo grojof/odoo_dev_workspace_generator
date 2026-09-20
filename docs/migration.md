@@ -472,6 +472,14 @@ The others are printed too, one line each, so you can see the question was asked
 
 If the module never installed, every probe reports `absent` rather than a reassuring `intact`.
 
+**Check after each step, not only at the end.** A probe claims something about *its own* step — *at 15.0
+this field stops being computed, so it should survive that step*. A database carried on to 19.0 has had
+four more steps at it, and a subject a later step removed is not a silent loss at 15.0. Checking a 12 → 19
+chain only at the end produced six such false alarms, and six on seven steps teach you to stop reading the
+report. Where the database is past a probe's step, a missing subject is reported as **`past its step`**
+rather than as a finding — run the check between steps to judge those. An expected removal is still judged
+from any later version, because "gone from its step onward" holds there too.
+
 **What `not observed` cannot catch.** It fires when the subject *and* its successor are both missing. Where
 the successor is a core module that would be installed anyway — `base_vat_sanitized` is absorbed into
 `base_vat`, which any accounting database has — its presence says nothing about whether the subject was

@@ -130,6 +130,13 @@ def _version_key(version: str) -> tuple:
     return tuple(int(part) if part.isdigit() else part for part in version.split("."))
 
 
+def _series(version: str) -> tuple:
+    """Just the Odoo series. A database reports `base` as ``19.0.1.3`` while a
+    probe names the step ``19.0``, and comparing the whole tuple makes the longer
+    one larger — so a probe would always read as past its own step."""
+    return _version_key(version)[:2]
+
+
 def probe_state_sql(probes: list[Probe]) -> str:
     """What the migrated database says about each probe's subject.
 
@@ -181,18 +188,31 @@ class ProbeVerdict:
 #: Worst first: the two findings, then what behaved — and last, what could not
 #: be observed at all, which is neither.
 _VERDICT_ORDER = (
-    "gone unannounced", "still there", "gone as predicted", "intact", "not observed"
+    "gone unannounced", "still there", "gone as predicted", "intact",
+    "past its step", "not observed",
 )
 
 
 def read_probe_states(
-    probes: list[Probe], rows: list[list[str]], installed: bool = True
+    probes: list[Probe],
+    rows: list[list[str]],
+    installed: bool = True,
+    at_version: str = "",
 ) -> list[ProbeVerdict]:
     """What became of each probe's subject, findings first.
 
     ``installed`` is False when the module's own table is not in the database: the
     module did not install, which is the answer, and reporting every probe as
     intact would be the wrong one.
+
+    ``at_version`` is the version the database is *now* at. A probe claims
+    something about its own step — "at 15.0 this field stops being computed, so it
+    should survive that step" — and a database carried further has had six more
+    steps at it. Checking a 12 -> 19 chain only at the end produced six
+    `gone unannounced` findings whose subjects every one of them had been removed
+    by a *later* step; six false alarms on seven steps teach an operator to stop
+    reading the report. Where the database is past a probe's step, a missing
+    subject is reported as such instead — check after each step to judge it.
     """
     if not installed:
         return [ProbeVerdict(probe, "absent") for probe in probes]
@@ -206,7 +226,13 @@ def read_probe_states(
         if there:
             state = "still there" if probe.expected_gone else "intact"
         elif not probe.expected_gone:
-            state = "gone unannounced"
+            # Only its own step can be blamed for it, and only a database at that
+            # step can say so.
+            state = (
+                "past its step"
+                if _series(at_version or probe.version) > _series(probe.version)
+                else "gone unannounced"
+            )
         elif probe.successor and (probe.subject_kind, probe.successor, "") not in present:
             # Neither the subject nor what it became is in the database, so this
             # probe measured nothing: the subject was never installed here.

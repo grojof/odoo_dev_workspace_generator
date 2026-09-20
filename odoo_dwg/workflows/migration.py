@@ -819,7 +819,12 @@ def probe_verdicts(env: MigrationEnv, database: str) -> list | None:
     if states is None:
         print(level_text("ERROR", tf("Could not read the models of {}.", database)))
         return None
-    return tester.read_probe_states(probes, states)
+    # What the database is at now, so a probe about an earlier step is not
+    # blamed for what a later one did.
+    at_version = psql_scalar(
+        "SELECT latest_version FROM ir_module_module WHERE name = 'base'", *where
+    )
+    return tester.read_probe_states(probes, states, at_version=at_version or "")
 
 
 def report_probes(database: str, verdicts: list) -> None:
