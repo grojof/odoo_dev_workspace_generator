@@ -49,6 +49,37 @@ confirmation: the only thing between an operator and a lost database is that nam
 - **WHEN** the driver resumes from the 16.0 checkpoint
 - **THEN** it drops and creates the working database again before restoring that checkpoint into it
 
+### Requirement: The run records what it did, step by step
+
+The driver SHALL append one line per event to a step log in the environment's logs directory: when it
+happened, which run it belongs to, which step, what happened — started, succeeded, failed, was skipped as
+already checkpointed, or restored — and, for a failure, the code the step exited with.
+
+It SHALL be **appended and never rewritten**, so a run interrupted mid-step still leaves a readable record,
+and SHALL accumulate across runs: the file is the history of every attempt on that chain.
+
+A failure's recorded code SHALL be the step's own. Reading it from inside a negated test yields the status of
+*not having failed*, which is zero, and every failure was recorded as a success.
+
+Each line's timestamp SHALL be in a form the system journal's time filters accept, so a step's window can be
+handed to the outbound firewall's journal rather than guessed at — that is how an operator finds out what a
+step reached for while it ran.
+
+#### Scenario: A failed step is recorded with the code it failed with
+
+- **WHEN** a step exits non-zero
+- **THEN** the step log holds its start and then its failure with that exit code, and no run-completed event
+
+#### Scenario: An interrupted run still leaves a record
+
+- **WHEN** a run is killed while a step is running
+- **THEN** the step log holds every event up to that step's start
+
+#### Scenario: A step's window can be asked of the journal
+
+- **WHEN** an operator has a step's start and end from the step log
+- **THEN** they are accepted by the journal's time filters as they are written
+
 ### Requirement: Per-branch odoo-bin command shape
 
 The system SHALL run each step with the target version's `odoo-bin` from that step's virtualenv, using

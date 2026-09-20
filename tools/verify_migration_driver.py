@@ -17,6 +17,7 @@ directory. Exits non-zero on the first case that does not behave as documented.
 from __future__ import annotations
 
 import hashlib
+import re
 import shutil
 import subprocess
 import sys
@@ -247,6 +248,38 @@ def main() -> int:
             and f"step {TARGET} failed" in failed_step.stderr
             and f"{TARGET}.log" in failed_step.stderr,
             failed_step.stdout + failed_step.stderr,
+        )
+
+        # The step log the cumulative report and the live view both read. One
+        # line per event, appended and never rewritten, so a run killed
+        # mid-step still leaves a readable record.
+        events = [
+            line.split("\t")
+            for line in (Path(env.logs_dir) / "steps.tsv").read_text(encoding="utf-8").splitlines()
+        ]
+        last = events[-1] if events else ["", "", "", "", ""]
+        check(
+            "a failing step is recorded with the code it failed with",
+            [last[2], last[3], last[4]] == [TARGET, "fail", "1"],
+            str(events[-3:]),
+        )
+        check(
+            "its start was recorded before it ran",
+            [TARGET, "start"] in [[event[2], event[3]] for event in events],
+            str(events),
+        )
+        check(
+            "and a run that failed writes no run-ok",
+            not any(event[3] == "run-ok" for event in events),
+            str(events),
+        )
+        check(
+            "every line carries a timestamp journalctl can take",
+            all(
+                re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d", event[0])
+                for event in events
+            ),
+            str([event[0] for event in events]),
         )
 
     if failures:

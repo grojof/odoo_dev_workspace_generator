@@ -894,6 +894,14 @@ die() {{ echo "[fail] $1" >&2; exit 1; }}
 
 {_render_preflight_db(env)}
 
+# One line per event, appended and never rewritten: a run killed mid-step still
+# leaves a readable record, and a watcher can tail it while the chain runs. The
+# timestamp is what `journalctl --since/--until` takes, so a step's window can be
+# handed to the firewall's journal without guessing where the step began.
+#   <when>\t<run>\t<step>\t<event>\t<detail>
+STEPS="$LOGS/steps.tsv"
+mark() {{ printf '%s\t%s\t%s\t%s\t%s\n' "$(date -Is)" "${{SRC_SHA:0:12}}" "$1" "$2" "${{3:-}}" >> "$STEPS"; }}
+
 have_ck() {{ [ -f "$CK/$1.dump" ]; }}
 # Written through a temp file: an interrupted dump must never look like a
 # finished checkpoint the next run would trust.
@@ -918,10 +926,12 @@ restore_ck() {{
 }}
 
 SRC_SHA=$(sha256sum "$SRC_DUMP" | cut -d' ' -f1)
+mark - run-start "{env.source} -> {env.target}"
 if ! have_ck 00_source; then
   # A fresh run owns the checkpoint directory: step dumps left by an earlier run
   # belong to another attempt and would be skipped as if they were this one's.
   rm -f "$CK"/*.dump "$CK"/*.dump.tmp "$CK/source.sha256"
+  mark - restore 00_source
   echo "[init] restoring source dump into working DB '$DB'"
   dropdb --if-exists "$DB"
   createdb "$DB"
@@ -959,6 +969,7 @@ else
   if [ "$LAST" = "{env.target}" ]; then
     echo "[init] every step already has a checkpoint"
   else
+    mark - restore "$LAST"
     restore_ck "$LAST"
   fi
 fi
@@ -971,12 +982,25 @@ fi
 # --- step: upgrade to {version} ({layout}) ---
 if have_ck "{version}"; then
   echo "[skip] {version} already migrated"
+  mark "{version}" skip
 else
   echo "[step] upgrading to {version} ({layout})"
-{_render_step_preconditions(env, version)}  {_native_step_command(env, version)} \\
-    || die "step {version} failed — see {env.logs_dir}/{version}.log"
+  mark "{version}" start
+{_render_step_preconditions(env, version)}  code=0
+  {_native_step_command(env, version)} || code=$?
+  # `|| code=$?`, not `if ! cmd; then code=$?`: inside the negation `$?` is the
+  # status of *not having failed*, which is 0, so every failure was recorded as
+  # exit 0 — verified by running the driver against a failing step.
+  if [ "$code" -ne 0 ]; then
+    mark "{version}" fail "$code"
+    die "step {version} failed — see {env.logs_dir}/{version}.log"
+  fi
   checkpoint "{version}"
+  mark "{version}" ok
 fi"""
         )
-    footer = f'\n\necho "[done] migration complete — working DB is now Odoo {env.target}"\n'
+    footer = (
+        '\n\nmark - run-ok\n'
+        f'echo "[done] migration complete — working DB is now Odoo {env.target}"\n'
+    )
     return header + "".join(steps) + footer

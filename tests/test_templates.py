@@ -209,3 +209,26 @@ def test_the_generated_setup_script_writes_each_ready_marker_last():
     assert (script.index(f"rm -f {marker}")
             < script.index("pip install -r")
             < script.index(f"touch {marker}"))
+
+
+def test_the_driver_records_every_step_as_it_happens():
+    """The step log is what a live view follows and a cumulative report reads.
+    Appended and never rewritten, so a run killed mid-step still leaves a record,
+    and timestamped in the form `journalctl --since/--until` takes — a step's
+    window is handed to the firewall's journal instead of guessed at."""
+    script = templates.render_run_migration_sh(MigrationEnv(source="16.0", target="18.0"))
+
+    assert 'STEPS="$LOGS/steps.tsv"' in script
+    assert ">> \"$STEPS\"" in script          # appended, never truncated
+    assert "$(date -Is)" in script            # what journalctl takes
+    for event in ('mark - run-start', 'mark "17.0" start', 'mark "17.0" ok',
+                  'mark "17.0" skip', 'mark "17.0" fail "$code"', "mark - run-ok"):
+        assert event in script, event
+    # `|| code=$?`, not `if ! cmd`: inside the negation `$?` is the status of not
+    # having failed, so every failure was recorded as exit 0.
+    assert "|| code=$?" in script
+    assert 'if ! ' + templates._native_step_command(
+        MigrationEnv(source="16.0", target="18.0"), "17.0"
+    ) not in script
+    # The step's own outcome is marked before the run gives up on it.
+    assert script.index('mark "18.0" fail') < script.index("step 18.0 failed")

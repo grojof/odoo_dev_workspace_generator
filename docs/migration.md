@@ -333,6 +333,44 @@ directory alongside it).
   `source.sha256` — stop the driver, because it cannot tell whether they are this dump's. It prints the
   one command that adopts them if they are; remove the directory if they are not.
 
+### What the run leaves behind, step by step
+
+Besides each step's `logs/<version>.log`, the driver appends one line per event to `logs/steps.tsv`:
+
+```
+2026-09-20T11:32:51+02:00	a1b2c3d4e5f6	-	run-start	12.0 -> 18.0
+2026-09-20T11:32:55+02:00	a1b2c3d4e5f6	13.0	start
+2026-09-20T11:41:02+02:00	a1b2c3d4e5f6	13.0	ok
+2026-09-20T11:41:05+02:00	a1b2c3d4e5f6	14.0	start
+2026-09-20T11:49:00+02:00	a1b2c3d4e5f6	14.0	fail	1
+```
+
+The columns are *when*, *which run* (the source dump's hash, so several runs can share the file), *which
+step*, *what happened* (`start`, `ok`, `fail`, `skip`, `restore`, `run-start`, `run-ok`) and a detail — the
+exit code for a failure.
+
+It is **appended and never rewritten**, so a run you interrupt still leaves a readable record, and it
+accumulates across runs: the file is the history of every attempt on this chain.
+
+Two things it is for. You can follow a run live:
+
+```bash
+tail -f ~/odoo-migrations/12-to-18/logs/steps.tsv      # where the chain is
+tail -f ~/odoo-migrations/12-to-18/logs/14.0.log       # what that step is saying
+```
+
+And the timestamps are in the form `journalctl` takes, so a step's window can be handed to the firewall's
+journal rather than guessed at — which is how you find out what a step tried to reach:
+
+```bash
+journalctl -t opensnitch --since "2026-09-20T11:41:05+02:00" --until "2026-09-20T11:49:00+02:00" \
+  | grep odoo-bin
+```
+
+With the [outbound firewall](egress-control.md) installed, `odoo-bin` is rejected anywhere but localhost, so
+anything in that window is a step reaching for the outside — worth knowing before that code reaches
+production.
+
 ### Keeping a migration from reaching the outside
 
 Each step's `odoo.conf` sends mail to the local capture (`127.0.0.1:1025`). With the

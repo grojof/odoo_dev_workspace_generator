@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **The migration driver records every step as it happens**, appending one line per event to
+  `logs/steps.tsv`: when, which run, which step, what happened (`start`, `ok`, `fail`, `skip`, `restore`)
+  and the exit code when one failed. Appended and never rewritten, so a run you interrupt still leaves a
+  readable record, and it accumulates across runs. The timestamps are in the form `journalctl` takes, so a
+  step's window can be handed to the firewall's journal — which is how you find out what a step tried to
+  reach — instead of being guessed at, and `tail -f` on it follows a chain live.
 - **Reviewed module code can be promoted out of a migration environment** and taken as given by the next
   run. A migration is rehearsed several times and run once, and the corrections a rehearsal produces lived
   in `addons/odoo<major>/custom` inside the environment — which cleaning removes and re-staging replaces.
