@@ -41,6 +41,20 @@ python -m odoo_dwg --help           # CLI smoke test
 
 Real end-to-end validation happens on a Linux host (WSL Ubuntu 24.04 is the reference box).
 
+**A stub must be able to disagree with the code it stands in for.** Two bugs reached a real host past a
+green verifier because its fixture was built from the product's own accessor, or failed in a way the real
+thing never fails:
+
+- the demo seed's precondition was checked against a file the verifier had created at
+  `env.odoo_bin(source)` — the same wrong path the product used — so the stub agreed with the mistake;
+- "a failed `pg_dump` leaves nothing behind" passed against a script that *did* leave the partial file,
+  because the stub exited non-zero without writing one.
+
+When writing a stub, derive its paths from what the real host would have, not from the code under test, and
+make it fail the way the real binary fails — after doing part of the work, and refusing what the real one
+refuses (a `psql` with no `-U` must die, or a check missing its connection arguments passes here and does
+nothing there).
+
 The checks above need no network and change nothing. The tools below are **not** part of the suite. Each
 checks something the suite cannot: an external fact that may have moved (the support matrix, the editor
 configuration, the pinned firewall and mail-capture releases), or the behaviour of generated shell on a real
@@ -56,6 +70,10 @@ python tools/verify_egress_pins.py               # OpenSnitch/Mailpit pins vs th
 python tools/verify_migration_driver.py          # run the generated migration driver against stub binaries
 python tools/verify_generated_shell.py           # ShellCheck every generated script
 python tools/verify_pg_hba_trust.py              # run the pg_hba rewriter, and ask PostgreSQL about it
+python tools/verify_promoted_modules.py         # promote reviewed code, then stage again and derive nothing
+python tools/verify_mail_capture.py              # capture, check and restore a database's mail configuration
+python tools/verify_migration_tester.py          # generate the rehearsal tester, and run the query it asks
+python tools/verify_demo_seed.py                 # run the generated demo seed against stub binaries
 ```
 
 | Tool | Needs |
@@ -63,8 +81,40 @@ python tools/verify_pg_hba_trust.py              # run the pg_hba rewriter, and 
 | `verify_support_matrix.py`, `verify_odools_config.py`, `verify_egress_pins.py` | the network |
 | `verify_workspace_versions.py` | the network **and** a host it may change (it previews, asks, and cleans up) |
 | `verify_generated_shell.py` | `shellcheck` on the host |
-| `verify_pg_hba_trust.py` | the host's PostgreSQL binaries; it runs a cluster of its own and takes about a minute |
-| `verify_migration_driver.py` | nothing but `bash` |
+| `verify_pg_hba_trust.py`, `verify_mail_capture.py`, `verify_migration_tester.py` | the host's PostgreSQL binaries; each runs a cluster of its own |
+| `verify_migration_driver.py`, `verify_demo_seed.py` | nothing but `bash` |
+| `verify_promoted_modules.py` | nothing but `bash` and `git` |
+
+`verify_demo_seed.py` executes the generated `seed_demo.sh` against stub `createdb`/`psql`/`pg_dump` and
+a stub Odoo interpreter: a fresh seed produces a dump in the format the driver takes and installs `base`
+first, each chosen module is installed in its own call, a module that will not install is named and no dump
+is produced without it, an existing dump or database is refused rather than replaced, and a `pg_dump` that
+fails leaves neither a dump nor a half-written one. That last case passed against a script that *did* leave
+the partial file, until the stub was made to fail the way a real `pg_dump` fails — after writing something.
+
+`verify_migration_tester.py` generates the rehearsal tester from analysis lines copied verbatim out of
+OpenUpgrade's files, then asks whether the result is a *module*: every `.py` compiles, the manifest
+evaluates to a dict that ships what it declares and sets no `auto_install`, the data file parses with one
+record per probe and unique ids, and the access rule is read-only on its own model. It then creates
+`ir_model`, `ir_model_fields` and the probe table in a throwaway cluster and runs the real query, so both
+findings are produced by PostgreSQL rather than asserted. It also checks that no status in the whole
+harvested vocabulary is claimed by two class patterns, and — where the host has the environment's clones —
+generates the real chain's tester and checks every probe against a record that states it.
+
+`verify_mail_capture.py` runs capture → check → restore against a cluster of its own, on two
+`ir_mail_server` schemas that differ the way Odoo's differ across the chain (a 12-era one, and a 19-era one
+where `smtp_authentication` is `NOT NULL`). It asserts what the operator depends on: the client's row comes
+back from restore column for column, a server the client had switched off is not switched on, a second
+capture leaves the capture's own server active, restore leaves no table behind, and a database that was
+never captured is refused. The unit suite asserts the SQL's text; this runs it — which is how a capture
+that switched off its own server on the second run, and a boolean read as `t` when PostgreSQL renders it
+`true`, were both found.
+
+`verify_promoted_modules.py` runs the promote → consume cycle a rehearsed migration depends on, with a
+stub module migrator: the first staging derives every step, a correction made by hand survives
+promotion, the second derives **nothing** and lands exactly the reviewed code, the throwaway git
+repository does not travel with it, and divergence appears as soon as work continues in the
+environment. The unit suite can only assert the plans' text; this executes them.
 
 `verify_migration_driver.py` renders `run_migration.sh` into a temporary directory and executes it with stub `psql`/`pg_dump`/`pg_restore`/`uv`, covering the fresh run,
 resume, a gap in the checkpoints, a dump that does not match, a checkpoint that cannot be written, a step

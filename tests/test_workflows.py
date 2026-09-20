@@ -110,21 +110,46 @@ def test_existing_interpreters_come_from_each_venvs_pyvenv_cfg(base, monkeypatch
 # --- phrase-gated database change -----------------------------------------------
 
 
-def test_mail_redirect_needs_a_valid_name_and_the_phrase(monkeypatch, capsys):
+@pytest.mark.parametrize("action", ["capture_mail", "restore_mail"])
+def test_the_mail_actions_need_a_valid_name_and_the_phrase(monkeypatch, capsys, action):
+    act = getattr(common, action)
     applied = []
     monkeypatch.setattr(common, "apply_if_confirmed", lambda commands: applied.append(commands))
     monkeypatch.setattr(common, "ask_text", lambda *a, **k: "acme;drop")
     monkeypatch.setattr(common, "confirm_with_phrase",
                         lambda *a: pytest.fail("an invalid name must stop before the phrase"))
-    common.redirect_mail("127.0.0.1", 5432, "odoo")
+    act("127.0.0.1", 5432, "odoo")
     assert "Invalid database name" in capsys.readouterr().out
     monkeypatch.setattr(common, "ask_text", lambda *a, **k: "acme_copy")
     monkeypatch.setattr(common, "confirm_with_phrase", lambda *a: False)
-    common.redirect_mail("127.0.0.1", 5432, "odoo")
+    act("127.0.0.1", 5432, "odoo")
     assert applied == []  # no phrase, no change
     monkeypatch.setattr(common, "confirm_with_phrase", lambda *a: True)
-    common.redirect_mail("127.0.0.1", 5432, "odoo")
+    act("127.0.0.1", 5432, "odoo")
     assert len(applied) == 1 and "-d acme_copy" in applied[0][0].command
+
+
+def test_checking_the_mail_asks_for_no_phrase_and_writes_nothing(monkeypatch, capsys):
+    monkeypatch.setattr(common, "ask_text", lambda *a, **k: "acme_copy")
+    monkeypatch.setattr(common, "confirm_with_phrase",
+                        lambda *a: pytest.fail("a read-only check must ask for no phrase"))
+    monkeypatch.setattr(common, "apply_if_confirmed",
+                        lambda commands: pytest.fail("a read-only check must plan nothing"))
+    monkeypatch.setattr(common, "psql_scalar", lambda *a, **k: "f")
+    monkeypatch.setattr(common, "psql_rows", lambda *a, **k: [
+        ["server", "1", "Client SMTP", "smtp.client.example", "587", "true"],
+    ])
+    common.check_mail("127.0.0.1", 5432, "odoo")
+    assert "Mail can leave" in capsys.readouterr().out
+
+
+def test_checking_a_database_it_cannot_read_says_so(monkeypatch, capsys):
+    monkeypatch.setattr(common, "ask_text", lambda *a, **k: "acme_copy")
+    monkeypatch.setattr(common, "psql_scalar", lambda *a, **k: None)
+    monkeypatch.setattr(common, "psql_rows",
+                        lambda *a, **k: pytest.fail("an unreadable database is not queried"))
+    common.check_mail("127.0.0.1", 5432, "odoo")
+    assert "Could not read database" in capsys.readouterr().out
 
 
 # --- the CLI reports instead of crashing ------------------------------------------
@@ -491,7 +516,8 @@ def test_every_migration_action_previews_before_it_applies(base, monkeypatch, ac
                         lambda _c: seen.__setitem__("preview", seen["preview"] + 1))
     monkeypatch.setattr(migration, "apply_commands",
                         lambda _c: seen.__setitem__("apply", seen["apply"] + 1))
-    monkeypatch.setattr(migration, "_ask_env", lambda: MigrationEnv(source="16.0", target="18.0"))
+    monkeypatch.setattr(migration, "_ask_env",
+                        lambda **_k: MigrationEnv(source="16.0", target="18.0"))
     monkeypatch.setattr(migration, "_choose_step_interpreters", lambda _e: True)
     monkeypatch.setattr(migration.preflight, "gather_host_facts", lambda *a, **k: None)
     monkeypatch.setattr(migration.preflight, "preflight_rows", lambda *a, **k: [])
@@ -500,7 +526,8 @@ def test_every_migration_action_previews_before_it_applies(base, monkeypatch, ac
         source = base / "src" / "client_sales"
         source.mkdir(parents=True)
         (source / "__manifest__.py").write_text("{}")
-        answers = iter([str(base / "src"), "client_sales"])
+        # The promoted location is asked for first, and declined.
+        answers = iter(["", str(base / "src"), "client_sales"])
         monkeypatch.setattr(migration, "ask_text", lambda *a, **k: next(answers))
         # Without this the flow stops at "the staging tool is not installed" and
         # previews *that* plan instead — a pass for the wrong reason.

@@ -15,6 +15,7 @@ import shlex
 import shutil
 import subprocess
 from dataclasses import replace
+from pathlib import Path
 
 from . import pghba
 from .i18n import t, tf
@@ -445,6 +446,27 @@ def _as_the_server_reads_them(rules: list[pghba.Rule]) -> list[pghba.Rule]:
     return out
 
 
+def journal_since(tag: str, since: str, until: str = "") -> str:
+    """The system journal for one unit tag between two instants, or "".
+
+    The driver writes each step's start and end in the form the journal's own
+    time filters take, so a step's window is asked for rather than estimated.
+    Reading the journal needs no root for a user in the `adm` or
+    `systemd-journal` group; where it does, this returns nothing rather than
+    prompting, and the report says the firewall's answers were not available.
+    """
+    if not since:
+        return ""
+    command = (
+        f"journalctl -t {shlex.quote(tag)} --no-pager "
+        f"--since {shlex.quote(since)}"
+    )
+    if until:
+        command += f" --until {shlex.quote(until)}"
+    result = run(command, check=False)
+    return result.stdout if result.returncode == 0 else ""
+
+
 # --- migration preflight probes --------------------------------------------
 
 
@@ -457,6 +479,47 @@ def pg_restore_lists(dump_path: str) -> tuple[bool, str]:
     text = (result.stderr or result.stdout).strip()
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     return False, lines[-1] if lines else "pg_restore --list failed"
+
+
+def read_dir_files(path: str, suffix: str = "") -> dict[str, str] | None:
+    """Every readable file of a directory as ``name -> content``, or None when the
+    directory itself cannot be listed.
+
+    None and {} are different answers: a rules directory that is not there is not
+    a rules directory that is empty, and reporting the first as the second would
+    say every rule is missing.
+    """
+    try:
+        entries = sorted(Path(path).iterdir())
+    except OSError:
+        return None
+    found: dict[str, str] = {}
+    for entry in entries:
+        if suffix and not entry.name.endswith(suffix):
+            continue
+        try:
+            found[entry.name] = entry.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+    return found
+
+
+def psql_rows(
+    query: str, db: str, host: str = "127.0.0.1", port: int = 5432, user: str = DEFAULT_DB_ROLE
+) -> list[list[str]] | None:
+    """Tab-separated rows from a read-only query, or None on any failure.
+
+    ``-tAF$'\t'``: unaligned, no header, tab-separated — the same reading
+    ``pg_hba_rules`` uses. A backslash-t in single quotes would reach psql as two
+    characters, not a tab."""
+    command = (
+        f"psql -X -w -h {shlex.quote(host)} -p {int(port)} -U {shlex.quote(user)} "
+        f"-d {shlex.quote(db)} -tAF$'\\t' -c {shlex.quote(query)} 2>/dev/null"
+    )
+    result = run(command, check=False)
+    if result.returncode != 0:
+        return None
+    return [line.split("\t") for line in result.stdout.splitlines() if line.strip()]
 
 
 def psql_scalar(

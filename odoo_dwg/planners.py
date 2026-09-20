@@ -13,15 +13,17 @@ import shlex
 from collections.abc import Callable
 from pathlib import Path
 
-from . import egress, templates
+from . import egress, templates, tester
 from .i18n import tf
 from .models import (
+    MODULE_NAME_RE,
     PKG_RESOURCES_LAST_MAJOR,
     SETUPTOOLS_PIN,
     UV_PYTHON,
     Command,
     InterpreterChoice,
     MigrationEnv,
+    PromotedModules,
     WorkspaceConfig,
     interpreter_from_pyvenv,
     odoo_major,
@@ -828,15 +830,34 @@ def plan_mailpit_uninstall() -> list[Command]:
     ]
 
 
-def plan_mail_redirect(database: str, host: str, port: int, user: str) -> list[Command]:
-    """Point a database's mail servers at Mailpit and stop it fetching mail. For
-    rehearsal copies only; the workflow asks for a confirmation phrase first."""
+def _psql(database: str, host: str, port: int, user: str, sql: str) -> str:
+    return (
+        f"psql -X -w -h {shlex.quote(host)} -p {int(port)} -U {shlex.quote(user)} "
+        f"-d {shlex.quote(database)} -v ON_ERROR_STOP=1 -c {shlex.quote(sql)}"
+    )
+
+
+def plan_mail_capture(database: str, host: str, port: int, user: str) -> list[Command]:
+    """Stop a database's mail leaving, leaving its configuration where it is.
+
+    Nothing the client configured is overwritten: its servers are deactivated and
+    one pointing at Mailpit is added, so ``plan_mail_restore`` can give the
+    database back exactly what it had."""
     return [
         Command(
-            tf("Redirect the mail of database {} to Mailpit", database),
-            f"psql -X -h {shlex.quote(host)} -p {int(port)} -U {shlex.quote(user)} "
-            f"-d {shlex.quote(database)} -v ON_ERROR_STOP=1 "
-            f"-c {shlex.quote(egress.mail_redirect_sql())}",
+            tf("Capture the mail of database {} in Mailpit", database),
+            _psql(database, host, port, user, egress.mail_capture_sql()),
+        )
+    ]
+
+
+def plan_mail_restore(database: str, host: str, port: int, user: str) -> list[Command]:
+    """Give a captured database back the mail configuration it had. Fails, rather
+    than reporting success, on a database that was never captured."""
+    return [
+        Command(
+            tf("Restore the mail configuration of database {}", database),
+            _psql(database, host, port, user, egress.mail_restore_sql()),
         )
     ]
 
@@ -908,48 +929,62 @@ def plan_migration_venvs(
                     f"mkdir -p {shlex.quote(str(env.requirements_dir))}",
                 )
             )
-        venv = env.venv_dir(version)
         # For the <= 13 layout the OpenUpgrade checkout *is* Odoo, so its own
         # requirements.txt is the one to install; there is no separate clone.
         requirements = (
             env.openupgrade_clone_dir(version) if env.uses_legacy_layout(version)
             else env.odoo_clone_dir(version)
         ) / "requirements.txt"
-        overrides = env.overrides_file(version)
-        commands += write_text_file_command(
-            overrides, templates.render_migration_overrides(version, python)
-        )
-        constraints_text = templates.render_migration_constraints(version)
-        constraints = env.constraints_file(version)
-        if constraints_text:
-            commands += write_text_file_command(constraints, constraints_text)
-        commands += [
-            Command(
-                tf("Create uv venv (Python {}) for Odoo {}", python, version),
-                f"uv venv --clear --no-project --python {shlex.quote(python)} "
-                f"{shlex.quote(str(venv))}",
+        commands += venv_commands(env, version, python, requirements)
+    return commands
+
+
+def venv_commands(
+    env: MigrationEnv, version: str, python: str, requirements: Path, openupgrade: bool = True
+) -> list[Command]:
+    """Build one version's uv venv and install into it.
+
+    Shared by the chain's steps and by the source version a demo seed needs,
+    because they differ only in where the requirements come from and whether
+    ``openupgradelib`` is wanted — and writing the recipe twice is how the two
+    would come to disagree about an interpreter or an override.
+    """
+    venv = env.venv_dir(version)
+    overrides = env.overrides_file(version)
+    commands = write_text_file_command(
+        overrides, templates.render_migration_overrides(version, python)
+    )
+    constraints_text = templates.render_migration_constraints(version)
+    constraints = env.constraints_file(version)
+    if constraints_text:
+        commands += write_text_file_command(constraints, constraints_text)
+    extra = f" openupgradelib{_setuptools_pin(version)}" if openupgrade else _setuptools_pin(version)
+    commands += [
+        Command(
+            tf("Create uv venv (Python {}) for Odoo {}", python, version),
+            f"uv venv --clear --no-project --python {shlex.quote(python)} "
+            f"{shlex.quote(str(venv))}",
+        ),
+        Command(
+            tf("Install Odoo {} requirements", version),
+            f"uv pip install --python {shlex.quote(str(venv))} "
+            f"-r {shlex.quote(str(requirements))} "
+            f"--overrides {shlex.quote(str(overrides))}"
+            + (
+                f" --build-constraints {shlex.quote(str(constraints))}"
+                if constraints_text
+                else ""
             ),
-            Command(
-                tf("Install Odoo {} requirements", version),
-                f"uv pip install --python {shlex.quote(str(venv))} "
-                f"-r {shlex.quote(str(requirements))} "
-                f"--overrides {shlex.quote(str(overrides))}"
-                + (
-                    f" --build-constraints {shlex.quote(str(constraints))}"
-                    if constraints_text
-                    else ""
-                ),
-            ),
-            Command(
-                tf("Install psycopg2-binary and openupgradelib for Odoo {}", version),
-                f"uv pip install --python {shlex.quote(str(venv))} psycopg2-binary "
-                f"openupgradelib{_setuptools_pin(version)}",
-            ),
-            Command(
-                tf("Mark Odoo {} venv as ready", version),
-                f"touch {shlex.quote(str(env.venv_ready_marker(version)))}",
-            ),
-        ]
+        ),
+        Command(
+            tf("Install psycopg2-binary for Odoo {}", version),
+            f"uv pip install --python {shlex.quote(str(venv))} psycopg2-binary{extra}",
+        ),
+        Command(
+            tf("Mark Odoo {} venv as ready", version),
+            f"touch {shlex.quote(str(env.venv_ready_marker(version)))}",
+        ),
+    ]
     return commands
 
 
@@ -1007,12 +1042,59 @@ def _venv_python(env: MigrationEnv, version: str, read: Read) -> str | None:
     return choice.python if choice else None
 
 
+def plan_migration_oca(
+    env: MigrationEnv, exists: Exists = _never, versions: list[str] | None = None
+) -> list[Command]:
+    """Clone each named OCA repository per version and link it into that
+    version's ``oca`` directory.
+
+    ``versions`` defaults to the chain's steps. A demo seed passes the *source*
+    version, which is not a step and therefore gets no OCA link otherwise — and a
+    module that is not on disk at the source version cannot be installed there.
+
+    A repository OCA has not ported to a version is a fact the operator needs,
+    not a reason to refuse to build the environment: the branch is asked for
+    first, and its absence is reported while the step's directory stays empty.
+    Nothing else is masked — a clone that fails for any other reason still fails
+    the step.
+    """
+    commands: list[Command] = []
+    for repo in env.oca_repos:
+        url = f"{WorkspaceConfig.oca_url_base}/{repo}.git"
+        for version in versions if versions is not None else env.chain():
+            dest = env.oca_clone_dir(repo, version)
+            link = env.oca_link_dir(repo, version)
+            if not exists(dest):
+                commands.append(
+                    Command(
+                        tf("Clone OCA {} ({}) into the shared cache", repo, version),
+                        f"if git ls-remote --exit-code --heads {shlex.quote(url)} "
+                        f"{shlex.quote(version)} >/dev/null 2>&1; then "
+                        f"{_clone_command(url, version, dest)}; "
+                        f"else echo {shlex.quote(f'OCA {repo} has no {version} branch — that step has no OCA source for it')}; "
+                        f"fi",
+                    )
+                )
+            commands.append(
+                Command(
+                    tf("Link OCA {} for Odoo {}", repo, version),
+                    f"mkdir -p {shlex.quote(str(link.parent))} && "
+                    # Only when the clone is there: an unported repository leaves
+                    # no link rather than one pointing at nothing.
+                    f"if [ -d {shlex.quote(str(dest))} ]; then "
+                    f"ln -sfnT {shlex.quote(str(dest))} {shlex.quote(str(link))}; fi",
+                )
+            )
+    return commands
+
+
 def plan_generate_migration(
     env: MigrationEnv, exists: Exists = _never, read: Read = _never_read, stamp: str = ""
 ) -> list[Command]:
     """Full migration-environment plan: clones + uv venvs + configs + driver."""
     return (
         plan_migration_clones(env, exists)
+        + plan_migration_oca(env, exists)
         + plan_migration_venvs(env, exists, read)
         # The same reader: a hand-tuned step config is kept as .bak-<stamp>.
         + plan_migration_configs(env, read, stamp)
@@ -1041,12 +1123,58 @@ def plan_staging_tool(env: MigrationEnv) -> list[Command]:
     ]
 
 
-def plan_stage_module(env: MigrationEnv, module: str, source_dir: Path) -> list[Command]:
+def plan_promote_module(
+    env: MigrationEnv,
+    module: str,
+    versions: list[str],
+    into: PromotedModules,
+) -> list[Command]:
+    """Copy a module's reviewed code, for each named step, to the durable location.
+
+    Copy and not move: the environment stays runnable after a promotion, and a
+    promotion is not a point of no return — the durable copy can be discarded and
+    made again. The cost is that the two can drift, which the staging report
+    names rather than prevents; preventing it would mean locking the copy the
+    operator actually works in.
+
+    The staged directory carries the throwaway git repository the migrator needs;
+    it is not copied, because the durable location's history is the operator's.
+    """
+    commands: list[Command] = []
+    for version in versions:
+        source = env.addons_custom_dir(version) / module
+        target = into.module_dir(version, module)
+        parent = into.version_dir(version)
+        commands.append(
+            Command(
+                tf("Promote {} {} to {}", module, version, str(target)),
+                f"mkdir -p {shlex.quote(str(parent))} && "
+                f"rm -rf {shlex.quote(str(target))} && "
+                f"cp -a {shlex.quote(str(source))} {shlex.quote(str(parent))}/ && "
+                f"rm -rf {shlex.quote(str(target / '.git'))}",
+            )
+        )
+    return commands
+
+
+def plan_stage_module(
+    env: MigrationEnv,
+    module: str,
+    source_dir: Path,
+    promoted: PromotedModules | None = None,
+    exists: Exists = _never,
+) -> list[Command]:
     """Stage one custom module stepwise: the operator's source copy feeds the
     first step, each later step consumes the previous step's staged output, and
     `odoo-module-migrate` applies exactly that bump in place. The operator's
     source directory is never modified. Existing staged targets are replaced —
-    the workflow gates that behind an exact-phrase confirmation."""
+    the workflow gates that behind an exact-phrase confirmation.
+
+    A step whose code has been **promoted** takes it from there instead, and runs
+    no migrator: that code is already at that version and has been reviewed. This
+    is what makes a final run apply proven work rather than derive it a second
+    time. A chain with nothing promoted plans exactly what it always did.
+    """
     migrate_bin = env.staging_tool_venv / "bin" / "odoo-module-migrate"
     commands: list[Command] = [
         Command(
@@ -1063,6 +1191,21 @@ def plan_stage_module(env: MigrationEnv, module: str, source_dir: Path) -> list[
         target_parent = env.addons_custom_dir(version)
         target = target_parent / module
         log = env.staging_log_file(module, version)
+        kept = promoted.module_dir(version, module) if promoted else None
+        if kept is not None and exists(kept):
+            # Reviewed code for this step: copy it in and derive nothing. The
+            # report says so, because a step that was not derived is a step whose
+            # warnings this run will not show.
+            commands.append(
+                Command(
+                    tf("Take {} stage {} from the promoted copy", module, version),
+                    f"rm -rf {shlex.quote(str(target))} && "
+                    f"cp -a {shlex.quote(str(kept))} {shlex.quote(str(target_parent))}/",
+                )
+            )
+            previous = target
+            previous_version = version
+            continue
         commands += [
             Command(
                 tf("Copy {} stage {} from the {} stage", module, version, previous_version),
@@ -1229,3 +1372,92 @@ def plan_build_venv(
         ),
     ]
     return commands
+
+
+def plan_generate_tester(
+    env: MigrationEnv, probes: list, uncovered: list[str]
+) -> list[Command]:
+    """Write the rehearsal tester into every step's ``addons/odoo<major>/custom``.
+
+    Into the environment and nowhere else: the module is a rehearsal instrument,
+    and its manifest says so. Each step gets the same tree, so the module is
+    present whichever step the operator stops at.
+    """
+    chain = f"{env.source} - {env.target}"
+    files = templates.render_tester_module(probes, uncovered, chain)
+    commands: list[Command] = []
+    # The source too, not only the steps. The module is *installed* at the source
+    # version — that is where its records are written, so that they travel
+    # through the chain — and every later step must still find it on disk, or
+    # `-u all` meets an installed module it cannot load.
+    for version in [env.source, *env.chain()]:
+        root = env.addons_custom_dir(version) / tester.TESTER_MODULE
+        directories = sorted({str((root / path).parent) for path in files})
+        commands.append(
+            Command(
+                tf("Create the tester tree for {}", version),
+                "mkdir -p " + " ".join(shlex.quote(d) for d in directories),
+            )
+        )
+        for path, content in files.items():
+            commands += write_text_file_command(root / path, content)
+    return commands
+
+
+def plan_seed_environment(env: MigrationEnv, exists: Exists = _never) -> list[Command]:
+    """Prepare the **source** version, which the chain itself never builds.
+
+    ``env.chain()`` is the steps — 13.0 … 19.0 for a 12 → 19 chain — so an
+    environment has no clone, venv or config for 12.0 at all. It does not need
+    one to migrate: the source arrives as a dump. It needs one to *make* that
+    dump, and what it needs is plain Odoo, not OpenUpgrade — there is no
+    OpenUpgrade 12.0 branch, the 12 → 13 step runs OpenUpgrade 13.
+    """
+    version = env.source
+    commands: list[Command] = []
+    clone = env.odoo_clone_dir(version)
+    if not exists(clone):
+        commands.append(
+            Command(tf("Clone Odoo {}", version), _clone_command(env.odoo_repo_url, version, clone))
+        )
+    python, _method = env.interpreter(version)
+    if python is not None and not exists(env.venv_ready_marker(version)):
+        commands.append(
+            Command(
+                tf("Create requirements directory"),
+                f"mkdir -p {shlex.quote(str(env.requirements_dir))}",
+            )
+        )
+        # openupgradelib is not installed: the source version never runs a
+        # migration script, it only builds a database that will be dumped.
+        commands += venv_commands(
+            env, version, python, clone / "requirements.txt", openupgrade=False
+        )
+    # The source version is not a step, so the chain's OCA linking skips it.
+    commands += plan_migration_oca(env, exists, versions=[version])
+    commands.append(
+        Command(
+            tf("Create the source add-ons directories for {}", version),
+            "mkdir -p "
+            + " ".join(
+                shlex.quote(str(p))
+                for p in (env.addons_custom_dir(version), env.addons_oca_dir(version))
+            ),
+        )
+    )
+    commands += write_text_file_command(env.config_file(version), templates.render_seed_conf(env))
+    return commands
+
+
+def plan_seed_demo(env: MigrationEnv, modules: list[str]) -> list[Command]:
+    """Write the seed script. Running it is the operator's, like the driver's.
+
+    Not applied directly: building a demo database installs modules one by one
+    and can take many minutes, and a plan step that long belongs in a script the
+    operator can re-run, read and interrupt.
+    """
+    for module in modules:
+        if not MODULE_NAME_RE.fullmatch(module):
+            raise ValueError(tf("Invalid module name: {}", module))
+    script = env.root / "seed_demo.sh"
+    return write_text_file_command(script, templates.render_seed_demo_sh(env, modules), "755")

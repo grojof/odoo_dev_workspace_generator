@@ -145,17 +145,76 @@ def test_mailpit_plan_verifies_and_runs_on_loopback():
     assert not any("curl" in c for c in again)
 
 
-def test_mail_redirect_is_column_aware_and_quoted():
-    sql = egress.mail_redirect_sql()
-    assert "smtp_host = '127.0.0.1', smtp_port = 1025" in sql
-    assert "smtp_user = NULL, smtp_pass = NULL" in sql
-    assert "column_name = 'smtp_authentication'" in sql  # absent before Odoo 15
+def test_mail_capture_moves_no_value_of_the_client_s():
+    sql = egress.mail_capture_sql()
+    # What tools/verify_mail_capture.py proves by running; here so a rewrite that
+    # goes back to overwriting is caught without a PostgreSQL.
+    assert "UPDATE ir_mail_server SET smtp_host" not in sql
+    assert "smtp_pass = " not in sql
+    assert "jsonb_populate_record(NULL::ir_mail_server" in sql  # cloned, not written
     assert "to_regclass('fetchmail_server')" in sql  # absent without its module
-    cmd = planners.plan_mail_redirect("acme-copy.2026", "127.0.0.1", 5432, "odoo")[0].command
-    # -X, like every psql this tool runs: `~/.psqlrc` can hold a `\c otherdb`.
-    assert cmd.startswith(
-        "psql -X -h 127.0.0.1 -p 5432 -U odoo -d acme-copy.2026 -v ON_ERROR_STOP=1 -c '"
-    )
+
+
+def test_capturing_twice_does_not_switch_off_its_own_server():
+    sql = egress.mail_capture_sql()
+    deactivate = sql[sql.index("UPDATE ir_mail_server SET active = false") :]
+    deactivate = deactivate[: deactivate.index(";")]
+    # Without this exclusion a second capture leaves the database mailing nowhere.
+    assert "role = 'added'" in deactivate and "NOT IN" in deactivate
+
+
+def test_restore_refuses_a_database_it_never_captured():
+    sql = egress.mail_restore_sql()
+    assert "RAISE EXCEPTION 'no mail capture is recorded" in sql
+    # Only what capture recorded, or a server the client had switched off comes back on.
+    reactivate = sql[sql.index("UPDATE ir_mail_server SET active = true") :]
+    assert "role = 'deactivated'" in reactivate[: reactivate.index(";")]
+    assert f"DROP TABLE {egress.CAPTURE_RECORD_TABLE}" in sql
+
+
+def test_the_state_query_names_only_the_tables_that_exist():
+    # A query may not name a table the database does not have: it fails to parse.
+    bare = egress.mail_state_sql(fetchmail=False, captured=False)
+    assert "fetchmail_server" not in bare and egress.CAPTURE_RECORD_TABLE not in bare
+    full = egress.mail_state_sql(fetchmail=True, captured=True)
+    assert "fetchmail_server" in full and egress.CAPTURE_RECORD_TABLE in full
+
+
+def test_reading_the_state_tells_capture_from_no_server_at_all():
+    escaping = egress.read_mail_state([
+        ["server", "1", "Client SMTP", "smtp.client.example", "587", "true"],
+    ])
+    assert escaping.escaping and not escaping.falls_back_to_config
+    captured = egress.read_mail_state([
+        ["server", "1", "Client SMTP", "smtp.client.example", "587", "false"],
+        ["server", "3", "Mailpit", egress.MAILPIT_SMTP_HOST, str(egress.MAILPIT_SMTP_PORT), "true"],
+        ["record", "1", "ir_mail_server", "deactivated", "", ""],
+    ])
+    assert not captured.escaping and captured.captured and captured.deactivated == 1
+    # Captured is not the same as having no server: the second falls back to the
+    # configuration file, which this does not get to assume points at the capture.
+    assert not captured.falls_back_to_config
+    empty = egress.read_mail_state([["record", "1", "ir_mail_server", "deactivated", "", ""]])
+    assert empty.falls_back_to_config and not empty.escaping
+
+
+def test_a_boolean_arrives_as_the_word_not_the_letter():
+    # `active::text` is 'true'; the 't' an operator sees is psql displaying an
+    # uncast boolean. Reading it as 't' reported every database as having no
+    # active server.
+    assert egress.read_mail_state(
+        [["server", "1", "Client SMTP", "smtp.client.example", "587", "t"]]
+    ).falls_back_to_config
+
+
+def test_the_mail_plans_quote_what_the_operator_named():
+    for plan in (planners.plan_mail_capture, planners.plan_mail_restore):
+        cmd = plan("acme-copy.2026", "127.0.0.1", 5432, "odoo")[0].command
+        # -X, like every psql this tool runs: `~/.psqlrc` can hold a `\c otherdb`.
+        # -w: fail rather than prompt when the host is not on trust auth.
+        assert cmd.startswith(
+            "psql -X -w -h 127.0.0.1 -p 5432 -U odoo -d acme-copy.2026 -v ON_ERROR_STOP=1 -c '"
+        )
 
 
 def test_database_names_follow_odoo():

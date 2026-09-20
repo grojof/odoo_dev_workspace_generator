@@ -230,23 +230,68 @@ at once.
 - **Storage:** the service is `mailpit.service`, bound to `127.0.0.1` only. It keeps its messages in
   `/var/lib/mailpit/`, so they survive restarts, and Mailpit prunes them to its default limit.
 
-### A copied database still mails out: redirect it
+### A copied database still mails out: capture it
 
 A database copied from production keeps its **own mail servers** (`ir.mail_server`), and Odoo uses them instead
 of `odoo.conf`. With OpenSnitch running, those connections are blocked. But the mail is then neither sent nor
-visible. To see it in Mailpit, use **Manage workspace → Redirect a database's mail to Mailpit**, or the same
-entry in the migration menu. For the database you name, it:
+visible. Use **Manage workspace → Capture a database's mail in Mailpit**, or the same entry in the migration
+menu. For the database you name, it:
 
-- points every mail server at `127.0.0.1:1025`, with no encryption, and clears its user and password;
-- deactivates incoming mail servers (fetchmail), so no real mailbox is read or emptied.
+- deactivates its mail servers — **without touching what they hold**: host, user and password stay in their
+  own columns;
+- adds one mail server of its own, `Mailpit (odoo_dwg capture)` → `127.0.0.1:1025`, with a sequence that makes
+  Odoo prefer it. You can see it, and test it, from Odoo's own *Outgoing Mail Servers*;
+- deactivates incoming mail servers (fetchmail), so no real mailbox is read or emptied;
+- records what it deactivated **inside that database**, so the record survives every `pg_dump`/`pg_restore` of
+  a migration chain.
 
-It works on Odoo 12 to 19 and asks you to type `REDIRECT`. **Use it on rehearsal copies only.** A database going
-back to production must keep its real servers.
+It works on Odoo 12 to 19 and asks you to type `CAPTURE`. Running it twice is safe.
+
+### Giving the mail back
+
+**Restore a database's mail configuration** (phrase `RESTORE`) is the other half, and the one that makes a
+migrated database fit for production: it removes the server the capture added, switches back on exactly the
+servers the capture switched off — a server *you* had disabled stays disabled — and drops its record. A
+database that was never captured is refused rather than reported as restored.
+
+### Asking whether mail can leave
+
+**Check whether a database can mail out** reads and writes nothing. It gives the verdict first and the rows
+under it:
+
+```
+[WARN] Mail can leave acme_copy.
+  * Client SMTP → smtp.client.example:587
+    Mailpit (odoo_dwg capture) → 127.0.0.1:1025 — the capture
+[WARN] 1 fetchmail server(s) are still fetching.
+```
+
+A database with **no** active mail server is reported as falling back to the `smtp_server` of its
+configuration file — which the generated `odoo.conf` points at Mailpit, but another `odoo.conf` may not.
+That is why the capture adds a server rather than relying on the fallback.
+
+### Checking the rules are still yours
+
+OpenSnitch evaluates rules in file-name order and the first match decides, which is why the tool's rules
+are named `00-odwg-`. Whether they are still first, and still what the tool wrote, is a question:
+
+```bash
+odoo-dwg egress check
+```
+
+It reports a rule of the tool's that is absent, changed or disabled, a file that is not JSON, and — the one
+that matters — a rule the tool does not own that **sorts before** its own, because that is the only way the
+rule confining Odoo can be pre-empted. Note that `000-something.json` does *not* sort first (`-` sorts
+before a digit); `00-aaa.json` does.
+
+It changes nothing, including a rule it reports: a rule you wrote deliberately to sort first is a
+legitimate thing to have, and only you know which it is.
 
 ## Live production migrations
 
 When the migrated database **goes back to production**:
-- **Do not** redirect its mail.
+- **Restore its mail configuration** before cutover, and check it: mail must leave again, through the
+  client's own servers. Capture never overwrote them, so there is nothing to retype.
 - **Do not** run `neutralize` on it.
 
 Keep OpenSnitch running instead:

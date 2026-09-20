@@ -64,7 +64,9 @@ Every menu shows a numbered list; `0` (or `Back`/`Cancel`) always returns withou
 | Manage → Regenerate a venv | Removes and rebuilds one instance venv | Phrase `REBUILD` |
 | Manage → Refresh shared repos | `git pull --ff-only` on present clones in the shared cache | Preview + confirm |
 | Manage → Add a version | Extends an existing workspace with a new Odoo version. It writes files like **Refresh generated files**, and the other versions keep their interpreters. The workspace changes only once the plan has run: a declined or failed plan adds nothing. | Preview + confirm |
-| Manage → Redirect a database's mail to Mailpit | Points every mail server of a named database at `127.0.0.1:1025` and clears its credentials, and deactivates fetchmail servers. Odoo 12–19. Rehearsal copies only ([egress-control](egress-control.md#a-copied-database-still-mails-out-redirect-it)). | Phrase `REDIRECT` |
+| Manage → Capture a database's mail in Mailpit | Deactivates a named database's mail servers **without altering them** and adds one pointing at `127.0.0.1:1025`; deactivates fetchmail; records what it did inside that database. Odoo 12–19, safe to repeat ([egress-control](egress-control.md#a-copied-database-still-mails-out-capture-it)). | Phrase `CAPTURE` |
+| Manage → Restore a database's mail configuration | Removes the capture's server and switches back on exactly what the capture switched off, then drops its record. Refuses a database that was never captured. | Phrase `RESTORE` |
+| Manage → Check whether a database can mail out | Reads only. Names every active mail server, whether fetchmail is running, and whether a capture is in effect. | — |
 
 ### System provisioning (optional; the Ubuntu releases in the [support matrix](support-matrix.md))
 
@@ -82,7 +84,31 @@ Every menu shows a numbered list; `0` (or `Back`/`Cancel`) always returns withou
 | Preflight check | Read-only verification: chain tools, PostgreSQL, dump integrity, and — against a named database — version match, installed modules, per-step addons coverage | Never mutates |
 | Stage custom modules | Per chain step, copies the previous stage and runs `odoo-module-migrator` on it; then analysis findings, inert `pre-migration.py` scaffolds, and a per-module report | Source dir never modified; phrase `RESTAGE` to replace staged code |
 | Clean a migration environment | Removes one `<src>-to-<tgt>` directory; the shared `.repos` cache is a separate opt-in | Phrase `DELETE`; the PostgreSQL DB is never touched |
-| Redirect a database's mail to Mailpit | Same as the workspace action, for the migration's databases. Never for a database going back to production. | Phrase `REDIRECT` |
+### Read-only commands (no menu, no prompt, nothing written)
+
+These exist so an answer can be had from a script, from a pipe, or from a second terminal while a
+migration runs. Each exits **0** when it found nothing, **1** when it found something, **2** when it could
+not tell — and exit 2 is never a clean result.
+
+| Command | Answers |
+|---|---|
+| `odoo-dwg egress check` | Are the tool's OpenSnitch rules still as it wrote them, and does anything sort ahead of them? |
+| `odoo-dwg mail check --database X` | Can mail leave this database? |
+| `odoo-dwg migrate report --source A --target B` | The cumulative run report, to stdout (the menu action writes a file; this does not). |
+| `odoo-dwg migrate probes --source A --target B --database X` | What became of each rehearsal probe's subject. |
+
+Anything that changes the host stays in the menus behind its confirmation phrase. A read-only command that
+finds something to act on names the menu action; it does not perform it. Three skills in `.claude/skills/`
+are thin wrappers over these four commands.
+
+| Seed a demo source database | Prepares the source version (plain Odoo clone, venv, config — none of which the chain itself builds) and writes `seed_demo.sh`, which builds a database with Odoo's demo data and dumps it in the format the driver takes ([migration](migration.md#rehearsing-before-there-is-a-client-dump)). | Previewed, confirmed |
+| Module fates in this chain | Reads only. For each module named: renamed to X, absorbed into Y, or nothing declared — from each step's own `apriori.py`. | — |
+| Follow a running migration | Reads only. Where the chain is (every step, including those not reached), what the running step is saying, and what it reached for outside its own machine since that step began. Stopping it leaves the driver alone ([migration](migration.md#following-a-run-while-it-happens)). | — |
+| Generate the migration tester | Writes an add-on of the tool's own into each step's `custom`, with one probe per class of change *this chain* contains, taken from its own analysis files. Names the classes the chain never exercises ([migration](migration.md#rehearsing-against-a-module-built-to-break)). | Previewed, confirmed |
+| Check the migration tester | Reads only. Asks a database what became of each probe's subject; reports what disappeared unannounced and what a script left behind, first. | — |
+| Capture a database's mail in Mailpit | Same as the workspace action, for the migration's databases. | Phrase `CAPTURE` |
+| Restore a database's mail configuration | The step before cutover: the migrated database mails out again through the client's own servers. | Phrase `RESTORE` |
+| Check whether a database can mail out | Reads only. Use it after restoring, before cutover. | — |
 
 ## The generated driver
 

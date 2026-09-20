@@ -167,3 +167,184 @@ table (check, state, detail) with states OK / WARN / MISSING / INFO, and the che
 
 - **WHEN** the preflight runs against a host missing every prerequisite
 - **THEN** it reports them and makes no change to the host
+
+### Requirement: Decisions about modules with no successor are recorded, reused and re-checked
+
+When a module resolves nowhere in a step and OpenUpgrade declares no successor for it, the coverage report
+names it and stops there. What follows is a decision only the operator can make — the module is dropped, it
+is replaced by another one, or somebody ports it — and for an official or OCA module that decision is the
+same for every client migrating between the same two versions. Making it once per client is making it again
+for no reason.
+
+The system SHALL let the operator record such a decision in a file they own, keyed by the module and the
+source → target pair, holding what was decided and why. Coverage SHALL apply a recorded decision to the
+module it names, and SHALL report what is still **undecided** as its own class, distinct from what is
+missing.
+
+A decision SHALL NOT be believed over the sources. Each SHALL carry the evidence it was made against, and
+coverage SHALL report a decision as **stale** — never apply it — when the sources now say otherwise: an OCA
+module decided dead that has since been ported, a module whose successor OpenUpgrade now declares. The
+fates of Odoo and OCA modules SHALL always be derived from that step's checkout and `apriori.py` at the time
+the question is asked, and SHALL NOT be recorded as facts in this tool or in the operator's file.
+
+The file SHALL be readable and writable by hand, since it is the operator's record and is carried between
+clients.
+
+#### Scenario: A decision made for one client serves the next
+
+- **WHEN** a module dropped with no successor in 12 → 18 was decided for an earlier client, and coverage
+  meets it again
+- **THEN** the report shows the decision and its reason instead of asking again
+
+#### Scenario: A decision the sources have overtaken
+
+- **WHEN** an OCA module recorded as dead in 18.0 now resolves in that step's sources
+- **THEN** coverage reports the decision as stale, naming what changed, and does not apply it
+
+#### Scenario: What is still open is separate from what is missing
+
+- **WHEN** coverage finds a module with no successor and no decision
+- **THEN** it is reported as undecided, distinctly from a module whose code is simply not on disk
+
+### Requirement: A rehearsal can be run against a module built to break
+
+A chain rehearsed only against the client's own add-ons exercises the classes of change that client happens
+to meet. The system SHALL be able to generate a custom add-on of its own for a chain, whose purpose is to
+depend on the classes of change the chain contains and to be caught when one of them takes something away.
+
+Each probe SHALL be derived from a record of that chain's own OpenUpgrade sources — an analysis file or
+`apriori.py` — and SHALL name the record it came from. The system SHALL NOT invent a subject that the
+sources do not state.
+
+Where the chain contains no instance of a class, the system SHALL report that class as uncovered rather
+than omit it silently, because a class with no probe is not a class that passed.
+
+The generated module SHALL declare, in a table of its own, each probe's subject, the class of change, the
+step the sources predict it at, and the source line it came from, verbatim.
+
+It SHALL NOT synthesize model code referring to the subject. A reference derived wrongly fails on the
+source version rather than at the step it is meant to test, and would destroy the rehearsal rather than
+measure it. It SHALL declare no menu, no group and no access beyond that
+table, and SHALL NOT set `auto_install`.
+
+The system SHALL write the module only inside a migration environment.
+
+#### Scenario: The probes come from the chain being rehearsed
+
+- **WHEN** a tester is generated for a 12 → 16 chain whose analysis files declare `sale.order.line`'s
+  `qty_delivered_manual` removed at 16.0
+- **THEN** a probe names that field, that model and that step
+
+#### Scenario: A class the chain never exercises
+
+- **WHEN** no step of the chain removes a selection key
+- **THEN** the generation reports that class as uncovered, and no probe claims to cover it
+
+### Requirement: What a step took away is answerable per probe
+
+The system SHALL offer an action that reports, for a chosen database, what became of each probe's subject,
+by reading the database's own `ir_model`, `ir_model_fields` and `ir_module_module` and the module's table.
+It SHALL NOT require Odoo to run, so that a step where the module failed to load can still be reported on.
+
+**A probe SHALL report a loss only where there was something to lose.** A field whose owning model is not
+in the database, and a module whose subject *and* declared successor are both absent, were never there:
+the probe measured nothing and SHALL say so rather than report the chain behaving.
+
+**A probe SHALL be judged against its own step.** Its claim is about the step that changed the subject, and
+the database it is read from may be anywhere in the chain. Where the database is *past* that step, a
+missing subject SHALL NOT be reported as a finding, because a later step may have removed it. Where the
+database has *not reached* that step, the subject's presence SHALL NOT be reported as a finding, because
+nothing has happened to it yet. A subject the sources predicted would go is judged from any later version,
+since "gone from its step onward" holds there too.
+
+Each probe SHALL be reported as exactly one state. These are what the operator reads, so they are named
+here as they are printed: `intact`; `gone as predicted`; **`gone unannounced`**; **`still there`**;
+`not yet reached`; `past its step`; `not observed`; or `absent` where the module's own table is missing
+altogether.
+
+Only the two emphasised states are findings. They SHALL be reported first and named as findings: a subject
+that disappeared unannounced is the quiet loss the run's logs do not mention, and a subject still present
+where a script should have removed it is a script that did not run. The states that measured nothing SHALL
+sort last, after everything that was measured, so that they cannot be read as passes.
+
+#### Scenario: A quiet removal is found
+
+- **WHEN** a probe's field is absent from `ir_model_fields` after its own step, its model is present, and no
+  analysis record predicted the field would go
+- **THEN** it is reported first, as gone unannounced
+
+#### Scenario: A migration script that did not run
+
+- **WHEN** a probe's model is still in `ir_model` after the step whose analysis declared it obsolete
+- **THEN** it is reported as still present where the sources predicted it would go
+
+#### Scenario: A subject that was never in this database
+
+- **WHEN** a probe names a field whose model this database does not have, or a module whose successor is
+  absent too
+- **THEN** it is reported as having measured nothing, and is not counted as the chain behaving
+
+#### Scenario: A database read past the probe's step
+
+- **WHEN** a probe about step 15.0 is read from a database already at 19.0 and its subject is missing
+- **THEN** it is not reported as a finding, because a later step may have removed it
+
+#### Scenario: The module did not install
+
+- **WHEN** the module's own table does not exist in the database
+- **THEN** the action reports that, rather than reporting every probe as intact
+
+### Requirement: What the chain does to a module is answerable before running it
+
+For each module named, the system SHALL report what the chain declares will happen to it and at which
+step: **renamed** to another name, **merged** into another module — absorbed, its records folded into the
+successor — or **nothing declared**, which means the module is expected to carry on under its own name.
+
+Renamed and merged SHALL be distinguished. They differ in what becomes of the module's own records, and a
+reader told only "the successor is X" cannot tell which happened.
+
+Each answer SHALL name the step whose `apriori.py` declared it. Where a step's `apriori.py` cannot be read,
+the system SHALL say so for that step rather than report the module as unchanged, because an unread source
+is not a source that declared nothing.
+
+A chain SHALL be able to suggest a set of modules that exercises the different fates, drawn from what is
+actually present under the source version's OCA directory: a module absent at the source version cannot be
+installed there, and suggesting it would produce a rehearsal that fails for the wrong reason.
+
+#### Scenario: A module absorbed into another
+
+- **WHEN** the operator asks about a module that `apriori.py` merges into `website_sale` at 14.0
+- **THEN** it is reported as merged into `website_sale` at 14.0, distinctly from a rename
+
+#### Scenario: A module nothing declares
+
+- **WHEN** no step of the chain declares a fate for the module
+- **THEN** it is reported as expected to carry on under its own name
+
+#### Scenario: A step whose sources cannot be read
+
+- **WHEN** a step's `apriori.py` is missing from the clone
+- **THEN** that step is reported as unread, and no module is reported unchanged on the strength of it
+
+### Requirement: A module's dependencies must resolve, not only the module
+
+A module resolving is not the same as a step running. Odoo refuses to upgrade a module whose manifest names
+a dependency it cannot find, so coverage answering "everything resolves" was not the same as the step
+succeeding.
+
+The system SHALL check, for every module that resolves in a step's sources, that each dependency its
+manifest declares also resolves there, and SHALL report the module and the dependencies that do not. The
+manifest SHALL be parsed, never executed.
+
+A manifest that cannot be read SHALL name no dependency, rather than fail the check: it is a checkout's
+file and may hold anything.
+
+#### Scenario: A dependency in a repository nobody cloned
+
+- **WHEN** a module resolves but its manifest names a module that resolves in no source of that step
+- **THEN** both are named, before any step runs
+
+#### Scenario: A manifest that cannot be parsed
+
+- **WHEN** a module's manifest is not readable as a literal
+- **THEN** the check reports no dependency for it and does not fail

@@ -11,23 +11,34 @@ from __future__ import annotations
 
 import re
 import shlex
+import time
 from datetime import datetime
 from pathlib import Path
 
-from .. import analysis, planners, preflight, templates
+from .. import analysis, egress, planners, preflight, runlog, templates, tester
 from ..i18n import t, tf
 from ..models import (
     DB_NAME_RE,
     MODULE_NAME_RE,
     Command,
     MigrationEnv,
+    ModuleDecision,
+    PromotedModules,
+    decisions_from_json,
     interpreter_from_pyvenv,
 )
 from ..planners import write_text_file_command
-from ..prompts import ask_bool, ask_text, choose, confirm_with_phrase
-from ..system import apply_commands, list_dirs, preview_commands
-from ..ui import level_text, render_table
-from .common import redirect_mail
+from ..prompts import ask_bool, ask_text, choose, clear_screen, confirm_with_phrase
+from ..system import (
+    apply_commands,
+    journal_since,
+    list_dirs,
+    preview_commands,
+    psql_rows,
+    psql_scalar,
+)
+from ..ui import level_text, render_table, title
+from .common import apply_if_confirmed, capture_mail, check_mail, restore_mail
 
 
 def _exists(path) -> bool:
@@ -48,10 +59,17 @@ def _stamp() -> str:
     return datetime.now().strftime("%Y%m%d-%H%M%S-%f")
 
 
-def _ask_env() -> MigrationEnv | None:
+def _ask_env(with_oca: bool = False) -> MigrationEnv | None:
     source = ask_text("Source Odoo version (e.g. 13.0)", required=True)
     target = ask_text("Target Odoo version (e.g. 18.0)", required=True)
-    env = MigrationEnv(source=source, target=target)
+    # Only where they are acted on: generation clones and links them, and every
+    # other action reads what generation already put on disk.
+    raw_oca = (
+        ask_text("OCA repositories this chain needs (comma-separated, optional)", "")
+        if with_oca else ""
+    )
+    oca = [repo.strip() for repo in raw_oca.split(",") if repo.strip()]
+    env = MigrationEnv(source=source, target=target, oca_repos=oca)
     try:
         env.validate()
     except ValueError as error:
@@ -123,7 +141,7 @@ def _print_preflight(rows: list[tuple[str, str, str]]) -> None:
 
 
 def _generate_environment() -> None:
-    env = _ask_env()
+    env = _ask_env(with_oca=True)
     if env is None:
         return
 
@@ -153,6 +171,16 @@ def _generate_environment() -> None:
         print(level_text("OK", tf("Environment ready. Run: bash {}/run_migration.sh <source-dump>", env.root)))
 
 
+def _read_decisions(path: Path) -> list[ModuleDecision]:
+    """The operator's record of what was decided about modules with no successor.
+
+    Absent or unreadable yields none: it is a hand-edited file carried between
+    clients, and a typo in it must not stop a preflight from running.
+    """
+    text = _read_text(path)
+    return decisions_from_json(text) if text else []
+
+
 def _preflight_check() -> None:
     env = _ask_env()
     if env is None:
@@ -162,6 +190,13 @@ def _preflight_check() -> None:
     if db and not DB_NAME_RE.fullmatch(db):
         print(level_text("ERROR", tf("Invalid database name: {}", db)))
         return
+    # Asked after the name is validated: a value the flow refuses should not cost
+    # the operator another question first.
+    raw_decisions = ask_text(
+        "File recording what you decided about modules with no successor (empty to skip)",
+        "", required=False,
+    )
+    decisions_path = Path(raw_decisions).expanduser() if raw_decisions.strip() else None
 
     host = preflight.gather_host_facts(env, dump or None)
     db_facts = preflight.gather_db_facts(env, db) if db else None
@@ -169,7 +204,8 @@ def _preflight_check() -> None:
     customs: set[str] | None = None
     if db_facts is not None and db_facts.installed_modules:
         coverage = preflight.gather_coverage(
-            env, db_facts.installed_modules, authors=db_facts.module_authors
+            env, db_facts.installed_modules, authors=db_facts.module_authors,
+            decisions=_read_decisions(decisions_path) if decisions_path else [],
         )
         customs = coverage.customs
 
@@ -181,6 +217,259 @@ def _preflight_check() -> None:
         print(level_text("WARN", t("Resolve the MISSING checks before running the migration.")))
     else:
         print(level_text("OK", t("Preflight passed.")))
+
+
+def _ask_promoted(required: bool) -> PromotedModules | None:
+    """The operator's own place for reviewed code, one directory per version.
+
+    Empty means "not using one": staging then derives every step, as it always
+    did. A location inside the migration environments is refused, since cleaning
+    one would take the only copy of the work with it.
+    """
+    raw = ask_text(
+        "Directory holding your reviewed modules, one subdirectory per version "
+        "(empty = none)",
+        "",
+        required=required,
+    )
+    if not raw.strip():
+        return None
+    promoted = PromotedModules(base_dir=raw.strip())
+    try:
+        promoted.validate()
+    except ValueError as error:
+        print(level_text("ERROR", str(error)))
+        return None
+    return promoted
+
+
+def _promote_modules() -> None:
+    """Copy reviewed module code out of an environment, so the next run can take
+    it as given instead of deriving it again."""
+    env = _ask_env()
+    if env is None:
+        return
+    promoted = _ask_promoted(required=True)
+    if promoted is None:
+        return
+    staged = sorted({
+        path.name
+        for version in env.chain()
+        for path in _existing_dirs(env.addons_custom_dir(version))
+    })
+    if not staged:
+        print(level_text("INFO", t("No staged modules in this environment.")))
+        return
+    module = choose("Which module", staged + ["Cancel"], default_index=None)
+    if module in ("", "Cancel"):
+        return
+    versions = [v for v in env.chain() if (env.addons_custom_dir(v) / module).is_dir()]
+
+    rows = preflight.divergence(env, module, promoted, versions)
+    if rows:
+        print(render_table(
+            [t("Step"), t("Environment vs promoted")], [[v, t(state)] for v, state in rows]
+        ))
+    already = [v for v, state in rows if state in ("same", "diverged")]
+    if already and not confirm_with_phrase(
+        tf("This replaces the promoted code of {} for: {}.", module, ", ".join(already)),
+        "PROMOTE",
+    ):
+        print(level_text("INFO", t("Cancelled.")))
+        return
+
+    commands = planners.plan_promote_module(env, module, versions, promoted)
+    preview_commands(commands)
+    if not ask_bool("Apply this plan now?", False):
+        print(level_text("INFO", t("Cancelled.")))
+        return
+    apply_commands(commands)
+    print(level_text("OK", tf("Promoted {} for: {}.", module, ", ".join(versions))))
+    print(level_text("INFO", t(
+        "The promoted copy is yours: commit it on the branch for that version if you keep it in git. "
+        "The throwaway repository inside each stage directory is not that history."
+    )))
+
+
+def _existing_dirs(parent: Path):
+    try:
+        return [path for path in parent.iterdir() if path.is_dir()]
+    except OSError:
+        return []
+
+
+def _open_items(env: MigrationEnv, latest, logs: dict) -> list[tuple[str, str]]:
+    """What the run left unresolved. This is the section the report exists for:
+    a step that did not finish, and a step that passed while its log holds an
+    error — success and a clean log are not the same thing."""
+    items: list[tuple[str, str]] = []
+    for step in latest.steps:
+        if step.outcome == "fail":
+            items.append((
+                tf("Step {} failed", step.version),
+                tf("exit {} — see {}", step.code or "?", str(env.logs_dir / f"{step.version}.log")),
+            ))
+        elif step.outcome == "unfinished":
+            items.append((
+                tf("Step {} never finished", step.version),
+                tf("started {} and recorded no outcome", step.started or "?"),
+            ))
+        errors = [entry for entry in logs.get(step.version, []) if entry.level in ("ERROR", "CRITICAL")]
+        if errors and step.outcome == "ok":
+            items.append((
+                tf("Step {} passed with {} error line(s)", step.version, len(errors)),
+                tf("first: {}", errors[0].first[:120]),
+            ))
+    remaining = [v for v in env.chain() if (latest.step(v) is None)]
+    if remaining:
+        items.append((
+            tf("{} step(s) never ran in this run", len(remaining)),
+            ", ".join(remaining),
+        ))
+    return items
+
+
+def build_report(env: MigrationEnv, text: str) -> tuple[str, list]:
+    """The cumulative report and its open items, from what the runs left behind.
+
+    Separate from the action that writes it, because the same report is what the
+    read-only `migrate report` command prints without writing anything.
+    """
+    history = runlog.runs(runlog.parse_steps(text))
+    latest = history[-1]
+    # Windowed to the step's own run: the log file is appended to across runs,
+    # so a step re-run after a failure carries every earlier attempt with it.
+    logs = {
+        step.version: runlog.summarise_log(
+            _read_text(env.logs_dir / f"{step.version}.log") or "", window=step.window
+        )
+        for step in latest.steps
+    }
+    # The firewall's answers, asked for by the step's own window rather than
+    # estimated. `odoo-bin` only: what the *migration* reached for, not what the
+    # host did while it ran.
+    decisions = {}
+    for step in latest.steps:
+        since, until = step.window
+        journal = journal_since(egress.OPENSNITCH_JOURNAL_TAG, since, until) if since else ""
+        answers = runlog.summarise_decisions(journal, process="odoo-bin")
+        if answers:
+            decisions[step.version] = answers
+    open_items = _open_items(env, latest, logs)
+    return (
+        templates.render_migration_report(env, history, logs, decisions, open_items),
+        open_items,
+    )
+
+
+def _migration_report() -> None:
+    """Read back what the runs left: the driver's step log, each step's Odoo log,
+    and what the outbound firewall answered inside each step's own window."""
+    env = _ask_env()
+    if env is None:
+        return
+    text = _read_text(env.steps_file)
+    if not text:
+        print(level_text("INFO", tf(
+            "No run recorded yet in {} — the driver writes one line per event as it goes.",
+            str(env.steps_file),
+        )))
+        return
+
+    report, _open = build_report(env, text)
+    target = env.reports_dir / f"report-{_stamp()}.md"
+    commands = [
+        Command(
+            tf("Create {}", str(env.reports_dir)),
+            f"mkdir -p {shlex.quote(str(env.reports_dir))}",
+        ),
+        *write_text_file_command(target, report),
+    ]
+    preview_commands(commands)
+    if not ask_bool("Apply this plan now?", False):
+        print(level_text("INFO", t("Cancelled.")))
+        return
+    apply_commands(commands)
+    print(level_text("OK", tf("Report written: {}", str(target))))
+
+
+#: How often the live view re-reads what the driver has written. The driver's
+#: steps take minutes; a shorter tick would only spend the terminal.
+WATCH_SECONDS = 2
+#: Rows of log and of firewall answers the live view shows at once.
+_WATCH_LINES = 8
+
+
+def _watch_run() -> None:
+    """Follow a chain while it runs, from what the driver writes as it goes.
+
+    The driver is started by hand in another terminal, so this only reads: the
+    step log for where the chain is, the current step's Odoo log for what it is
+    saying, and the firewall's journal for what it has reached for since that
+    step began.
+    """
+    env = _ask_env()
+    if env is None:
+        return
+    if not env.steps_file.exists():
+        print(level_text("INFO", tf(
+            "Nothing to follow yet: {} appears when the driver starts.", str(env.steps_file)
+        )))
+        return
+
+    print(level_text("INFO", t("Following the run. Ctrl-C stops watching; the driver keeps going.")))
+    try:
+        while True:
+            history = runlog.runs(runlog.parse_steps(_read_text(env.steps_file) or ""))
+            latest = history[-1] if history else None
+            rows = runlog.live_view(latest, list(env.chain()), datetime.now().astimezone().isoformat())
+            current = runlog.current_step(rows)
+
+            clear_screen()
+            print(title(tf("Migration {} → {}", env.source, env.target))
+                  + (f"  ({latest.run})" if latest else ""))
+            print(render_table(
+                [t("Step"), t("State"), t("Elapsed")],
+                [[row.version, t(row.state), row.elapsed or "—"] for row in rows],
+            ))
+
+            if current:
+                entries = runlog.summarise_log(
+                    _read_text(env.logs_dir / f"{current}.log") or ""
+                )[:_WATCH_LINES]
+                print(title(tf("{} — worth reading so far", current)))
+                if entries:
+                    print(render_table(
+                        [t("Level"), t("Logger"), t("Count"), t("Message")],
+                        [[e.level, e.logger, str(e.count), e.first[:90]] for e in entries],
+                    ))
+                else:
+                    print(t("  nothing above INFO yet"))
+
+                step = latest.step(current) if latest else None
+                journal = journal_since(
+                    egress.OPENSNITCH_JOURNAL_TAG, step.started if step else ""
+                )
+                reached = runlog.summarise_decisions(journal, process="odoo-bin")[:_WATCH_LINES]
+                if reached:
+                    print(title(t("Reached outside its own machine")))
+                    for answer in reached:
+                        print(f"  {answer.action} {answer.host} ×{answer.count} ({answer.rule})")
+
+            if latest is not None and latest.outcome in ("ok", "fail"):
+                print(level_text("OK" if latest.outcome == "ok" else "ERROR",
+                                 tf("The run finished: {}.", latest.outcome)))
+                # The live view follows the *running* step, so the last frame has
+                # no log detail. The report is where the whole run is read.
+                print(level_text("INFO", t(
+                    "Use \"Report on the runs so far\" for what each step logged and what is left open."
+                )))
+                return
+            time.sleep(WATCH_SECONDS)
+    except KeyboardInterrupt:
+        # Back to this menu rather than the top one: stopping a watch is not
+        # abandoning the migration, and the driver is still running elsewhere.
+        print(t("\nStopped watching. The driver is unaffected."))
 
 
 def _clean_environment() -> None:
@@ -224,23 +513,53 @@ def _clean_environment() -> None:
 
 
 def _step_analysis_records(env: MigrationEnv, version: str) -> list[analysis.AnalysisRecord]:
-    """Aggregate every ``upgrade_analysis.txt`` of the step's OpenUpgrade clone.
-    Layout differs by era: ``openupgrade_scripts/scripts/<module>/<ver>/`` on
-    ≥ 14, module-embedded ``migrations`` dirs on the ≤ 13 fork."""
-    clone = env.openupgrade_clone_dir(version)
+    """Aggregate every analysis file of the step's OpenUpgrade clone.
+
+    Both the layout and the *name* differ by era: from 14.0 the files sit under
+    ``openupgrade_scripts/scripts/<module>/<ver>/upgrade_analysis.txt``, while the
+    ≤ 13 fork embeds them in each add-on's ``migrations/<ver>/`` and calls them
+    ``openupgrade_analysis.txt``. Looking only for the newer name found nothing
+    at all in the 12 → 13 step — the one hop where a module that has not moved
+    since 12 has the most to answer for — and staging then reported no candidate
+    findings, which reads exactly like having none. The work file the tool writes
+    beside it (``…_work.txt``) is deliberately not read.
+    """
     records: list[analysis.AnalysisRecord] = []
-    patterns = (
-        "openupgrade_scripts/scripts/*/*/upgrade_analysis.txt",
-        "addons/*/migrations/*/upgrade_analysis.txt",
-        "odoo/addons/*/migrations/*/upgrade_analysis.txt",
-    )
-    for pattern in patterns:
-        for path in clone.glob(pattern):
+    for text in _analysis_texts(env, version):
+        records += analysis.parse_analysis(text)
+    return records
+
+
+# The patterns live here once. Stating them twice is how the 12 -> 13 step came
+# to be read by one reader and not the other.
+_ANALYSIS_PATTERNS = (
+    "openupgrade_scripts/scripts/*/*/upgrade_analysis.txt",
+    "addons/*/migrations/*/upgrade_analysis.txt",
+    "odoo/addons/*/migrations/*/upgrade_analysis.txt",
+    "addons/*/migrations/*/openupgrade_analysis.txt",
+    "odoo/addons/*/migrations/*/openupgrade_analysis.txt",
+)
+
+
+def _analysis_texts(env: MigrationEnv, version: str) -> list[str]:
+    """Every analysis file of the step's OpenUpgrade clone, read."""
+    clone = env.openupgrade_clone_dir(version)
+    texts: list[str] = []
+    for pattern in _ANALYSIS_PATTERNS:
+        for path in sorted(clone.glob(pattern)):
             try:
-                records += analysis.parse_analysis(path.read_text(encoding="utf-8", errors="replace"))
+                texts.append(path.read_text(encoding="utf-8", errors="replace"))
             except OSError:
                 continue
-    return records
+    return texts
+
+
+def _step_changes(env: MigrationEnv, version: str) -> list[analysis.ChangeRecord]:
+    """Every class of change the step declares, not only the breaking ones."""
+    changes: list[analysis.ChangeRecord] = []
+    for text in _analysis_texts(env, version):
+        changes += analysis.harvest_changes(text)
+    return changes
 
 
 def _staged_module_files(module_dir: Path) -> list[tuple[str, str]]:
@@ -273,6 +592,7 @@ def _stage_modules() -> None:
     if not _ensure_staging_tool(env):
         return
 
+    promoted = _ask_promoted(required=False)
     source_dir = Path(ask_text("Directory containing your custom modules (at the source version)", required=True)).expanduser()
     if not source_dir.is_dir():
         print(level_text("ERROR", tf("Not a directory: {}", str(source_dir))))
@@ -305,7 +625,9 @@ def _stage_modules() -> None:
 
     commands = []
     for module in modules:
-        commands += planners.plan_stage_module(env, module, source_dir)
+        commands += planners.plan_stage_module(
+            env, module, source_dir, promoted=promoted, exists=_exists
+        )
     preview_commands(commands)
     if not ask_bool("Apply this plan now?", False):
         return
@@ -346,8 +668,10 @@ def _stage_modules() -> None:
                     target, templates.render_migration_scaffold(module, version, findings)
                 )
             steps.append((version, log_text, findings, scaffold_path))
+        drift = preflight.divergence(env, module, promoted, list(env.chain())) if promoted else []
         write_commands += write_text_file_command(
-            env.staging_report_file(module), templates.render_staging_report(module, steps)
+            env.staging_report_file(module),
+            templates.render_staging_report(module, steps, promoted=drift),
         )
     preview_commands(write_commands)
     if ask_bool("Apply this plan now?", False):
@@ -365,8 +689,17 @@ def migration_menu() -> None:
                 "Generate a migration environment",
                 "Preflight check",
                 "Stage custom modules",
+                "Promote reviewed modules",
+                "Report on the runs so far",
+                "Follow a running migration",
+                "Seed a demo source database",
+                "Module fates in this chain",
+                "Generate the migration tester",
+                "Check the migration tester",
                 "Clean a migration environment",
-                "Redirect a database's mail to Mailpit",
+                "Capture a database's mail in Mailpit",
+                "Restore a database's mail configuration",
+                "Check whether a database can mail out",
                 "Back",
             ],
             default_index=None,
@@ -379,9 +712,225 @@ def migration_menu() -> None:
             _preflight_check()
         elif action == "Stage custom modules":
             _stage_modules()
+        elif action == "Promote reviewed modules":
+            _promote_modules()
+        elif action == "Report on the runs so far":
+            _migration_report()
+        elif action == "Follow a running migration":
+            _watch_run()
+        elif action == "Seed a demo source database":
+            _seed_demo()
+        elif action == "Module fates in this chain":
+            _module_fates()
+        elif action == "Generate the migration tester":
+            _generate_tester()
+        elif action == "Check the migration tester":
+            _check_tester()
         elif action == "Clean a migration environment":
             _clean_environment()
-        elif action == "Redirect a database's mail to Mailpit":
+        elif action in (
+            "Capture a database's mail in Mailpit",
+            "Restore a database's mail configuration",
+            "Check whether a database can mail out",
+        ):
             # Migration databases use the environment's defaults (host, port, role).
             defaults = MigrationEnv(source="12.0", target="19.0")
-            redirect_mail(defaults.db_host, defaults.db_port, defaults.db_user)
+            {
+                "Capture a database's mail in Mailpit": capture_mail,
+                "Restore a database's mail configuration": restore_mail,
+                "Check whether a database can mail out": check_mail,
+            }[action](defaults.db_host, defaults.db_port, defaults.db_user)
+
+
+def _generate_tester() -> None:
+    """Write the rehearsal tester into an environment, from that chain's sources."""
+    env = _ask_env()
+    if env is None:
+        return
+    by_version: dict[str, list[analysis.ChangeRecord]] = {}
+    # Both sources: the analysis files state what happens to models and fields,
+    # `apriori.py` what happens to modules, and a probe is checked the same way
+    # whichever it came from.
+    on_disk = _modules_on_disk(env)
+    for version in env.chain():
+        changes = _step_changes(env, version)
+        if not changes:
+            print(level_text("WARN", tf("No analysis files read for {}.", version)))
+        fates, _unread = preflight.chain_fates(
+            on_disk, [(version, preflight.apriori_path(env, version))]
+        )
+        changes += tester.module_fate_changes(fates)
+        if changes:
+            by_version[version] = changes
+    if not by_version:
+        print(level_text("ERROR", t("No OpenUpgrade analysis files were read: clone the environment first.")))
+        return
+    probes, uncovered = tester.choose_probes(by_version)
+    print(level_text("INFO", tf("{} probes, from this chain's own sources.", str(len(probes)))))
+    for probe in probes:
+        print(f"  {probe.version}  {probe.kind:<18} {probe.subject}")
+    if uncovered:
+        # Named, not dropped: a class with no probe is not a class that passed.
+        print(level_text("WARN", tf("Classes this chain never exercises: {}", ", ".join(uncovered))))
+    apply_if_confirmed(planners.plan_generate_tester(env, probes, uncovered))
+
+
+def _check_tester() -> None:
+    """Ask a migrated database what became of each probe's subject."""
+    env = _ask_env()
+    if env is None:
+        return
+    database = ask_text("Database to ask about the tester", required=True)
+    if not DB_NAME_RE.fullmatch(database):
+        print(level_text("ERROR", tf("Invalid database name: {}", database)))
+        return
+    verdicts = probe_verdicts(env, database)
+    if verdicts is None:
+        return
+    report_probes(database, verdicts)
+
+
+def probe_verdicts(env: MigrationEnv, database: str) -> list | None:
+    """What became of each probe's subject, or None having said why not.
+
+    Separate from the action that asks for a database: the read-only
+    `migrate probes` command needs the same reading without a prompt.
+    """
+    where = (database, env.db_host, env.db_port, env.db_user)
+    installed = psql_scalar(
+        f"SELECT to_regclass('{tester.PROBE_TABLE}') IS NOT NULL", *where
+    )
+    if installed is None:
+        print(level_text("ERROR", tf("Could not read database {}.", database)))
+        return None
+    if installed != "t":
+        print(level_text("WARN", tf("The tester is not installed in {}.", database)))
+        return None
+    # The tester in the database may predate a column this version knows about.
+    has_successor = psql_scalar(
+        "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = "
+        f"'{tester.PROBE_TABLE}' AND column_name = '{tester.PROBE_SUCCESSOR_COLUMN}')",
+        *where,
+    )
+    rows = psql_rows(tester.probe_rows_sql(successor=has_successor == "t"), *where)
+    probes = tester.probes_from_rows(rows or [])
+    if not probes:
+        print(level_text("WARN", tf("The tester in {} declares no probe.", database)))
+        return None
+    states = psql_rows(tester.probe_state_sql(probes), *where)
+    if states is None:
+        print(level_text("ERROR", tf("Could not read the models of {}.", database)))
+        return None
+    # What the database is at now, so a probe about an earlier step is not
+    # blamed for what a later one did.
+    at_version = psql_scalar(
+        "SELECT latest_version FROM ir_module_module WHERE name = 'base'", *where
+    )
+    return tester.read_probe_states(probes, states, at_version=at_version or "")
+
+
+def report_probes(database: str, verdicts: list) -> None:
+    """Findings first — they are the reason the tester exists; the rest is what
+    behaved, and is worth one line each so the operator can see it was asked."""
+    findings = [verdict for verdict in verdicts if verdict.is_finding]
+    if findings:
+        print(level_text("WARN", tf("{} probe(s) need looking at in {}.", str(len(findings)), database)))
+    else:
+        print(level_text("OK", tf("Every probe behaved as its sources predicted in {}.", database)))
+    for verdict in verdicts:
+        mark = "!" if verdict.is_finding else " "
+        print(f"  {mark} {verdict.probe.version}  {verdict.state:<18} "
+              f"{verdict.probe.kind}: {verdict.probe.subject}")
+        if verdict.is_finding:
+            print(f"      {verdict.probe.detail}")
+
+
+def _chain_apriori_steps(env: MigrationEnv) -> list[tuple[str, Path]]:
+    """``(version, apriori path)`` for every step, in chain order."""
+    return [(version, preflight.apriori_path(env, version)) for version in env.chain()]
+
+
+def _module_fates() -> None:
+    """What the chain declares will become of each module named."""
+    env = _ask_env()
+    if env is None:
+        return
+    raw = ask_text("Modules to ask about (comma-separated)", required=True)
+    modules = [name.strip() for name in raw.split(",") if name.strip()]
+    invalid = [name for name in modules if not MODULE_NAME_RE.fullmatch(name)]
+    if invalid:
+        print(level_text("ERROR", tf("Invalid module name: {}", ", ".join(invalid))))
+        return
+    fates, unread = preflight.chain_fates(modules, _chain_apriori_steps(env))
+    _report_fates(fates, unread)
+
+
+def _report_fates(fates: list, unread: list[str]) -> None:
+    for fate in sorted(fates, key=lambda f: (f.kind == "carries on", f.module)):
+        if fate.kind == "carries on":
+            print(f"  {fate.module:<44} {t('carries on under its own name')}")
+        else:
+            word = t("absorbed into") if fate.absorbed else t("renamed to")
+            print(f"  {fate.module:<44} {word} {fate.successor} ({fate.version})")
+    if unread:
+        # An unread source declared nothing *that could be read*, which is not
+        # the same as having declared nothing.
+        print(level_text("WARN", tf(
+            "No apriori.py could be read for: {} — clone those steps before trusting this.",
+            ", ".join(unread),
+        )))
+
+
+def _seed_demo() -> None:
+    """Build a source database from Odoo's demo data, so a chain can be rehearsed
+    before any client dump exists."""
+    env = _ask_env()
+    if env is None:
+        return
+    steps = _chain_apriori_steps(env)
+    available = _modules_on_disk(env)
+    if available:
+        suggested = preflight.suggest_demo_modules(available, steps)
+        if suggested:
+            print(level_text("INFO", t(
+                "Modules found under the source version, with what this chain does to them:"
+            )))
+            _report_fates(suggested, [])
+    else:
+        print(level_text("INFO", tf(
+            "No modules under {} — the seed will install core Odoo only.",
+            str(env.addons_oca_dir(env.source)),
+        )))
+    raw = ask_text("Modules to install in the demo database (comma-separated, optional)", "")
+    modules = [name.strip() for name in raw.split(",") if name.strip()]
+    invalid = [name for name in modules if not MODULE_NAME_RE.fullmatch(name)]
+    if invalid:
+        print(level_text("ERROR", tf("Invalid module name: {}", ", ".join(invalid))))
+        return
+    fates, unread = preflight.chain_fates(modules, steps) if modules else ([], [])
+    if fates:
+        print(level_text("INFO", t("What the chain declares for the set you chose:")))
+        _report_fates(fates, unread)
+    commands = planners.plan_seed_environment(env, exists=Path.exists)
+    commands += planners.plan_seed_demo(env, modules)
+    if apply_if_confirmed(commands):
+        print(level_text("OK", tf(
+            "Now run {} — it builds the database and dumps it for the driver.",
+            str(env.root / "seed_demo.sh"),
+        )))
+
+
+def _modules_on_disk(env: MigrationEnv) -> list[str]:
+    """Modules the source version can actually install.
+
+    Resolved the way Odoo resolves: each add-ons path entry, one level down, a
+    directory with a ``__manifest__.py``. Walking only ``oca/`` found nothing at
+    all, because a named repository is linked as a directory *of* modules —
+    which is the same mistake that made the path itself wrong.
+    """
+    found: list[str] = []
+    for base in [env.addons_custom_dir(env.source), *env.oca_dirs(env.source)]:
+        for name in list_dirs(str(base)):
+            if (Path(base) / name / "__manifest__.py").exists():
+                found.append(name)
+    return sorted(set(found))

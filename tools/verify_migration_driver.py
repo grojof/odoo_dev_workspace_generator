@@ -17,6 +17,7 @@ directory. Exits non-zero on the first case that does not behave as documented.
 from __future__ import annotations
 
 import hashlib
+import re
 import shutil
 import subprocess
 import sys
@@ -26,7 +27,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from odoo_dwg import templates  # noqa: E402
-from odoo_dwg.models import MigrationEnv  # noqa: E402
+from odoo_dwg.models import (  # noqa: E402
+    MigrationEnv,
+    ModuleDecision,
+    decisions_to_json,
+)
 
 SOURCE, TARGET = "16.0", "18.0"
 # A chain that crosses the <= 13 layout, so the legacy step command and its own
@@ -47,6 +52,7 @@ def _build(
     failing_step: str | None = None,
     source: str = SOURCE,
     target: str = TARGET,
+    absorbed: tuple[str, str] | None = None,
 ) -> tuple[Path, MigrationEnv]:
     """Render the driver and the stub host it runs against."""
     MigrationEnv.base_dir = str(root / "envs")
@@ -56,9 +62,23 @@ def _build(
 
     stubs = root / "bin"
     # One installed module authored by Odoo: coverage warns, never blocks.
+    listing = 'printf "base\\tOdoo S.A.\\n"'
+    if absorbed:
+        # One module of somebody else's, which the first step absorbs into
+        # another. Odoo's own modules are only ever warned about.
+        #
+        # The database *changes* as the chain runs: once the first step has
+        # migrated, the module answers to its successor's name. A stub that
+        # answered the same thing at every step could not represent that, and
+        # made the per-step coverage check look wrong when it was right.
+        listing += (
+            f'; if [ -e "$STATE/{env.chain()[0]}" ]; '
+            f'then printf "{absorbed[1]}\\tACME\\n"; '
+            f'else printf "{absorbed[0]}\\tACME\\n"; fi'
+        )
     _stub(stubs / "psql",
           f'if [[ "$*" == *base* && "$*" == *latest_version* ]]; then echo {source}.1.0; '
-          'else printf "base\\tOdoo S.A.\\n"; fi')
+          f'else {listing}; fi')
     for name in ("pg_restore", "dropdb", "createdb", "uv"):
         _stub(stubs / name, "exit 0")
     _stub(stubs / "pg_dump", "exit 1" if failing_pg_dump else 'echo "dump of $*"')
@@ -70,7 +90,10 @@ def _build(
                 f'echo "traceback" >> {env.logs_dir}/{version}.log; exit 1',
             )
         else:
-            _stub(env.venv_dir(version) / "bin" / "python", "exit 0")
+            # Each step records that it ran, so the psql stub can answer as a
+            # database that the chain has changed.
+            _stub(env.venv_dir(version) / "bin" / "python",
+                  f'mkdir -p "$STATE" && touch "$STATE/{version}"; exit 0')
         odoo_bin = Path(env.odoo_bin(version))
         odoo_bin.parent.mkdir(parents=True, exist_ok=True)
         odoo_bin.write_text("", encoding="utf-8")
@@ -79,6 +102,21 @@ def _build(
             directory.mkdir(parents=True, exist_ok=True)
     for directory in (env.conf_dir, env.logs_dir, env.checkpoints_dir):
         Path(directory).mkdir(parents=True, exist_ok=True)
+    if absorbed:
+        old_name, new_name = absorbed
+        first, rest = env.chain()[0], env.chain()[1:]
+        # The first step declares the merge; no later step mentions the old name,
+        # because by then it does not exist to mention.
+        for version in env.chain():
+            apriori = Path(env.apriori_file(version))
+            apriori.parent.mkdir(parents=True, exist_ok=True)
+            merged = f'{{"{old_name}": "{new_name}"}}' if version == first else "{}"
+            apriori.write_text(
+                f"renamed_modules = {{}}\nmerged_modules = {merged}\n", encoding="utf-8"
+            )
+        # The successor is on disk for every step; the original for none.
+        for version in [first, *rest]:
+            (Path(env.addons_custom_dir(version)) / new_name).mkdir(parents=True, exist_ok=True)
     (root / "source.dump").write_text("source", encoding="utf-8")
     return script, env
 
@@ -97,7 +135,10 @@ def _run(root: Path, script: Path, dump: str = "source.dump") -> subprocess.Comp
         cwd=root,
         capture_output=True,
         text=True,
-        env={"PATH": f"{root / 'bin'}:/usr/bin:/bin", "HOME": str(root)},
+        env={"PATH": f"{root / 'bin'}:/usr/bin:/bin", "HOME": str(root),
+             # Where a step records that it ran, so the psql stub can answer as
+             # a database the chain has changed.
+             "STATE": str(root / "steps-run")},
     )
 
 
@@ -236,6 +277,169 @@ def main() -> int:
             stopped,
         )
 
+    # A module the chain absorbs mid-way must not be reported as missing at every
+    # step after the one that absorbed it. A real 12 -> 14 demo run stopped here:
+    # `account_coa_menu` merges into `account_menu` at 13.0, and 14.0's apriori
+    # says nothing about the old name, so preflight asked the operator to supply
+    # code that should not exist.
+    with tempfile.TemporaryDirectory(prefix="odwg-driver-") as tmp:
+        root = Path(tmp)
+        script, env = _build(root, absorbed=("acme_old_module", "acme_new_module"))
+        absorbed_run = _run(root, script)
+        check(
+            "a module absorbed at the first step does not block the later ones",
+            absorbed_run.returncode == 0 and "[done]" in absorbed_run.stdout,
+            absorbed_run.stdout + absorbed_run.stderr,
+        )
+        check(
+            "and it is never named as missing",
+            "acme_old_module missing" not in absorbed_run.stderr,
+            absorbed_run.stderr,
+        )
+
+    # A module nobody accounts for must still block, or the carry-forward would
+    # have made everything resolve.
+    with tempfile.TemporaryDirectory(prefix="odwg-driver-") as tmp:
+        root = Path(tmp)
+        script, env = _build(root, absorbed=("acme_orphan", "acme_absent"))
+        for version in env.chain():
+            shutil.rmtree(Path(env.addons_custom_dir(version)) / "acme_absent")
+        orphan = _run(root, script)
+        check(
+            "a module whose successor is nowhere still blocks",
+            orphan.returncode != 0 and "acme_orphan missing" in orphan.stderr,
+            orphan.stdout + orphan.stderr,
+        )
+
+    # A module nobody accounts for blocks — unless the operator recorded what
+    # they decided about it. Without this the record was read only by the
+    # preflight menu action, so a decision was accepted there and refused here,
+    # which left it inert exactly where it mattered. Found on a real 12 -> 19 run
+    # stopped by an OCA module never ported to 16.0.
+    with tempfile.TemporaryDirectory(prefix="odwg-driver-") as tmp:
+        root = Path(tmp)
+        script, env = _build(root, absorbed=("acme_orphan", "acme_absent"))
+        for version in env.chain():
+            shutil.rmtree(Path(env.addons_custom_dir(version)) / "acme_absent")
+        # Written the way the tool itself writes it — a wrapper object, not a
+        # bare list. A fixture using the other shape passed against a driver
+        # that could not read the real file at all.
+        Path(env.decisions_file).write_text(
+            decisions_to_json([ModuleDecision(
+                module="acme_orphan", source=SOURCE, target=TARGET,
+                decision="dropped", reason="OCA never ported it",
+            )]),
+            encoding="utf-8",
+        )
+        decided = _run(root, script)
+        check(
+            "a recorded decision lets the run past a module nobody supplies",
+            decided.returncode == 0 and "[done]" in decided.stdout,
+            decided.stdout + decided.stderr,
+        )
+        check(
+            "and the decision is named, not applied silently",
+            "acme_orphan: dropped" in decided.stderr
+            and "OCA never ported it" in decided.stderr,
+            decided.stderr,
+        )
+
+    # A module the chain installs *along the way*. The preflight reads the
+    # source database once, so it cannot see one: `partner_firstname_portal`
+    # appeared in an OCA repository at 18.0, was auto-installed there, and had
+    # vanished from that repository by 19.0 — installed, with no code, and
+    # nothing had asked. Each step re-reads the live database for exactly this.
+    with tempfile.TemporaryDirectory(prefix="odwg-driver-") as tmp:
+        root = Path(tmp)
+        script, env = _build(root)
+        first, last = env.chain()[0], env.chain()[-1]
+        # The stub database grows a module once the first step has run.
+        _stub(
+            Path(root) / "bin" / "psql",
+            f'if [[ "$*" == *base* && "$*" == *latest_version* ]]; then echo {SOURCE}.1.0; '
+            'else printf "base\\tOdoo S.A.\\n"; '
+            # `if`, not `&&`: a trailing test that fails becomes this stub's exit
+            # status, and the host preflight reads that as "PostgreSQL not
+            # reachable".
+            f'if [ -e "$STATE/{first}" ]; then printf "acme_appeared\\tACME\\n"; fi; fi',
+        )
+        appeared = _run(root, script)
+        check(
+            "a module installed after the preflight, resolving nowhere, stops the run",
+            appeared.returncode != 0 and "acme_appeared missing" in appeared.stderr,
+            appeared.stdout + appeared.stderr,
+        )
+        check(
+            "and it stops at the step that found it, keeping the work before it",
+            f"[checkpoint] {first}" in appeared.stdout and "[done]" not in appeared.stdout
+            and "since the preflight" in appeared.stderr,
+            appeared.stdout + appeared.stderr,
+        )
+        # Supplying it is enough; nothing else changes.
+        for version in env.chain():
+            (Path(env.addons_custom_dir(version)) / "acme_appeared").mkdir(
+                parents=True, exist_ok=True)
+        supplied = _run(root, script)
+        check(
+            "and supplying it lets the chain finish",
+            supplied.returncode == 0 and "[done]" in supplied.stdout,
+            supplied.stdout + supplied.stderr,
+        )
+        assert last  # the chain reached its end
+
+    # A module that resolves but whose manifest names something that does not.
+    # Odoo refuses to upgrade it at load time, so coverage saying "everything
+    # resolves" was not the same as the step running: a real 12 -> 19 chain
+    # failed at step 16 on `account_statement_import_base` needing
+    # `account_statement_base`, which lives in another OCA repository.
+    with tempfile.TemporaryDirectory(prefix="odwg-driver-") as tmp:
+        root = Path(tmp)
+        script, env = _build(root, absorbed=("acme_needy", "acme_needy"))
+        for version in env.chain():
+            module = Path(env.addons_custom_dir(version)) / "acme_needy"
+            module.mkdir(parents=True, exist_ok=True)
+            (module / "__manifest__.py").write_text(
+                "{'name': 'needy', 'depends': ['base', 'never_cloned']}", encoding="utf-8"
+            )
+            # `base` is present, as it is in any real environment — the Odoo
+            # clone provides it. Only the second dependency is missing, so the
+            # message names what is actually absent.
+            (Path(env.addons_custom_dir(version)) / "base").mkdir(exist_ok=True)
+        needy = _run(root, script)
+        check(
+            "a module whose dependency resolves nowhere stops the run",
+            needy.returncode != 0 and "acme_needy needs never_cloned" in needy.stderr,
+            needy.stdout + needy.stderr,
+        )
+        check(
+            "and it is stopped before any step runs",
+            "[step] upgrading to" not in needy.stdout,
+            needy.stdout,
+        )
+        # Supplying it is enough.
+        for version in env.chain():
+            (Path(env.addons_custom_dir(version)) / "never_cloned").mkdir(exist_ok=True)
+        supplied = _run(root, script)
+        check(
+            "and supplying the dependency lets the run through",
+            supplied.returncode == 0 and "[done]" in supplied.stdout,
+            supplied.stdout + supplied.stderr,
+        )
+
+    # A decisions file that cannot be read must not let everything through.
+    with tempfile.TemporaryDirectory(prefix="odwg-driver-") as tmp:
+        root = Path(tmp)
+        script, env = _build(root, absorbed=("acme_orphan", "acme_absent"))
+        for version in env.chain():
+            shutil.rmtree(Path(env.addons_custom_dir(version)) / "acme_absent")
+        Path(env.decisions_file).write_text("{not json", encoding="utf-8")
+        broken = _run(root, script)
+        check(
+            "an unreadable decisions file decides nothing",
+            broken.returncode != 0 and "acme_orphan missing" in broken.stderr,
+            broken.stdout + broken.stderr,
+        )
+
     # A failing step must name itself and its log, not die silently on set -e.
     with tempfile.TemporaryDirectory(prefix="odwg-driver-") as tmp:
         root = Path(tmp)
@@ -247,6 +451,38 @@ def main() -> int:
             and f"step {TARGET} failed" in failed_step.stderr
             and f"{TARGET}.log" in failed_step.stderr,
             failed_step.stdout + failed_step.stderr,
+        )
+
+        # The step log the cumulative report and the live view both read. One
+        # line per event, appended and never rewritten, so a run killed
+        # mid-step still leaves a readable record.
+        events = [
+            line.split("\t")
+            for line in (Path(env.logs_dir) / "steps.tsv").read_text(encoding="utf-8").splitlines()
+        ]
+        last = events[-1] if events else ["", "", "", "", ""]
+        check(
+            "a failing step is recorded with the code it failed with",
+            [last[2], last[3], last[4]] == [TARGET, "fail", "1"],
+            str(events[-3:]),
+        )
+        check(
+            "its start was recorded before it ran",
+            [TARGET, "start"] in [[event[2], event[3]] for event in events],
+            str(events),
+        )
+        check(
+            "and a run that failed writes no run-ok",
+            not any(event[3] == "run-ok" for event in events),
+            str(events),
+        )
+        check(
+            "every line carries a timestamp journalctl can take",
+            all(
+                re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d", event[0])
+                for event in events
+            ),
+            str([event[0] for event in events]),
         )
 
     if failures:

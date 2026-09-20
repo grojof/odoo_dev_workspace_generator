@@ -137,6 +137,114 @@ of OpenUpgrade, with migration scripts for every bump through 18.0→19.0):
 The tool itself installs into a shared uv venv (`~/odoo-migrations/.tools/module-migrator`) through a
 previewed plan the first time you stage.
 
+## Keeping the work: rehearse many times, run once
+
+A real migration is rehearsed several times and run once against the client's latest dump. The rehearsals are
+where the work happens — the migrator does what it can mechanically and you fix the rest, version by version
+— and the final run should **apply** that, not derive it again.
+
+The corrections live in the environment's `addons/odoo<major>/custom`, which **cleaning deletes** and
+re-staging replaces. So when a version is reviewed, promote it.
+
+**Menu → Migration → Promote reviewed modules** copies a module's code, for the steps you pick, to a
+directory you name — one subdirectory per version:
+
+```
+~/odoo-acme/            # yours; the tool refuses a location inside ~/odoo-migrations
+├── 13.0/client_sales/  # reviewed, for that version
+├── 14.0/client_sales/
+└── …
+```
+
+It **copies**, so the environment stays runnable and a promotion is not a point of no return. The throwaway
+git repository that staging creates inside each stage directory is *not* copied — see below.
+
+Then staging **consumes** it. Ask for the same directory when you stage, and a step whose code is already
+promoted is taken as given, with **no migrator run for it**:
+
+```
+[3/6] Take client_sales stage 14.0 from the promoted copy … [OK]
+```
+
+The report says, per step, whether it was *derived* or *taken* — a step that was not derived is a step whose
+warnings you will not see this run, and that is worth knowing. A chain with nothing promoted behaves exactly
+as it did before.
+
+### Divergence
+
+Because promotion copies, the two can drift: you keep working in the environment, or you edit the promoted
+copy directly. The staging report names it, comparing **content** (a `cp -a` and a `git checkout` both
+preserve timestamps that say nothing about what the files hold):
+
+```
+| Step | Environment vs promoted |
+| --- | --- |
+| 13.0 | diverged |
+| 14.0 | same |
+```
+
+Neither copy is authoritative. The report says they differ; you decide which is right.
+
+### Git, and two repositories that are not the same thing
+
+The promoted directory is yours. A git repository over it, **one branch per version**, is what we recommend:
+`git diff 13.0..14.0` then answers "what did that hop change", and the target version's branch is what you
+hand to the client — which is the only version that gets maintained afterwards.
+
+Do not confuse it with the `.git` you will find inside each *stage* directory. `odoo-module-migrate` refuses
+to run outside a repository, so staging creates a throwaway one there and commits the pre-migration state
+into it with an identity, hook path and signing of its own — deliberately insulated from your global git
+config, so that a mandatory signature or a global hook cannot fail the step. That history is scaffolding.
+Yours is the promoted one, committed with your identity.
+
+### Decisions about modules nobody will port
+
+When a module resolves nowhere and OpenUpgrade declares no successor, the preflight names it and stops there.
+What follows is a decision only you can make — dropped, replaced by another module, ported by us — and for
+an **official or OCA** module that decision is the same for every client migrating between the same two
+versions.
+
+Record it once, in a file you own, and pass it to **Preflight check**:
+
+```json
+{
+  "decisions": [
+    {
+      "module": "sale_x",
+      "source": "12.0",
+      "target": "18.0",
+      "decision": "dropped",
+      "reason": "no successor; the client stopped using it in 2024"
+    }
+  ]
+}
+```
+
+Coverage then shows it as *Decided* instead of asking again, and reports what is still **undecided** as its
+own class, separate from code that is simply not on disk.
+
+A decision is **never believed over the sources**. The fates of Odoo and OCA modules are derived from that
+step's checkout and `apriori.py` every time the question is asked — never frozen into this tool or into your
+file — so when the sources say otherwise the decision is reported as stale and *not* applied:
+
+```
+WARN  Decision no longer holds (18.0)  sale_x was decided dropped — the module now resolves in this step's sources
+```
+
+That matters most for OCA, which ports modules continuously: a module recorded as dead a year ago may have a
+branch today, and a frozen answer would keep a client on a workaround they no longer need.
+
+### OCA repositories
+
+Name them when you generate the environment and they are cloned per version into the shared cache and linked
+into each step's `addons/odoo<major>/oca`, exactly as a workspace does. Without them that directory is filled
+by hand, and whether a module is ported to a step's version — a fact the branch states — depends on whoever
+last copied something in.
+
+A repository OCA has **not** ported to one of your versions is reported for that step and does not fail the
+generation: the branch is asked for before it is cloned, and its absence is a fact you need, not a reason to
+refuse to build the environment.
+
 ## Preflight: verify before you burn hours
 
 **Menu → Migration → Preflight check** runs a read-only verification, and the same checks run
@@ -225,15 +333,309 @@ directory alongside it).
   `source.sha256` — stop the driver, because it cannot tell whether they are this dump's. It prints the
   one command that adopts them if they are; remove the directory if they are not.
 
+### What the run leaves behind, step by step
+
+Besides each step's `logs/<version>.log`, the driver appends one line per event to `logs/steps.tsv`:
+
+```
+2026-09-20T11:32:51+02:00	a1b2c3d4e5f6	-	run-start	12.0 -> 18.0
+2026-09-20T11:32:55+02:00	a1b2c3d4e5f6	13.0	start
+2026-09-20T11:41:02+02:00	a1b2c3d4e5f6	13.0	ok
+2026-09-20T11:41:05+02:00	a1b2c3d4e5f6	14.0	start
+2026-09-20T11:49:00+02:00	a1b2c3d4e5f6	14.0	fail	1
+```
+
+The columns are *when*, *which run* (the source dump's hash, so several runs can share the file), *which
+step*, *what happened* (`start`, `ok`, `fail`, `skip`, `restore`, `run-start`, `run-ok`) and a detail — the
+exit code for a failure.
+
+It is **appended and never rewritten**, so a run you interrupt still leaves a readable record, and it
+accumulates across runs: the file is the history of every attempt on this chain.
+
+Two things it is for. You can follow a run live:
+
+```bash
+tail -f ~/odoo-migrations/12-to-18/logs/steps.tsv      # where the chain is
+tail -f ~/odoo-migrations/12-to-18/logs/14.0.log       # what that step is saying
+```
+
+And the timestamps are in the form `journalctl` takes, so a step's window can be handed to the firewall's
+journal rather than guessed at — which is how you find out what a step tried to reach:
+
+```bash
+journalctl -t opensnitch --since "2026-09-20T11:41:05+02:00" --until "2026-09-20T11:49:00+02:00" \
+  | grep odoo-bin
+```
+
+With the [outbound firewall](egress-control.md) installed, `odoo-bin` is rejected anywhere but localhost, so
+anything in that window is a step reaching for the outside — worth knowing before that code reaches
+production.
+
+### When a module has no code anywhere: `decisions.json`
+
+Coverage stops a run when an installed module resolves in no source of a step and OpenUpgrade declares no
+successor for it. That is not a bug to work around — it is a question only you can answer, and it happens
+for real: OCA ported `website_sale_product_attribute_filter_category` to 14.0, 15.0, 17.0 and 18.0 but
+**not** to 16.0 or 19.0.
+
+Record the answer in the environment's own `decisions.json`:
+
+```json
+{
+  "decisions": [
+    {
+      "module": "website_sale_product_attribute_filter_category",
+      "source": "12.0", "target": "19.0",
+      "decision": "dropped",
+      "reason": "OCA has not ported it to 16.0 or 19.0 (present in 14, 15, 17, 18)",
+      "evidence": {"checked": "2026-09-20"}
+    }
+  ]
+}
+```
+
+Both readings honour it — the preflight action *and* the driver, which is the one that stops the run — and
+a decision is matched under **any name the module carries in the chain**, since a rename does not make it a
+different module. An applied decision is always named in the output with its reason, never applied
+silently:
+
+```
+[coverage] website_sale_product_attribute_filter_category: dropped for 16.0 — as you recorded (OCA has not
+ported it to 16.0 or 19.0)
+```
+
+**A decision is never believed over the sources.** It is applied only while the module still resolves
+nowhere and still has no successor that does; when either changes — OCA ports it, OpenUpgrade declares a
+successor — the preflight reports the decision as **stale** instead of applying it. A file that cannot be
+read decides nothing, so a typo cannot open the gate.
+
+The file is the operator's, carried between clients: the fates of Odoo and OCA modules are facts the tool
+derives every time, and this records the one thing no source states.
+
+### Rehearsing before there is a client dump
+
+The driver needs a source dump, and before a client's database exists nobody has one. **Menu → Migration →
+Seed a demo source database** builds one from Odoo's own demo data.
+
+It prepares the **source** version, which the chain itself never builds — `chain()` is 13.0 … 19.0 for a
+12 → 19 migration, so the environment has no Odoo 12 clone, venv or config at all. It needs none to
+migrate; it needs one to *make* a dump. What it builds is plain Odoo, not OpenUpgrade: there is no
+OpenUpgrade 12.0 branch, and the 12 → 13 step runs OpenUpgrade 13.
+
+Before asking what to install, it shows what this chain does to the modules already linked under the
+source version's `addons/odoo12/oca` and `custom`:
+
+```
+[INFO] Modules found under the source version, with what this chain does to them:
+  website_sale_product_style_badge             absorbed into website_sale (14.0)
+  account_consolidation                        renamed to account_consolidation_oca (14.0)
+  partner_firstname                            carries on under its own name
+```
+
+That is the set worth rehearsing with — **one absorbed, one renamed, one that carries on** — because those
+are three different things for the chain to get right, and they are read from each step's own `apriori.py`,
+not chosen by this tool's opinion. Only modules actually on disk at the source version are offered: one
+that is not there cannot be installed there, and a rehearsal that fails for that reason reads exactly like
+the chain failing.
+
+Applying the plan writes `seed_demo.sh`. Run it yourself, like the driver:
+
+```bash
+cd ~/odoo-migrations/12-to-19
+./seed_demo.sh                      # builds seed_12 with demo data, dumps it
+./run_migration.sh source-12.0-demo.dump
+```
+
+It installs **one module per call**, so a failure names which module rather than saying that something did
+not install, and it stops there instead of dumping a database missing the module the rehearsal was for. It
+refuses to overwrite an existing dump or reuse an existing database — a dump the checkpoints were taken
+against is not replaceable silently.
+
+Demo data is loaded because the flag is *not* passed: in Odoo 12.0 to 18.0 `--without-demo` defaults to
+off, so a database created with `-i` gets demo data. (19.0 rewrote that option and flipped the default,
+which cannot affect a seed — a chain's source is always ≤ 18.0.)
+
+**Menu → Migration → Module fates in this chain** answers the same question for any module you name,
+without seeding anything: renamed to X at a step, absorbed into Y at a step, or nothing declared, which
+means it is expected to carry on. A step whose `apriori.py` cannot be read is named as unread rather than
+counted as declaring nothing.
+
+### Rehearsing against a module built to break
+
+A chain rehearsed only against the client's own add-ons exercises the classes of change *that client*
+happens to meet. **Menu → Migration → Generate the migration tester** writes an add-on of the tool's own
+into every step's `addons/odoo<major>/custom`, with one probe per class of change the chain actually
+contains — taken from that chain's own `upgrade_analysis.txt` files and `apriori.py`, never invented:
+
+```
+23 probes, from this chain's own sources.
+  16.0  removed_model      base.update.translations
+  16.0  unstored_field     sale.order/show_update_pricelist
+  16.0  moved_field        account.move/partner_shipping_id
+  ...
+[WARN] Classes this chain never exercises: company_dependent
+```
+
+The classes with no instance are named rather than dropped: a class with no probe is not a class that
+passed.
+
+Each probe is a **declaration**, not synthesized model code — a record naming the subject, the class, the
+step its analysis predicts it at, and that file's own line. (Generated model code referring to the subject
+would fail on the *source* version when derived wrongly, destroying the rehearsal instead of measuring it.)
+
+After a step, **Check the migration tester** asks the database what became of each subject, by reading its
+`ir_model` and `ir_model_fields`. It needs no Odoo running, which is the point: the step worth asking about
+is often the one where something failed to load.
+
+```
+[WARN] 2 probe(s) need looking at in acme_16.
+  ! 16.0  gone unannounced   moved_field: account.move/partner_shipping_id
+      sale / account.move / partner_shipping_id (many2one): module is now 'account' ('sale')
+  ! 16.0  still there        removed_model: base.update.translations
+      obsolete model base.update.translations [transient]
+    16.0  intact             unstored_field: sale.order/show_update_pricelist
+```
+
+The two findings come first, and they are the two the run's logs never mention:
+
+- **gone unannounced** — the subject is not there and nothing predicted it would go. This is the quiet
+  loss: the module loaded, the step passed, and a column is empty.
+- **still there** — the sources said it would go and it did not, so a migration script did not run.
+
+The others are printed too, one line each, so you can see the question was asked:
+
+- **`intact`** — the subject is still there and nothing said it would go.
+- **`gone as predicted`** — it went, and what it became is there instead.
+- **`not yet reached`** — the probe is about a step this database has not reached, so its subject being
+  present says nothing yet. Expect many of these when checking between steps.
+- **`past its step`** — the database is beyond the probe's step, so a missing subject cannot be blamed on
+  it.
+- **`not observed`** — neither the subject nor its successor is in the database, so this probe measured
+  nothing: the subject was never installed here. It sorts **last**, after everything that was actually
+  measured, and is not counted as a pass. A real run reported two module probes as `gone as predicted`
+  about modules that had never been installed — absent proves nothing on its own.
+
+If the module never installed, every probe reports `absent` rather than a reassuring `intact`.
+
+**A module the chain installs along the way.** The preflight reads the source database once, so it cannot
+see a module that does not exist yet: `partner_firstname_portal` appeared in an OCA repository at 18.0, was
+auto-installed there because its dependencies were present, and had vanished from that repository by 19.0 —
+installed, with no code, and nothing had asked. Each step therefore re-reads the live database and judges
+what the preflight never saw, stopping at the step that found it rather than at the end.
+
+**A probe can only report a loss if there was something to lose.** A field whose *model* is not in the
+database, a module whose successor is not there either — neither was ever present, so the probe measured
+nothing and says `not observed`. A real 12 → 19 run produced four alarms at one step about `stock.quant`
+and `purchase.order` in a database where neither module was installed.
+
+**Check after each step, not only at the end.** A probe claims something about *its own* step — *at 15.0
+this field stops being computed, so it should survive that step*. A database carried on to 19.0 has had
+four more steps at it, and a subject a later step removed is not a silent loss at 15.0. Checking a 12 → 19
+chain only at the end produced six such false alarms, and six on seven steps teach you to stop reading the
+report. Where the database is past a probe's step, a missing subject is reported as **`past its step`**
+rather than as a finding — run the check between steps to judge those. An expected removal is still judged
+from any later version, because "gone from its step onward" holds there too.
+
+**What `not observed` cannot catch.** It fires when the subject *and* its successor are both missing. Where
+the successor is a core module that would be installed anyway — `base_vat_sanitized` is absorbed into
+`base_vat`, which any accounting database has — its presence says nothing about whether the subject was
+ever there, and the probe still reads `gone as predicted`. Module probes are therefore only as meaningful
+as the module set you seeded: probe what you installed.
+
+The tester is a rehearsal instrument. Its manifest says so, it depends on `base` alone, and it declares no
+menu, no group, no `auto_install` and read-only access to its own table.
+
+### Following a run while it happens
+
+You start the driver by hand, and a 12 → 19 chain takes hours. **Menu → Migration → Follow a running
+migration**, from another terminal, shows where it is:
+
+```
+Migration 12.0 → 19.0  (a1b2c3d4e5f6)
++------+-----------+---------+
+| Step | State     | Elapsed |
++------+-----------+---------+
+| 13.0 | ok        | 8m 07s  |
+| 14.0 | ok        | 12m 31s |
+| 15.0 | running   | 3m 12s  |
+| 16.0 | pending   | —       |
++------+-----------+---------+
+
+15.0 — worth reading so far
+| WARNING | odoo.modules.loading  | 412 | sale_x: field removed |
+| ERROR   | odoo.modules.registry | 1   | could not load sale_x |
+
+Reached outside its own machine
+  reject pypi.org ×3 (00-odwg-003-reject-odoo-external)
+```
+
+It only reads. **Ctrl-C stops watching; the driver keeps going** — it is another process. When the run ends
+the watch says how, and points you at the report, because the live view follows the *running* step and so
+its last frame holds no detail.
+
+If you would rather not leave a terminal on it, the two files behind that view are plain text:
+
+```bash
+tail -f ~/odoo-migrations/12-to-19/logs/steps.tsv    # where the chain is
+tail -f ~/odoo-migrations/12-to-19/logs/15.0.log     # what that step is saying
+```
+
+### The report: what happened, and what is still open
+
+**Menu → Migration → Report on the runs so far** reads the step log, each step's Odoo log and the firewall's
+journal, and writes `reports/report-<stamp>.md` into the environment. It is generated when you ask for it;
+the history it reads from is what accumulates.
+
+It opens with **Still open**, which is the part that matters:
+
+```markdown
+## Still open
+
+- **Step 18.0 failed** — exit 1 — see …/logs/18.0.log
+- **Step 17.0 passed with 3 error line(s)** — first: could not load sale_x
+```
+
+That second kind is the one worth having: a step can exit zero and still have logged errors, and "the chain
+finished" is not the same as "nothing went wrong".
+
+Then, per step of the latest run, its log summarised by what the lines actually carry — level, logger,
+message and **how many times** it occurred:
+
+```markdown
+| Level | Logger | Count | First message |
+| --- | --- | --- | --- |
+| ERROR | `odoo.modules.registry` | 1 | could not load sale_x |
+| WARNING | `odoo.modules.loading` | 412 | sale_x: field removed |
+```
+
+Counted rather than repeated: one broken field emits the same warning per record, and four hundred copies of
+it would hide the error above. Nothing here tells you what a warning *means* — that is your judgement, and
+inventing categories would be asserting something about OpenUpgrade this project has not verified.
+
+And, where the firewall is installed, what the step reached for — asked of the journal **for that step's own
+window**, and only for that step's process:
+
+```markdown
+**The step reached outside its own machine:**
+
+- `reject` pypi.org ×3 (rule `00-odwg-003-reject-odoo-external`)
+```
+
+A step marked *skip* is shown as having run nothing that time, so its silence is not read as a clean run.
+
 ### Keeping a migration from reaching the outside
 
 Each step's `odoo.conf` sends mail to the local capture (`127.0.0.1:1025`). With the
 [outbound firewall](egress-control.md) installed, every `odoo-bin` step is also rejected on any non-local
 connection, and each attempt is logged.
-- **Rehearsing on a copy:** also run **Redirect a database's mail to Mailpit** on it, so that its own mail
-  servers do not bypass `odoo.conf`.
-- **A database going back to production:** do **not** redirect it. Keep the firewall on during the run, and
-  review what it tried to reach before cutover ([live production migrations](egress-control.md#live-production-migrations)).
+- **Rehearsing on a copy:** also run **Capture a database's mail in Mailpit** on it, so that its own mail
+  servers do not bypass `odoo.conf`. The capture moves none of the client's settings, so the same database can
+  be handed back later.
+- **A database going back to production:** capture it for the run, then run **Restore a database's mail
+  configuration** before cutover and confirm with **Check whether a database can mail out**. The record of what
+  was captured travels inside the database, through every step of the chain. Keep the firewall on during the
+  run, and review what it tried to reach before cutover
+  ([live production migrations](egress-control.md#live-production-migrations)).
 
 ## Cleaning up
 

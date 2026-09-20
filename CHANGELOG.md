@@ -6,6 +6,172 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- **The specs, docs and skills record what two full rehearsals established.** The probe verdicts are
+  named in the spec as they are printed, and a test fails if the code grows one the spec does not name —
+  prose drifts from constants without anything noticing. `decisions.json` is documented: where it lives,
+  what it holds, and that a decision is never believed over the sources. The three skills describe the
+  current output rather than a tool that no longer exists.
+- **Each step checks the database as it is then, not only as it started.** The preflight reads the source
+  database once, so a module the chain installs *along the way* is invisible to it — an OCA glue module
+  appeared at 18.0, was auto-installed because its dependencies were there, and had gone from that
+  repository by 19.0. Every step now re-reads the live list and judges what the preflight never saw,
+  stopping at the step that found it and keeping the checkpoints before it.
+- **A step's log is read for the run that wrote it.** Step logs are appended to, never rotated, so a step
+  re-run after a failure carries every earlier attempt in the same file. The report counted them all and
+  led with `Failed to initialize database` about an attempt already superseded. Each step's summary is now
+  windowed by that step's own start and end, as the firewall's answers already were. Odoo forces `TZ=UTC`
+  on its own process (`odoo/__init__.py` to 17.0, `odoo/_monkeypatches/__init__.py` in 18.0 and 19.0), so
+  the window is converted before comparing; an unreadable window keeps every line.
+- **Coverage checks that a module's dependencies resolve, not only the module.** A module can resolve —
+  its OCA repository is cloned — while its manifest names a dependency living in a *different* repository
+  nobody cloned. Odoo refuses to upgrade such a module at load time, so a chain ran fifteen minutes and
+  failed at step 16 on `account_statement_import_base` needing `account_statement_base` from
+  `OCA/account-reconcile`. One key of a manifest, read before anything starts, answers it. Both the
+  preflight and the driver check it, and the driver stops before the first step.
+- **A probe is judged against its own step.** The rehearsal tester's quiet classes claim that a subject
+  *survives* the step that changed it; checking a 12 → 19 chain only at the end reported six of them as
+  silent losses when a **later** step had removed the subject. Where the database is past a probe's step,
+  a missing subject is now reported as `past its step` — not a finding — and the guidance is to check
+  between steps. An expected removal is still judged from any later version.
+- **The driver reads what the operator decided** about a module no step can resolve, from the
+  environment's own `decisions.json`. It was read only by the preflight menu action before, so a decision
+  could be accepted there and refused by the run. A decision matches under any name the module has in the
+  chain, is named when applied, and an unreadable file decides nothing.
+- **A probe that looked at nothing no longer reads as a pass.** Each probe now records what the sources
+  say its subject becomes, and the check asks about that too: a subject *and* its successor both missing
+  means the subject was never installed in that database, reported as **`not observed`** — neither a
+  finding nor a pass, and last in the report. Seen on a real run, where two module probes said `gone as
+  predicted` about modules that had never been installed. The generated tester's manifest also declares
+  its author, because Odoo attributes a manifest without one to "Odoo S.A.", which is false and made
+  coverage treat this project's own module as Odoo's dropped code.
+
+### Fixed
+
+*Six defects, all in shipped code, all found by the first real rehearsal — a 12 → 14 demo migration on the
+reference host. None was visible to 419 unit tests or seven verifiers.*
+
+- **A module absorbed mid-chain blocked the run.** Coverage resolved every step against the source
+  database's module list with one hop through that step's own `apriori.py`, so a module merged at 13.0 was
+  reported missing at 14.0 — where its old name no longer exists to be declared. The migration stopped and
+  told the operator to supply code that should not exist. Both implementations had it: the Python check and
+  the driver's embedded one, which now emits the module list as the next step will see it.
+- **OCA repositories were linked one level too deep for the path that names them.** A migration
+  environment listed `addons/odoo<major>/oca` as one add-ons path entry while each repository is linked
+  *inside* it, and Odoo scans an entry exactly one level deep. No OCA module was loadable, and coverage
+  reported every one of them as somebody else's to supply.
+- **Odoo 12's venv could not be built at all.** Its requirements pin `pyldap==2.4.28`, whose setup passes
+  `-R` to `cc`. The override bridges through the fork's own final release, which only requires
+  `python-ldap`.
+- **A demo seed looked for `openupgrade-<source>/odoo-bin`**, a path that cannot exist — the source version
+  is not a step — and stopped with "generate the environment first" while the clone it needed was there.
+- **The seed's existing-database check never fired**: its `psql -lqt` carried no connection arguments, so
+  it failed as the OS user and the pipeline quietly yielded nothing.
+- **The rehearsal tester was written only into the chain's steps**, so it could be installed nowhere: it is
+  installed at the source version, which is where its records are written.
+
+
+### Added
+- **A chain can be rehearsed before there is a client dump.** *Seed a demo source database* prepares the
+  source version — which the chain itself never builds, since `chain()` is the *steps* — and writes a
+  `seed_demo.sh` that builds a database from Odoo's own demo data and dumps it in the format the driver
+  takes. It installs one module per call, so a failure names which module and stops rather than dumping a
+  database missing it, and it refuses to overwrite an existing dump or reuse an existing database.
+- **What the chain does to a module is answerable before running it.** *Module fates in this chain*
+  reports, per module, **renamed** to X, **absorbed into** Y, or nothing declared — from each step's own
+  `apriori.py`. Renamed and absorbed are now distinguished: the existing reader folds both into "the
+  successor is X", which is right for coverage and loses what becomes of the module's own records. A step
+  whose `apriori.py` cannot be read is named as unread, not counted as declaring nothing.
+- The demo seed **suggests a set that exercises the different fates** — one absorbed, one renamed, one
+  that carries on — drawn only from modules actually on disk at the source version, since one that is not
+  there cannot be installed there and would fail for the wrong reason.
+- **Module fates are probes too.** `renamed_module` and `merged_module` join the rehearsal tester's
+  classes, checked against `ir_module_module` after a step — where a module surviving as `uninstalled` is
+  not a module that is still there for whatever depended on it.
+- **The read-only answers, without the menu.** `odoo-dwg egress check`, `mail check --database`,
+  `migrate report` and `migrate probes` write nothing, prompt for nothing and need no terminal, and each
+  exits 0 / 1 / 2 for *nothing to report* / *found something* / *could not tell* — so they work in a
+  script and in a second terminal while a migration runs. Anything that changes the host stays in the
+  menus behind its phrase: a check that finds something names the menu action and does not perform it.
+- **The OpenSnitch rules on the host can be checked against the rules the tool wrote** — one of ours that
+  is absent, changed or disabled, a file that is not JSON, and a rule we do not own that **sorts before**
+  ours, which is the only way the rule confining Odoo can be pre-empted. Rules are compared as data, so
+  re-indenting one is not reported as a change. It modifies nothing, including what it reports.
+- **Three skills** (`.claude/skills/`) over those commands: migration triage, the OpenSnitch rule check,
+  and Mailpit configuration. Thin by design — none of them parses a log, a rule file or a database
+  itself, because that work is the tool's, and it is tested there.
+- **A rehearsal can be run against a module built to break.** The tool generates an add-on of its own for
+  a chain, carrying one probe per class of change *that chain* contains — a field removed, a field that
+  moved module, a model made obsolete or renamed, a field that stopped being stored, stopped being
+  related, became or stopped being computed, lost a selection key, became company-dependent. Every probe
+  is derived from a line of the chain's own `upgrade_analysis.txt` files, and carries that line verbatim;
+  classes the chain never exercises are **named**, not dropped. **Check the migration tester** then asks a
+  database what became of each subject, reading `ir_model` and `ir_model_fields`, so it answers even for a
+  step where nothing loaded. It reports first the two things a run's logs never mention: a subject **gone
+  unannounced** — the quiet loss, where the module loaded, the step passed and a column is empty — and one
+  **still there** where the sources said it would go, which is a migration script that did not run.
+- **Mail can be captured without losing the way back.** Capture no longer overwrites anything: it
+  deactivates the database's mail servers — host, user and password stay where they are — and adds one of
+  its own pointing at Mailpit, visible and testable from Odoo's own *Outgoing Mail Servers*. **Restore**
+  gives the database back exactly what it had, switching on only what the capture switched off; a server
+  you had disabled stays disabled. **Check** answers, read-only, whether mail can leave. The record of what
+  was captured lives inside the database, so it survives every `pg_dump`/`pg_restore` of a migration chain
+  — which is what makes the database a chain produces fit to go into production. Phrases `CAPTURE` and
+  `RESTORE`; `tools/verify_mail_capture.py` runs the cycle against a throwaway PostgreSQL.
+- **A run can be followed while it happens.** The driver is started by hand and a 12 → 19 chain takes
+  hours; this shows where it is — every step of the chain, including the ones it has not reached, with how
+  long each took or has been taking — what the running step is saying, and what it has reached for outside
+  its own machine since that step began. It only reads: stopping the watch leaves the driver alone, and it
+  says so. When the run ends it reports how and points at the report, since the live view follows the
+  running step and its last frame holds no detail.
+- **A report on the runs so far**, from the driver's step log, each step's Odoo log and the outbound
+  firewall's journal. It opens with what is **still open** — a step that failed, never finished, never
+  ran, or *passed while its log holds an error*, since a step succeeding and its log being clean are not
+  the same thing. Each step's log is summarised by what its lines carry (level, logger, message, count)
+  and never classified by meaning: repeated lines are counted rather than repeated, because one broken
+  field emits the same warning per record. The firewall's answers are asked for by the step's own window
+  and its own process, so the report says what the migration reached for rather than what the host did
+  while it ran, with refusals first.
+- **The migration driver records every step as it happens**, appending one line per event to
+  `logs/steps.tsv`: when, which run, which step, what happened (`start`, `ok`, `fail`, `skip`, `restore`)
+  and the exit code when one failed. Appended and never rewritten, so a run you interrupt still leaves a
+  readable record, and it accumulates across runs. The timestamps are in the form `journalctl` takes, so a
+  step's window can be handed to the firewall's journal — which is how you find out what a step tried to
+  reach — instead of being guessed at, and `tail -f` on it follows a chain live.
+- **Reviewed module code can be promoted out of a migration environment** and taken as given by the next
+  run. A migration is rehearsed several times and run once, and the corrections a rehearsal produces lived
+  in `addons/odoo<major>/custom` inside the environment — which cleaning removes and re-staging replaces.
+  Promotion copies them to a location the operator names, one directory per version, refused if it sits
+  inside the migration environments. Staging then takes a promoted step as given and runs no migrator for
+  it, so a final run against a fresh dump applies proven work instead of deriving it a second time, and the
+  report says per step which of the two happened. Because promotion copies, the report also names
+  divergence — by content, not timestamps — and calls neither copy authoritative.
+- **What was decided about a module with no successor is recorded and reused.** For a given source →
+  target pair the fate of an official or OCA module is the same for every client, and it was being decided
+  again for each one. Coverage applies a decision from a file the operator owns, reports what is still
+  undecided as its own class, and — because a decision is never believed over the sources — reports one
+  the sources have overtaken as **stale** rather than applying it: an OCA module recorded as dead that has
+  since been ported would otherwise keep a client on a workaround they no longer need.
+- **A migration environment can name OCA repositories**, cloned per version into the shared cache and
+  linked into each step, as the workspace surface already does. `addons/odoo<major>/oca` was created empty
+  for the operator to fill by hand, so whether a module is ported to a step's version — a fact the branch
+  states — was answered by whoever last copied something in. A repository OCA has not ported to a version
+  is reported for that step and does not fail the generation.
+
+### Removed
+
+- **The one-way mail redirect.** It rewrote the client's SMTP host, user and password with no record of
+  what they had been, so it could only ever be used on a copy that would be thrown away. Replaced by
+  capture and restore, which move no value at all.
+
+### Fixed
+- **The 12 → 13 step found no OpenUpgrade analysis at all.** Up to 13.0 the analysis lives in each
+  add-on's `migrations/<ver>/` directory and is called `openupgrade_analysis.txt`; from 14.0 it sits
+  under `openupgrade_scripts/` as `upgrade_analysis.txt`. Only the newer name was looked for, so
+  staging reported no candidate findings for that step — which reads exactly like having none. Against
+  a real clone the step goes from 0 records to 512 (45 removed models, 467 removed fields), and it is
+  the one hop where a module untouched since 12 has the most to answer for.
+
 ## [0.2.0] - 2026-09-20
 
 ### Added

@@ -137,3 +137,116 @@ def test_the_scan_still_reads_names_the_way_the_regexes_did():
     assert ("res.partner", 1) not in hits    # not inside a longer one
     assert ("partner.bank", 2) in hits       # a dotted field, still bounded
     assert ("token", 3) not in hits          # `tokens` is another word
+
+
+def test_the_legacy_fork_names_its_analysis_files_differently(tmp_path, monkeypatch):
+    """Up to 13.0 OpenUpgrade embeds the analysis in each add-on's `migrations/`
+    directory and calls it `openupgrade_analysis.txt`; from 14.0 it lives under
+    `openupgrade_scripts/` as `upgrade_analysis.txt`.
+
+    Reading only the newer name found nothing in the 12 → 13 step — against a
+    real clone, 0 records where there are 512 — and staging then reported no
+    candidate findings, which reads exactly like having none.
+    """
+    from odoo_dwg.workflows import migration
+
+    monkeypatch.setattr(MigrationEnv, "base_dir", str(tmp_path))
+    env = MigrationEnv(source="12.0", target="14.0")
+
+    legacy = env.openupgrade_clone_dir("13.0") / "addons" / "sale" / "migrations" / "13.0.1.0"
+    legacy.mkdir(parents=True)
+    (legacy / "openupgrade_analysis.txt").write_text(ANALYSIS_FIXTURE, encoding="utf-8")
+    # The work file the tool writes beside it is not a source of record.
+    (legacy / "openupgrade_analysis_work.txt").write_text(
+        "---Models in module 'sale'---\nobsolete model never.read\n", encoding="utf-8"
+    )
+
+    modern = env.openupgrade_clone_dir("14.0") / "openupgrade_scripts" / "scripts" / "sale" / "14.0.1.0"
+    modern.mkdir(parents=True)
+    (modern / "upgrade_analysis.txt").write_text(ANALYSIS_FIXTURE, encoding="utf-8")
+
+    for version in ("13.0", "14.0"):
+        names = {record.name for record in migration._step_analysis_records(env, version)}
+        assert "ir.property" in names and "doall" in names, version
+        assert "never.read" not in names, version
+
+
+# --- carrying the work forward ------------------------------------------------
+
+
+def _promoted(tmp_path):
+    from odoo_dwg.models import PromotedModules
+    return PromotedModules(base_dir=str(tmp_path / "kept"))
+
+
+def test_reviewed_code_is_promoted_by_copying_and_without_its_throwaway_repo(tmp_path):
+    """The environment must stay runnable after a promotion, and the git repo the
+    migrator needs inside a stage directory is not the operator's history."""
+    env = MigrationEnv(source="12.0", target="14.0")
+    kept = _promoted(tmp_path)
+    commands = planners.plan_promote_module(env, "client_sales", ["13.0", "14.0"], kept)
+
+    assert len(commands) == 2
+    for version, command in zip(("13.0", "14.0"), commands, strict=True):
+        text = command.command
+        source = str(env.addons_custom_dir(version) / "client_sales")
+        assert f"cp -a {source} " in text            # copied
+        assert f"rm -rf {source}" not in text        # never moved
+        assert str(kept.module_dir(version, "client_sales")) in text
+        assert text.endswith("/.git")                # the throwaway repo stays behind
+
+
+def test_a_promoted_step_is_taken_as_given_and_runs_no_migrator(tmp_path):
+    """The final run applies proven work instead of deriving it a second time."""
+    env = MigrationEnv(source="12.0", target="15.0")
+    kept = _promoted(tmp_path)
+    have = {kept.module_dir(v, "m") for v in ("13.0", "14.0")}
+
+    nothing = planners.plan_stage_module(env, "m", tmp_path / "src")
+    assert sum("odoo-module-migrate" in c.command for c in nothing) == 3
+
+    partly = planners.plan_stage_module(
+        env, "m", tmp_path / "src", promoted=kept, exists=lambda p: p in have
+    )
+    assert sum("odoo-module-migrate" in c.command for c in partly) == 1
+    assert sum("from the promoted copy" in c.description for c in partly) == 2
+    # And 15.0 still derives from 14.0's staged directory, which promotion filled.
+    derived = next(c for c in partly if "odoo-module-migrate" in c.command)
+    assert "--target-version-name 15.0" in derived.command
+
+
+def test_divergence_is_decided_by_content_not_by_timestamps(tmp_path, monkeypatch):
+    from odoo_dwg import preflight
+
+    monkeypatch.setattr(MigrationEnv, "base_dir", str(tmp_path / "envs"))
+    env = MigrationEnv(source="12.0", target="14.0")
+    kept = _promoted(tmp_path)
+
+    def put(root, text):
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "m.py").write_text(text, encoding="utf-8")
+
+    put(env.addons_custom_dir("13.0") / "m", "reviewed")
+    put(kept.module_dir("13.0", "m"), "reviewed")
+    # The repo the migrator needs is scaffolding, not the module.
+    (env.addons_custom_dir("13.0") / "m" / ".git").mkdir()
+    (env.addons_custom_dir("13.0") / "m" / ".git" / "HEAD").write_text("ref: x")
+    # Same content, different times: not divergence.
+    import os
+    os.utime(env.addons_custom_dir("13.0") / "m" / "m.py", (0, 0))
+
+    put(env.addons_custom_dir("14.0") / "m", "kept working on it")
+    put(kept.module_dir("14.0", "m"), "as promoted")
+
+    assert preflight.divergence(env, "m", kept, ["13.0", "14.0"]) == [
+        ("13.0", "same"),
+        ("14.0", "diverged"),
+    ]
+
+
+def test_the_report_names_divergence_without_choosing_a_winner():
+    report = templates.render_staging_report(
+        "client_sales", [("14.0", "", [], None)], promoted=[("13.0", "same"), ("14.0", "diverged")]
+    )
+    assert "| 14.0 | diverged |" in report
+    assert "Neither is authoritative" in report

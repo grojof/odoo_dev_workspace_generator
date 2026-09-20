@@ -232,12 +232,14 @@ def test_driver_coverage_reads_apriori_at_run_time_not_at_render_time():
         assert spelling in sh
 
 
-def test_driver_fails_only_on_the_blocking_class():
+def test_driver_fails_on_the_blocking_class_and_on_unmet_dependencies():
     from odoo_dwg import templates
 
     env = MigrationEnv(source="12.0", target="19.0")
     sh = templates.render_run_migration_sh(env)
-    assert "sys.exit(1 if blocking else 0)" in sh
+    # A module nobody supplies, and a module that resolves while naming a
+    # dependency nobody supplies — Odoo refuses to upgrade either.
+    assert "sys.exit(1 if blocking or unmet else 0)" in sh
     assert 'fail "addons coverage incomplete' in sh
     # A dropped Odoo module is reported, never fatal.
     assert "OpenUpgrade removes it" in sh
@@ -282,3 +284,155 @@ def test_a_missing_apriori_is_not_remembered(tmp_path):
     assert preflight.read_apriori(path) == {}
     path.write_text("renamed_modules = {'old': 'new'}\nmerged_modules = {}\n")
     assert preflight.read_apriori(path) == {"old": "new"}
+
+
+# --- decisions about modules with no successor --------------------------------
+
+
+def _decided(tmp_path, monkeypatch, modules, also_on_disk=()):
+    """Coverage for a 12 → 13 chain with one recorded decision, against sources
+    the caller controls."""
+    from odoo_dwg.models import MigrationEnv, ModuleDecision
+
+    monkeypatch.setattr(MigrationEnv, "base_dir", str(tmp_path))
+    env = MigrationEnv(source="12.0", target="13.0")
+    sources = env.coverage_dirs("13.0")[0]
+    sources.mkdir(parents=True, exist_ok=True)
+    for name in also_on_disk:
+        (sources / name).mkdir(exist_ok=True)
+    decision = ModuleDecision(
+        module="gone", source="12.0", target="13.0",
+        decision="dropped", reason="the client does not use it",
+    )
+    return preflight.gather_coverage(env, modules, authors={}, decisions=[decision])
+
+
+def test_a_decision_answers_a_module_with_no_successor(tmp_path, monkeypatch):
+    """The same answer serves the next client: a module dropped with no successor
+    between two versions is dropped for everyone migrating between them."""
+    coverage = _decided(tmp_path, monkeypatch, ["gone"])
+    assert coverage.decided == {"13.0": [("gone", "dropped", "the client does not use it")]}
+    assert coverage.blocking == {} and coverage.stale == {}
+
+
+def test_a_decision_the_sources_have_overtaken_is_reported_not_applied(tmp_path, monkeypatch):
+    """A decision is never believed over the sources — an OCA module recorded as
+    dead that has since been ported would otherwise keep a client on a
+    workaround they no longer need."""
+    coverage = _decided(tmp_path, monkeypatch, ["gone"], also_on_disk=["gone"])
+    assert coverage.decided == {}
+    module, decision, why = coverage.stale["13.0"][0]
+    assert (module, decision) == ("gone", "dropped")
+    assert "now resolves" in why
+
+
+def test_a_module_with_no_decision_is_still_reported(tmp_path, monkeypatch):
+    coverage = _decided(tmp_path, monkeypatch, ["other"])
+    assert coverage.blocking == {"13.0": ["other"]}
+    assert coverage.decided == {} and coverage.stale == {}
+
+
+def test_a_hand_edited_decisions_file_cannot_stop_a_preflight():
+    """It is the operator's record, carried between clients and edited by hand."""
+    from odoo_dwg.models import ModuleDecision, decisions_from_json, decisions_to_json
+
+    assert decisions_from_json("not json at all") == []
+    assert decisions_from_json('{"decisions": [{"module": 1}]}') == []
+    assert decisions_from_json('{"decisions": "nope"}') == []
+    one = ModuleDecision(module="m", source="12.0", target="18.0", decision="dropped",
+                         reason="why", evidence={"resolved": False})
+    assert decisions_from_json(decisions_to_json([one])) == [one]
+
+
+def test_a_module_absorbed_mid_chain_is_not_missing_at_every_later_step(tmp_path):
+    """The case a real 12 -> 14 demo run produced, and stopped on.
+
+    `account_coa_menu` is merged into `account_menu` at 13.0. At 14.0 apriori
+    says nothing about the old name — it no longer exists to say anything about —
+    so looking the original up at every step reported it missing for 14.0 and
+    blocked the run, telling the operator to supply code that should not exist.
+    """
+    env = MigrationEnv(source="12.0", target="14.0")
+    for version, mapping in (("13.0", '{"account_coa_menu": "account_menu"}'), ("14.0", "{}")):
+        path = preflight.apriori_path(env, version)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"renamed_modules = {{}}\nmerged_modules = {mapping}\n", encoding="utf-8")
+    # The successor is on disk for both steps; the original is on disk for neither.
+    for version in env.chain():
+        (env.addons_oca_dir(version) / "account_menu").mkdir(parents=True)
+
+    coverage = preflight.gather_coverage(env, ["account_coa_menu"])
+    assert coverage.blocking == {}
+    assert coverage.warnings == {}
+
+
+def test_a_module_that_really_is_missing_is_still_blocking(tmp_path):
+    env = MigrationEnv(source="12.0", target="14.0")
+    for version in env.chain():
+        path = preflight.apriori_path(env, version)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("renamed_modules = {}\nmerged_modules = {}\n", encoding="utf-8")
+        env.addons_oca_dir(version).mkdir(parents=True, exist_ok=True)
+    coverage = preflight.gather_coverage(env, ["client_only_module"])
+    # Carrying successors forward must not make everything resolve.
+    assert coverage.blocking["13.0"] == ["client_only_module"]
+
+
+def test_a_decision_follows_the_module_through_a_rename(tmp_path):
+    """The operator decides about a module; the chain renames it two steps later.
+
+    It is the same module, so the decision still answers for it — under whichever
+    name they recorded, the one they started with or the one a step reported.
+    """
+    from odoo_dwg.models import ModuleDecision
+
+    env = MigrationEnv(source="12.0", target="14.0")
+    for version, mapping in (("13.0", '{"client_mod": "client_mod_oca"}'), ("14.0", "{}")):
+        path = preflight.apriori_path(env, version)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"renamed_modules = {mapping}\nmerged_modules = {{}}\n", encoding="utf-8")
+        env.addons_oca_dir(version).mkdir(parents=True, exist_ok=True)
+
+    for recorded_as in ("client_mod", "client_mod_oca"):
+        decision = ModuleDecision(module=recorded_as, source="12.0", target="14.0",
+                                  decision="dropped", reason="OCA never ported it")
+        coverage = preflight.gather_coverage(env, ["client_mod"], decisions=[decision])
+        assert coverage.blocking == {}, f"blocked when recorded as {recorded_as}"
+        # Named, not applied silently.
+        assert any("dropped" in str(row) for rows in coverage.decided.values() for row in rows)
+
+
+def test_a_resolvable_module_with_an_unresolvable_dependency_is_reported(tmp_path):
+    """A real 12 -> 19 run failed at step 16 on this, fifteen minutes in.
+
+    `account_statement_import_base` resolved — the OCA repository was cloned —
+    but its manifest names `account_statement_base`, which lives in a *different*
+    OCA repository nobody had cloned. Odoo refuses to upgrade such a module, so
+    coverage saying "everything resolves" was not the same as the step running.
+    """
+    env = MigrationEnv(source="12.0", target="14.0")
+    for version in env.chain():
+        path = preflight.apriori_path(env, version)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("renamed_modules = {}\nmerged_modules = {}\n", encoding="utf-8")
+        module = env.addons_oca_dir(version) / "client_mod"
+        module.mkdir(parents=True)
+        (module / "__manifest__.py").write_text(
+            "{'name': 'x', 'depends': ['base', 'not_cloned_anywhere']}", encoding="utf-8"
+        )
+        (env.addons_oca_dir(version) / "base").mkdir()
+
+    coverage = preflight.gather_coverage(env, ["client_mod"])
+    assert coverage.blocking == {}          # it resolves
+    assert coverage.unmet["13.0"] == {"client_mod": ["not_cloned_anywhere"]}
+
+
+def test_a_manifest_that_cannot_be_read_names_no_dependency(tmp_path):
+    env = MigrationEnv(source="12.0", target="14.0")
+    version = "13.0"
+    module = env.addons_oca_dir(version) / "broken"
+    module.mkdir(parents=True)
+    (module / "__manifest__.py").write_text("{not python", encoding="utf-8")
+    assert preflight.missing_dependencies(
+        ["broken"], [env.addons_oca_dir(version)]
+    ) == {}

@@ -57,6 +57,10 @@ def _render(into: Path) -> list[Path]:
             f"run_migration_{source.split('.')[0]}_{target.split('.')[0]}.sh",
             templates.render_run_migration_sh(env),
         )
+        write(
+            f"seed_demo_{source.split('.')[0]}.sh",
+            templates.render_seed_demo_sh(env, ["partner_firstname", "web_responsive"]),
+        )
     # The `pg_hba` steps are not files, but they are the longest shell this project
     # writes and they run under `sh` (``system.run`` uses ``shell=True``), so they
     # are linted as that shell rather than as bash.

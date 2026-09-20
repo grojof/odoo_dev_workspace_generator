@@ -121,6 +121,78 @@ _ES: dict[str, str] = {
     "Preflight passed.": "Preflight superado.",
     # staging
     "Stage custom modules": "Preparar módulos custom (staging)",
+    "Promote reviewed modules": "Promover módulos revisados",
+    "Report on the runs so far": "Informe de las ejecuciones hasta ahora",
+    "Follow a running migration": "Seguir una migración en marcha",
+    "Following the run. Ctrl-C stops watching; the driver keeps going.":
+        "Siguiendo la ejecución. Ctrl-C deja de mirar; el driver sigue.",
+    "Nothing to follow yet: {} appears when the driver starts.":
+        "Todavía no hay nada que seguir: {} aparece cuando arranca el driver.",
+    "\nStopped watching. The driver is unaffected.":
+        "\nDejamos de mirar. El driver no se ve afectado.",
+    "Migration {} → {}": "Migración {} → {}",
+    "Elapsed": "Tiempo",
+    "{} — worth reading so far": "{} — lo que merece leerse hasta ahora",
+    "  nothing above INFO yet": "  todavía nada por encima de INFO",
+    "Reached outside its own machine": "Alcanzó fuera de su propia máquina",
+    "The run finished: {}.": "La ejecución terminó: {}.",
+    "Use \"Report on the runs so far\" for what each step logged and what is left open.":
+        "Usa «Informe de las ejecuciones hasta ahora» para ver qué registró cada paso y qué queda abierto.",
+    "Level": "Nivel",
+    "Logger": "Logger",
+    "Count": "Veces",
+    "Message": "Mensaje",
+    "pending": "pendiente",
+    "ok": "ok",
+    "fail": "falló",
+    "skip": "omitido",
+    "Create {}": "Crear {}",
+    "Report written: {}": "Informe escrito: {}",
+    "No run recorded yet in {} — the driver writes one line per event as it goes.":
+        "Todavía no hay ninguna ejecución registrada en {} — el driver escribe una línea por evento según avanza.",
+    "Step {} failed": "El paso {} falló",
+    "exit {} — see {}": "salida {} — ver {}",
+    "Step {} never finished": "El paso {} nunca terminó",
+    "started {} and recorded no outcome": "empezó {} y no registró resultado",
+    "Step {} passed with {} error line(s)": "El paso {} pasó con {} línea(s) de error",
+    "first: {}": "la primera: {}",
+    "{} step(s) never ran in this run": "{} paso(s) no se ejecutaron en esta pasada",
+    "Decided ({})": "Decidido ({})",
+    "OCA repositories this chain needs (comma-separated, optional)":
+        "Repositorios de OCA que necesita esta cadena (separados por comas, opcional)",
+    "Invalid OCA repository name(s): {}.": "Nombre(s) de repositorio OCA no válido(s): {}.",
+    "OpenUpgrade now declares {} as its successor":
+        "OpenUpgrade ahora declara {} como su sucesor",
+    "{}: {}{}": "{}: {}{}",
+    "Decision no longer holds ({})": "La decisión ya no se sostiene ({})",
+    "{} was decided {} — {}": "{} se decidió como {} — {}",
+    "File recording what you decided about modules with no successor (empty to skip)":
+        "Fichero con lo que decidiste sobre módulos sin sucesor (vacío para omitir)",
+    "the module now resolves in this step's sources":
+        "el módulo ahora se resuelve en las fuentes de este paso",
+    "A location for reviewed modules is required.":
+        "Hace falta una ubicación para los módulos revisados.",
+    "{} is inside the migration environments ({}), which cleaning deletes. "
+    "Choose a location outside it.":
+        "{} está dentro de los entornos de migración ({}), que la limpieza borra. Elige una ubicación fuera.",
+    "Promote {} {} to {}": "Promover {} {} a {}",
+    "Take {} stage {} from the promoted copy":
+        "Tomar {} en el paso {} de la copia promovida",
+    "Directory holding your reviewed modules, one subdirectory per version (empty = none)":
+        "Directorio con tus módulos revisados, un subdirectorio por versión (vacío = ninguno)",
+    "Which module": "¿Qué módulo?",
+    "No staged modules in this environment.": "No hay módulos preparados en este entorno.",
+    "Environment vs promoted": "Entorno vs promovido",
+    "This replaces the promoted code of {} for: {}.":
+        "Esto reemplaza el código promovido de {} para: {}.",
+    "Promoted {} for: {}.": "Promovido {} para: {}.",
+    "The promoted copy is yours: commit it on the branch for that version if you keep it in git. "
+    "The throwaway repository inside each stage directory is not that history.":
+        "La copia promovida es tuya: haz commit en la rama de esa versión si la llevas en git. El repositorio desechable que hay dentro de cada directorio de preparación no es ese histórico.",
+    "same": "igual",
+    "diverged": "divergen",
+    "not promoted": "sin promover",
+    "only promoted": "solo promovido",
     "The staging tool (odoo-module-migrator) is not installed. This plan installs it:":
         "La herramienta de staging (odoo-module-migrator) no está instalada. Este plan la instala:",
     "Directory containing your custom modules (at the source version)":
@@ -372,8 +444,7 @@ _ES: dict[str, str] = {
     "Clone Odoo {}": "Clonar Odoo {}",
     "Create requirements directory": "Crear el directorio de requirements",
     "Create uv venv (Python {}) for Odoo {}": "Crear el venv uv (Python {}) para Odoo {}",
-    "Install psycopg2-binary and openupgradelib for Odoo {}":
-        "Instalar psycopg2-binary y openupgradelib para Odoo {}",
+    "Install psycopg2-binary for Odoo {}": "Instalar psycopg2-binary para Odoo {}",
     "Mark Odoo {} venv as ready": "Marcar el venv de Odoo {} como listo",
     "Mark the venv {} ready": "Marcar el venv {} como listo",
     "Create migration directories": "Crear los directorios de migración",
@@ -390,8 +461,78 @@ _ES: dict[str, str] = {
     "Create venv {}": "Crear el venv {}",
     "Upgrade pip/wheel/setuptools in {}": "Actualizar pip/wheel/setuptools en {}",
     "Install Odoo {} requirements": "Instalar los requisitos de Odoo {}",
+    # --- the read-only surface ---
+    'Source Odoo version (e.g. 12.0).': 'Versión de Odoo de origen (p. ej. 12.0).',
+    'Target Odoo version (e.g. 19.0).': 'Versión de Odoo de destino (p. ej. 19.0).',
+    'Print the cumulative run report. Writes nothing.':
+        'Imprimir el informe acumulado de las ejecuciones. No escribe nada.',
+    'Report what each tester probe found in a database. Reads only.':
+        'Informar de lo que encontró cada sonda del tester en una base de datos. Solo lee.',
+    'Database to read.': 'Base de datos a leer.',
+    'Check the outbound firewall rules. Reads only.':
+        'Comprobar las reglas del cortafuegos de salida. Solo lee.',
+    "Compare the host's rules with the tool's own.":
+        'Comparar las reglas del host con las propias de la herramienta.',
+    "Check a database's outgoing mail. Reads only.":
+        'Comprobar el correo saliente de una base de datos. Solo lee.',
+    'Report whether mail can leave a database.':
+        'Informar de si el correo puede salir de una base de datos.',
+    'Cannot read {}.': 'No se puede leer {}.',
+    'The {} rules are as the tool wrote them.':
+        'Las reglas {} están como las escribió la herramienta.',
+    '{} rule(s) to look at.': 'Hay {} regla(s) que mirar.',
+    "Nothing was changed. Menu -> Provision -> Outbound firewall and mail capture rewrites the tool's own rules; your own are yours to judge.":
+        'No se cambió nada. Menú -> Provision -> Cortafuegos de salida y captura de correo reescribe las reglas propias de la herramienta; las tuyas las juzgas tú.',
+    "Menu -> Migration -> Capture a database's mail in Mailpit stops it.":
+        'Menú -> Migración -> Capturar en Mailpit el correo de una base de datos lo detiene.',
+    'No run recorded yet in {}.': 'Todavía no hay ninguna ejecución registrada en {}.',
+    # --- the demo seed and module fates ---
+    'Invalid module name: {}': 'Nombre de módulo no válido: {}',
+    'Seed a demo source database': 'Sembrar una base de datos de origen con datos demo',
+    'Module fates in this chain': 'Destino de los módulos en esta cadena',
+    'Modules to ask about (comma-separated)':
+        'Módulos por los que preguntar (separados por comas)',
+    'Modules to install in the demo database (comma-separated, optional)':
+        'Módulos a instalar en la base de datos demo (separados por comas, opcional)',
+    'Modules found under the source version, with what this chain does to them:':
+        'Módulos encontrados bajo la versión de origen, y lo que esta cadena hace con ellos:',
+    'What the chain declares for the set you chose:':
+        'Lo que la cadena declara para el conjunto que elegiste:',
+    'carries on under its own name': 'sigue con su propio nombre',
+    'absorbed into': 'absorbido por',
+    'renamed to': 'renombrado a',
+    'No apriori.py could be read for: {} — clone those steps before trusting this.':
+        'No se pudo leer ningún apriori.py para: {} — clona esos pasos antes de fiarte de esto.',
+    'No modules under {} — the seed will install core Odoo only.':
+        'No hay módulos en {} — el seed instalará solo el core de Odoo.',
+    'Now run {} — it builds the database and dumps it for the driver.':
+        'Ahora ejecuta {} — construye la base de datos y hace el dump para el driver.',
+    'Create the source add-ons directories for {}':
+        'Crear los directorios de addons de origen para {}',
+    # --- the rehearsal tester ---
+    'Generate the migration tester': 'Generar el tester de migración',
+    'Check the migration tester': 'Comprobar el tester de migración',
+    'Create the tester tree for {}': 'Crear el árbol del tester para {}',
+    'No analysis files read for {}.': 'No se leyó ningún fichero de análisis para {}.',
+    'No OpenUpgrade analysis files were read: clone the environment first.':
+        'No se leyó ningún fichero de análisis de OpenUpgrade: clona antes el entorno.',
+    "{} probes, from this chain's own sources.":
+        '{} sondas, sacadas de las fuentes de esta propia cadena.',
+    'Classes this chain never exercises: {}':
+        'Clases que esta cadena no ejercita nunca: {}',
+    'Database to ask about the tester': 'Base de datos a la que preguntar por el tester',
+    'The tester is not installed in {}.': 'El tester no está instalado en {}.',
+    'The tester in {} declares no probe.': 'El tester de {} no declara ninguna sonda.',
+    'Could not read the models of {}.': 'No se pudieron leer los modelos de {}.',
+    '{} probe(s) need looking at in {}.': 'Hay {} sonda(s) que mirar en {}.',
+    'Every probe behaved as its sources predicted in {}.':
+        'Cada sonda se comportó en {} como predecían sus fuentes.',
     # --- egress control and mail capture ---
-    "Redirect a database's mail to Mailpit": 'Redirigir el correo de una base de datos a Mailpit',
+    "Capture a database's mail in Mailpit": 'Capturar en Mailpit el correo de una base de datos',
+    "Restore a database's mail configuration":
+        'Restaurar la configuración de correo de una base de datos',
+    'Check whether a database can mail out':
+        'Comprobar si una base de datos puede mandar correo fuera',
     'Create download directory {}': 'Crear el directorio de descarga {}',
     'Download {}': 'Descargar {}',
     'Verify {} SHA-512 (abort on mismatch)': 'Verificar el SHA-512 de {} (aborta si no coincide)',
@@ -407,8 +548,10 @@ _ES: dict[str, str] = {
     'Install Mailpit to {}': 'Instalar Mailpit en {}',
     'Remove downloaded files': 'Eliminar los ficheros descargados',
     'Enable and (re)start Mailpit': 'Habilitar y (re)iniciar Mailpit',
-    'Redirect the mail of database {} to Mailpit':
-        'Redirigir el correo de la base de datos {} a Mailpit',
+    'Capture the mail of database {} in Mailpit':
+        'Capturar en Mailpit el correo de la base de datos {}',
+    'Restore the mail configuration of database {}':
+        'Restaurar la configuración de correo de la base de datos {}',
     'Install or update the outbound firewall (OpenSnitch)?':
         '¿Instalar o actualizar el cortafuegos de salida (OpenSnitch)?',
     'Install or update the local mail capture (Mailpit)?':
@@ -418,10 +561,27 @@ _ES: dict[str, str] = {
         'Preguntar a PostgreSQL por las reglas que tiene para {}',
     'OpenSnitch blocks every outbound connection without a rule, asking in its UI when it is open. Odoo may reach only localhost, plus DNS on port 53; the development tools keep their hosts. See docs/egress-control.md.':
         'OpenSnitch bloquea toda conexión saliente sin regla y pregunta en su interfaz cuando está abierta. Odoo solo puede llegar a localhost, más DNS en el puerto 53; las herramientas de desarrollo conservan sus destinos. Ver docs/egress-control.md.',
-    'Database whose mail to redirect': 'Base de datos a la que redirigir el correo',
+    'Database whose mail to capture': 'Base de datos cuyo correo capturar',
+    'Database whose mail configuration to restore':
+        'Base de datos cuya configuración de correo restaurar',
+    'Database whose mail to check': 'Base de datos cuyo correo comprobar',
     'Invalid database name: {}': 'Nombre de base de datos no válido: {}',
-    'Every mail server of {} will point at Mailpit and lose its credentials, and mail fetching stops. Use it on rehearsal copies only — never on a database going back to production.':
-        'Todos los servidores de correo de {} apuntarán a Mailpit y perderán sus credenciales, y se detiene la recepción de correo. Úsalo solo en copias de ensayo — nunca en una base de datos que vuelve a producción.',
+    "The mail servers of {} will be deactivated and one pointing at Mailpit added. Nothing configured is overwritten: 'Restore the mail configuration' gives this database back exactly what it has now.":
+        'Los servidores de correo de {} se desactivarán y se añadirá uno que apunta a Mailpit. No se sobrescribe nada de lo configurado: «Restaurar la configuración de correo» le devuelve a esta base de datos exactamente lo que tiene ahora.',
+    '{} will mail out again through the servers it had before the capture. Do this when the database is going into production, not while it is still being rehearsed.':
+        '{} volverá a mandar correo fuera por los servidores que tenía antes de la captura. Hazlo cuando la base de datos vaya a producción, no mientras se sigue ensayando.',
+    'Could not read database {}.': 'No se pudo leer la base de datos {}.',
+    'Could not read the mail configuration of {}.':
+        'No se pudo leer la configuración de correo de {}.',
+    'Mail can leave {}.': 'El correo puede salir de {}.',
+    'Mail cannot leave {}.': 'El correo no puede salir de {}.',
+    '{} has no active mail server: Odoo will use the smtp_server of its configuration file, whatever that points at.':
+        '{} no tiene ningún servidor de correo activo: Odoo usará el smtp_server de su fichero de configuración, apunte a donde apunte.',
+    'A capture is in effect: {} mail server(s) deactivated, not lost.':
+        'Hay una captura en efecto: {} servidor(es) de correo desactivados, no perdidos.',
+    ' — the capture': ' — la captura',
+    '{} fetchmail server(s) are still fetching.':
+        '{} servidor(es) fetchmail siguen recibiendo correo.',
     'Turn on {} (and at every start)': 'Encender {} (y en cada arranque)',
     'Turn off {} (and keep it off after a restart)':
         'Apagar {} (y mantenerlo apagado tras reiniciar)',

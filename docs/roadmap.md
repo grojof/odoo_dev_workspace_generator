@@ -59,6 +59,61 @@ rule, not a shape: the rule's own line may *confirm* the server's reading — th
 may never narrow it. Alongside: the test suite was mutation-audited (37 unnoticed mutations, all guarded
 now), the sdist ships what its tests read, and the operator surface has a spec.
 
+**Carrying the migration work forward** (change `carry-the-migration-work-forward`, archived). A
+migration is rehearsed several times and run once, and the corrections the rehearsals produce lived in
+the environment, which cleaning deletes. Reviewed code is now promoted to a location the operator owns
+and taken as given by the next run; what was decided about a module with no successor is recorded,
+reused between clients and reported as stale when the sources overtake it; and a migration environment
+can name OCA repositories, so that half of coverage is derived instead of filled by hand.
+
+**Seeing what a run did (in flight).** A chain of seven steps takes hours and used to leave only seven
+Odoo logs. The driver now records each step as it runs it (`logs/steps.tsv`, one appended line per
+event); a run can be **followed live** from those marks, and reported on **afterwards and
+cumulatively** — every run of the environment, opening with what is still unresolved. The parsing is
+the tool's, not an assistant's: `odoo_dwg/runlog.py` is pure and reads three sources it does not write
+(the step log, Odoo's own log line, the firewall's journal).
+
+Alongside it, **mail capture stopped being a one-way door** (change `capture-mail-without-losing-it`):
+the old redirect overwrote the client's SMTP credentials with no record of them, so it could only be used
+on a copy destined for the bin — which is the opposite of what a rehearsed migration produces. Capture now
+deactivates and adds, restore gives back exactly what was there, and a read-only check answers whether
+mail can leave.
+
+And the rehearsal got an instrument of its own (change `rehearse-with-a-module-that-breaks`): an add-on
+generated per chain, carrying one probe per class of change that chain contains, derived from its own
+analysis files — so a step can be asked what it took away, and the quiet classes (a field that moved
+module, one that stopped being stored) stop being invisible.
+
+Finally, the read-only answers came out from behind the menu (change `answer-without-the-menu`):
+`egress check`, `mail check`, `migrate report` and `migrate probes` write nothing and carry their verdict
+in an exit code, and the three thin skills — migration triage, the OpenSnitch rule check, Mailpit
+configuration — are wrappers over them rather than parsers of their own. The rule audit also answers a
+question nothing answered before: whether anything on the host now sorts ahead of the rule confining Odoo.
+
+And the rehearsal stopped needing a client (change `rehearse-on-demo-data`): a source database can be
+seeded from Odoo's own demo data, with a module set drawn from what this chain actually does to what is on
+disk — one absorbed, one renamed, one that carries on. Module fates are read with renamed and absorbed kept
+apart, and joined the tester's probe classes.
+
+**Accepted (2026-09-20):** a 12.0 → 14.0 demo rehearsal ran end to end on the reference host. Odoo 12's
+demo data plus four OCA modules chosen for their different fates were seeded, dumped, and migrated through
+both layouts (the ≤ 13 fork at 12 → 13, the upgrade-path at 13 → 14), checkpointed at each step. Every fate
+happened as the sources declared: `account_coa_menu` and `website_sale_product_style_badge` absorbed into
+`account_menu` and `website_sale`, `website_sale_attribute_filter_category` renamed,
+`partner_firstname` carried on with its own columns intact. The live watch, the cumulative report and the
+read-only checks were exercised against the running chain.
+
+It cost six fixes, all in shipped code and none visible to the suite (see `CHANGELOG.md`) — the reason for
+running it.
+
+A second pass added the rehearsal tester: the generated add-on installed on Odoo 12, carried its 25 probe
+records through both steps, and reported them afterwards without Odoo running — 7 `gone as predicted`
+(including the absorbed `account_coa_menu`), 16 `intact` across every quiet class, and **2 `not observed`**,
+which is the honest answer for two module subjects that had never been installed in that database and which
+an earlier pass had reported as the chain behaving.
+
+**Next:** the real 12 client, and a 12 → 19 rehearsal on demo data with the same module set.
+
 ## F0 — Foundation ✅
 
 Package skeleton mirroring `odoo_instance_manager`, OpenSpec + `CLAUDE.md`, i18n (English/Spanish), CLI/menu.
