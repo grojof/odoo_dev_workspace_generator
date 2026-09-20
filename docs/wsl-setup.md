@@ -208,6 +208,10 @@ python -m pytest -q
 python -m ruff check .
 ```
 
+**Next:** with the host ready, create your first workspace — `python3 -m odoo_dwg workspace` → **New
+(quick)**. See [provisioning](provisioning.md#next-your-first-workspace) and
+[workspace-layout](workspace-layout.md).
+
 Conventions, checks, and the spec-first flow: [`../CONTRIBUTING.md`](../CONTRIBUTING.md).
 
 ## What this guide deliberately leaves out

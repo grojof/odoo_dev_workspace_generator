@@ -461,11 +461,25 @@ clone is not modified. If a venv fails with `No module named 'pkg_resources'`, r
 
 ## Setup & run
 
+The venvs are already built. Create a database, then launch:
+
 ```bash
 # From this workspace directory, on the Linux host:
-bash scripts/setup_venv.sh          # create every venv + install requirements
+createdb -h {cfg.db_host} -U {cfg.db_user} {cfg.name}    # once; the name F5 offers by default
 bash scripts/run-odoo{cfg.instances()[0].major}.sh          # launch the {cfg.versions[0]} instance
 ```
+
+Then open <http://{cfg.db_host}:{cfg.http_port_for(cfg.versions[0])}/web/login>. You can also create the database
+from Odoo's own database manager at `/web/database/manager`; its master password is `admin`, set by
+`admin_passwd` in each `config/odoo<major>.conf`. **`-h {cfg.db_host} -U {cfg.db_user}` is not optional**:
+the development role is trusted over loopback TCP, not over the Unix socket, so a bare `createdb` fails with
+`role "<your user>" does not exist`.
+
+`bash scripts/setup_venv.sh` **re**builds every venv from scratch (the workspace was generated with them
+built); run it after changing an interpreter or to repair one.
+
+Mail goes nowhere outside this host: each `odoo.conf` points SMTP at `127.0.0.1:1025`. If the local capture
+(Mailpit) is installed, read what Odoo sent at <http://localhost:8025>.
 
 Each instance's `addons_path` is composed of `addons-custom`, the OCA repos, then the shared Odoo `addons`.
 Open `{cfg.name}.code-workspace` in VSCode for tasks and debug launch configs.{editor_hint}

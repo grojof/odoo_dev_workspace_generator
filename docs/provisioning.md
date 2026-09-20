@@ -20,7 +20,10 @@ python3 -m odoo_dwg provision      # menu: Check / Apply / Outbound firewall and
 
 ## Check (read-only)
 
-`Check host readiness` prints a capability table, changes nothing and **never asks for a password**. PostgreSQL's
+`Check host readiness` prints a capability table, changes nothing and **never asks for a password**. It
+reports `uv` (every migration step's interpreter comes from it) but never installs it — that is a host
+prerequisite, see [wsl-setup](wsl-setup.md#7-optional-uv-for-other-python-versions) or
+<https://docs.astral.sh/uv/>. PostgreSQL's
 state and version come from `pg_lsclusters`. The development role is checked by logging in as it over loopback,
 or through `sudo -n`. When neither works, the role row says it could not be checked (WARN), instead of claiming
 it is missing. The loopback-auth row asks **PostgreSQL itself** (`pg_hba_file_rules`, which needs `sudo`)
@@ -72,8 +75,9 @@ password:
   without naming it. `hostssl` matters in particular: Ubuntu 24.04 ships `ssl = on` and clients prefer TLS,
   so a `hostssl` rule is the one your loopback connection is matched against.
 
-  The role's own line is inserted **before the first `host` rule of any kind**, because `pg_hba` is
-  first-match-wins: a line below a rule that already matches the connection is never read, and a line that
+  Only a plain `host` rule counts as the role's own trust line — with TLS on, a `hostnossl` one is never
+  consulted — so a host that already trusts the role on `hostssl` still gets a `host` line of its own. That
+  line is inserted **before the first `host` rule of any kind**, because `pg_hba` is first-match-wins: a line below a rule that already matches the connection is never read, and a line that
   is merely *present* is not a narrowing. The step ends by **connecting as the role over loopback**: if it
   cannot, apply stops there instead of reporting a narrowing that does not work.
 
@@ -105,7 +109,9 @@ password:
   without a password, a rule set it could not read. Everything it plans is idempotent, so the worst case is a
   no-op, while the alternative was telling you the host was ready when it had no role at all.
 - **wkhtmltopdf** — the Odoo-recommended patched build (0.12.6 for Odoo ≥ 15), downloaded for the host
-  codename and **verified by SHA-256** before install; a mismatch aborts. 0.12.5, which Odoo recommends up to
+  codename and **verified by SHA-256** before install; a mismatch aborts. After installing, the binary on
+  `PATH` is read back and the step fails if it is not the patched one — an unpatched distribution build
+  earlier on `PATH` is exactly the state this step exists to fix. 0.12.5, which Odoo recommends up to
   14, is not provisioned. When no verified build is pinned for the host, `apply` says so instead of skipping
   it silently.
 - **rtlcss, with Node.js** *(opt-in)*: only needed if users work in a right-to-left language (Arabic, Hebrew,
@@ -138,6 +144,19 @@ yourself.
 - Odoo source install (dependencies, PostgreSQL role): <https://www.odoo.com/documentation/18.0/administration/on_premise/source.html>
 - wkhtmltopdf (which build to use): <https://github.com/odoo/odoo/wiki/Wkhtmltopdf>
 - Supported versions / PostgreSQL: <https://www.odoo.com/documentation/18.0/administration/supported_versions.html>
+
+When the plan ends, apply **reads the opt-in services' state back** and prints it. `systemctl restart`
+returns as soon as a unit's process is forked, so a daemon that exits a second later would otherwise leave
+every step reporting success. If you see *"A service is installed but not running"*, run
+`systemctl status opensnitch` (or `mailpit`) — for the firewall in particular, not running means either an
+unfiltered host or, if it died after installing its queue rules, one with no outbound connectivity at all.
+
+## Next: your first workspace
+
+With the host ready, create a workspace: `python3 -m odoo_dwg workspace` → **New (quick)**. It clones the
+versions you name, builds a venv for each, and writes the config, scripts and editor files. The workspace's
+own `README.md` then tells you how to create its database and start Odoo; the layout and every convention
+are in [workspace-layout](workspace-layout.md), and every menu action in [commands](commands.md).
 
 ## Acceptance (validated on WSL Ubuntu 24.04)
 

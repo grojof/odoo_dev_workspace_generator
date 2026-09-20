@@ -6,12 +6,29 @@ Thanks for your interest. This project is small and spec-driven; the bar is cons
 
 - **Zero runtime dependencies** — Python 3.12+ standard library only. Adding a runtime dependency is an
   architectural decision, not a convenience.
-- **Spec-first for non-trivial changes**: behavior lives in `openspec/specs/`; changes go through the
-  OpenSpec flow (`openspec/changes/`). Trivial fixes may go straight to a PR.
+- **Spec-first for non-trivial changes**: behaviour lives in `openspec/specs/`; a change is a directory
+  under `openspec/changes/<name>/` holding `proposal.md` (why and what), `design.md` (the decisions worth
+  recording), `tasks.md` (the checklist) and `specs/<capability>/spec.md` (the delta). Implement, keep
+  `openspec validate --specs` green, then move the directory to `openspec/changes/archive/<date>-<name>/`
+  and fold its delta into the capability's spec. Trivial fixes may go straight to a PR. The archive is also
+  where to look for *why* something is the way it is.
 - **Plan → preview → apply is inviolable**: planners stay pure (building a command is not running it), and
   nothing mutates the host without a previewed, confirmed plan.
 - Every Odoo/OpenUpgrade fact must be anchored to official documentation (see `docs/`).
 - AI agents working on this repository follow [`CLAUDE.md`](CLAUDE.md).
+
+## Set up
+
+The package itself has no dependencies; the checks below do.
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"             # pytest, ruff
+npm install -g @fission-ai/openspec@latest   # the `openspec` CLI (Node)
+```
+
+[`docs/wsl-setup.md`](docs/wsl-setup.md) covers getting a host ready from nothing, including a Node that
+needs no root.
 
 ## Checks before a PR
 

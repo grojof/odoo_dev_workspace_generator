@@ -16,7 +16,7 @@ additionally require typing an exact phrase.
 
 | Command | What it opens |
 |---|---|
-| `python3 -m odoo_dwg` | Interactive top-level menu (language prompt on first screen) |
+| `python3 -m odoo_dwg` | Interactive top-level menu |
 | `python3 -m odoo_dwg workspace` | Workspace section directly |
 | `python3 -m odoo_dwg provision` | Provisioning section directly |
 | `python3 -m odoo_dwg migrate` | Migration mode directly |

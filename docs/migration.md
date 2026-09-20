@@ -107,7 +107,7 @@ able to *find* every installed module, or it is left broken mid-chain:
   `addons/odoo<major>/custom/<module>`. Presence is necessary but *not sufficient*: the code must be
   adapted to each version's breaking changes (e.g. 17.0 removes view `attrs`/`states`; 18.0 renames
   `<tree>` to `<list>`) and may need its own `migrations/` scripts. The preflight flags every custom
-  module with this warning; the staging workflow (see the `add-custom-module-staging` change) prepares
+  module with this warning; the [staging workflow](#staging-custom-modules-menu--stage-custom-modules) prepares
   most of this mechanically.
 
 ## Staging custom modules (menu → Stage custom modules)
@@ -119,7 +119,7 @@ of OpenUpgrade, with migration scripts for every bump through 18.0→19.0):
 1. You point at the directory holding your custom modules **at the source version** (never modified) and
    pick the modules.
 2. Per chain step, the previous stage's code is copied into `addons/odoo<major>/custom/<module>` (a
-   throwaway git worktree — the tool requires one) and the tool applies exactly that bump. Observed on
+   throwaway git worktree the tool creates for it) and the tool applies exactly that bump. Observed on
    WSL with `odoo-module-migrator==0.5.0`: 18.0 converts `<tree>` → `<list>` and bumps the manifest
    version per step; some changes (e.g. the 17.0 view-`attrs` removal) are *not* auto-applied by this
    tool version and remain review work — which the candidate findings and the tool's own WARN/ERROR
@@ -156,9 +156,19 @@ coverage looks in the OpenUpgrade fork itself: its `addons` and `odoo/addons`, a
 
 ## Running the migration
 
-The driver **works on a copy, never production**. Give it a custom-format dump of the source database:
+The driver **works on a copy, never production**. Take a custom-format dump of the source database (plain
+SQL dumps are rejected), copy its filestore, and hand the dump to the driver:
 
 ```bash
+# On the source host — custom format (-Fc) is required:
+pg_dump -Fc -h <source-host> -U <source-user> <source-db> -f source-13.0.dump
+
+# The attachments live outside the database. Copy the source filestore to this
+# host under the working database's name, or every ir_attachment row in the
+# migrated database will point at a file that is not there:
+rsync -a <source>/.local/share/Odoo/filestore/<source-db>/ \
+      ~/.local/share/Odoo/filestore/migration/
+
 cd ~/odoo-migrations/13-to-18
 bash run_migration.sh /path/to/source-13.0.dump
 ```
@@ -175,6 +185,23 @@ that came from a different source dump.
 **The working database.** Every environment upgrades a database called `migration` on the shared PostgreSQL,
 which a fresh run drops and recreates from the dump. Two environments therefore cannot run at the same time,
 and a previous run's database is replaced. Nothing ever touches the source database.
+
+**When a step fails.** The driver names the step and its log (`[fail] step 16.0 failed — see
+logs/16.0.log`). Read that log: the cause is usually one of your own modules under
+`addons/odoo<major>/custom` that has not been adapted to that version. Fix it there, then run the same
+command again — it resumes from the last checkpoint rather than from the source. Re-running without fixing
+anything fails identically.
+
+**When it finishes.** `[done] migration complete` leaves the result in the `migration` database on the
+shared cluster. To look at it, start that step's Odoo by hand:
+
+```bash
+cd ~/odoo-migrations/13-to-18
+.venv/odoo18/bin/python .repos/odoo-18.0/odoo-bin -c conf/odoo18.conf -d migration
+```
+
+To take it away: `pg_dump -Fc -h 127.0.0.1 -U odoo migration -f migrated-18.0.dump` (and the filestore
+directory alongside it).
 
 **Resuming.** Run the same command again after a failure.
 - **What it restores:** before the first step still missing, the driver restores the **newest checkpoint**
@@ -203,7 +230,9 @@ The migration menu's **Clean a migration environment** action removes an environ
 (venvs, configs, checkpoints, logs, requirements, driver) after preview and an exact-phrase
 confirmation (`DELETE`) — use it to retest from scratch or clear leftovers. Removing the shared
 `.repos` clone cache is a separate opt-in (it serves *every* migration environment). The PostgreSQL
-migration database is never touched; drop it manually (`dropdb`) for a fully clean run.
+migration database is never touched; drop it manually (`dropdb -h 127.0.0.1 -U odoo migration`) for a fully
+clean run — the `-h`/`-U` are needed because the development role is trusted over loopback TCP, not over the
+Unix socket.
 
 ## Scope & caveats
 

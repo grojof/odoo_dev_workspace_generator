@@ -8,7 +8,8 @@ updated: 2026-09-20
 
 # Workspace layout
 
-`odoo_dwg` generates two things under the base directory (`~/odoo-workspaces` by default): a **shared,
+`odoo_dwg` generates two things under the base directory (`~/odoo-workspaces`; fixed, not a profile field — symlink it to put the storage
+elsewhere, which matters: clones and venvs run to several GB per version): a **shared,
 read-only repo cache** reused across workspaces, and one **per-client workspace** tree.
 
 ```
@@ -59,7 +60,8 @@ intrinsically Linux and is validated by hand on WSL Ubuntu 24.04:
 # On the Linux host, after generating the workspace:
 cd ~/odoo-workspaces/<name>
 bash scripts/setup_venv.sh                      # venv (host python3 or uv) + pip install -r requirements.txt
-createdb <name>                                 # as the `odoo` role that provision apply creates
+createdb -h 127.0.0.1 -U odoo <name>            # the role provision apply creates; -h/-U are required,
+                                                # since the trust is on loopback TCP, not the Unix socket
 bash scripts/run-odoo18.sh                       # odoo-bin -c config/odoo18.conf → serves on its port
 ```
 

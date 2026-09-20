@@ -31,6 +31,16 @@ All notable changes to this project are documented here. The format is based on
   - `tools/verify_egress_pins.py` re-checks the pins, the signature and the signing key against upstream.
 
 ### Changed
+- **The migration guide covers what the operator actually has to do**: the `pg_dump -Fc` to take (it was
+  described but never shown), the **filestore** to copy alongside it (mentioned nowhere before — every
+  `ir_attachment` in the migrated database would have pointed at a file that was never there), what to do
+  when a step fails (read the named log; the cause is usually a custom module under
+  `addons/odoo<major>/custom`), and what to do when it finishes: how to start Odoo on the migrated database
+  and how to take it away.
+- Both reader paths now point at their next station: `wsl-setup` and `provisioning` end on creating a first
+  workspace, and `README.md` says what "provision is optional" means — you may prepare the host yourself,
+  but a workspace needs PostgreSQL, the role and wkhtmltopdf either way.
+
 - **`provision check` reads the loopback rules from PostgreSQL, not from `pg_hba.conf`** (change
   `read-pg-hba-from-the-server`). `pg_hba_file_rules` is the server's own parse: continued records folded,
   `include`/`include_dir` resolved and attributed to the file each rule came from, list fields split. Four
@@ -75,6 +85,18 @@ All notable changes to this project are documented here. The format is based on
   first run: dead variables in `setup_venv.sh`, and a failure path written as `a && b || c`).
 
 ### Fixed
+- **A newly generated workspace dead-ended at F5.** Its README never said to create a database, so the
+  debugger's default (the workspace name) hit `database "<name>" does not exist`. The README now opens with
+  the `createdb` to run, the URL to open, Odoo's own database manager and its `admin_passwd`, where mail
+  goes (Mailpit on `:8025`), and the fact that `setup_venv.sh` *re*builds venvs the generation already made.
+- **The one `createdb` in the docs could not work on a host this tool provisions.** The development role is
+  trusted over loopback TCP, not over the Unix socket, so a bare `createdb` fails with `role "<you>" does
+  not exist`. Every `createdb`/`dropdb` shown — in the docs and in the tool's own message — now carries
+  `-h 127.0.0.1 -U odoo`.
+- **A contributor could not run the first command in CONTRIBUTING.md.** There was no development-environment
+  section, and the `openspec` CLI (a Node package) was named nowhere in the repository. Both are there now,
+  along with what an OpenSpec change is made of, for a human rather than an agent.
+
 - **A host whose `pg_hba.conf` already trusted the development role on `hostssl` could not be provisioned
   at all.** The rewriter counted any `host…` type as the role's trust line and so inserted nothing, while
   the check and the verification had been tightened to plain `host` — the step then failed on a rule it had

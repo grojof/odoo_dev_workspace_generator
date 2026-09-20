@@ -83,7 +83,10 @@ _ES_TO_EN: dict[str, str] = {
     "Esto elimina permanentemente {}.": "This permanently deletes {}.",
     "Cancelado.": "Cancelled.",
     "Entorno de migración eliminado.": "Migration environment removed.",
-    "La base de datos PostgreSQL de migración (si existe) no se toca — bórrala con dropdb cuando quieras una ejecución totalmente limpia.": "The PostgreSQL migration database (if any) is untouched — drop it with dropdb when you want a fully clean run.",
+    "La base de datos PostgreSQL de migración (si existe) no se toca — bórrala con "
+    "`dropdb -h 127.0.0.1 -U odoo migration` cuando quieras una ejecución totalmente limpia.":
+        "The PostgreSQL migration database (if any) is untouched — drop it with "
+        "`dropdb -h 127.0.0.1 -U odoo migration` when you want a fully clean run.",
     "Rol PostgreSQL de desarrollo": "Development PostgreSQL role",
     "Todos los ficheros generados ya están al día.": "Every generated file is already up to date.",
     "Solo se escriben los ficheros que cambian; antes se guarda cada uno existente como <fichero>.bak-<fecha>.": "Only files that change are written; each existing one is kept as <file>.bak-<date> first.",

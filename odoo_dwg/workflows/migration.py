@@ -180,7 +180,8 @@ def _clean_environment() -> None:
         return
     apply_commands(commands)
     print(level_text("OK", t("Migration environment removed.")))
-    print(level_text("INFO", t("The PostgreSQL migration database (if any) is untouched — drop it with dropdb when you want a fully clean run.")))
+    print(level_text("INFO", t("The PostgreSQL migration database (if any) is untouched — drop it with "
+        "`dropdb -h 127.0.0.1 -U odoo migration` when you want a fully clean run.")))
 
 
 def _step_analysis_records(env: MigrationEnv, version: str) -> list[analysis.AnalysisRecord]:
