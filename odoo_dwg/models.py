@@ -1006,7 +1006,7 @@ class MigrationEnv:
         odoo = self.odoo_clone_dir(self.source)
         parts = (
             self.addons_custom_dir(self.source),
-            self.addons_oca_dir(self.source),
+            *self.oca_dirs(self.source),
             odoo / "addons",
             odoo / "odoo" / "addons",
         )
@@ -1144,19 +1144,36 @@ class MigrationEnv:
         if odoo_major(version) <= LEGACY_LAYOUT_MAX_MAJOR:
             parts = (
                 self.addons_custom_dir(version),
-                self.addons_oca_dir(version),
+                *self.oca_dirs(version),
                 openupgrade / "addons",
             )
         else:
             odoo = self.odoo_clone_dir(version)
             parts = (
                 self.addons_custom_dir(version),
-                self.addons_oca_dir(version),
+                *self.oca_dirs(version),
                 openupgrade,
                 odoo / "addons",
                 odoo / "odoo" / "addons",
             )
         return ",".join(str(p) for p in parts)
+
+    def oca_dirs(self, version: str) -> list[Path]:
+        """The OCA entries of a version's add-ons path.
+
+        Two kinds, and both are needed. The directory itself, for a module the
+        operator dropped in by hand — it predates naming repositories and
+        ``docs`` still describes it. And **one entry per named repository**,
+        because a repository's modules live *inside* it and Odoo scans an
+        add-ons path entry exactly one level deep.
+
+        Listing only the parent is how a generated environment linked four OCA
+        repositories that no step could load and coverage reported every one of
+        their modules as somebody else's to supply. The workspace surface has
+        always listed each repository (``addons_dirs``); this is the same rule.
+        """
+        base = self.addons_oca_dir(version)
+        return [base] + [base / repo for repo in self.oca_repos]
 
     def coverage_dirs(self, version: str) -> list[Path]:
         """Every directory a step resolves modules from, in lookup order: its

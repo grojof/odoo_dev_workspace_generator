@@ -163,6 +163,20 @@ def test_overrides_lift_gevent_only_on_python_310():
         assert "gevent" not in text
 
 
+def test_overrides_bridge_pyldap_only_where_the_branch_pins_it():
+    from odoo_dwg import templates
+    # Odoo 12.0 pins pyldap==2.4.28, whose setup passes `-R` to cc — a SunOS flag
+    # GCC rejects, so the venv cannot be built at all. Found by building it.
+    text = templates.render_migration_overrides("12.0", "3.8")
+    # Both lines are needed: `--overrides` pins versions and cannot rename a
+    # package, so naming python-ldap alone leaves pyldap==2.4.28 in the
+    # resolution and it fails to build exactly as before.
+    assert "pyldap==3.0.0.post1" in text and "python-ldap==3.1.0" in text
+    # 13.0 onwards pin python-ldap themselves; overriding would be inventing.
+    for version in ("13.0", "14.0", "18.0"):
+        assert "pyldap" not in templates.render_migration_overrides(version)
+
+
 def test_generate_migration_composes_everything():
     env = MigrationEnv(source="13.0", target="16.0")
     cmds = planners.plan_generate_migration(env)

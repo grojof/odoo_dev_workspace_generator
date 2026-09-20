@@ -520,6 +520,30 @@ The shared Odoo clones are shallow (no history). For `git log`/`git blame` on th
 _PY310_OVERRIDES = ("gevent==22.10.2", "greenlet==2.0.2")
 
 
+#: The last major whose ``requirements.txt`` pins ``pyldap``. 12.0 pins
+#: ``pyldap==2.4.28``; 13.0 already pins ``python-ldap==3.1.0``.
+PYLDAP_LAST_MAJOR = 12
+
+# `pyldap` was a temporary Python-3 fork of `python-ldap`. Its own PyPI page says
+# so: "THIS FORK IS DEPRECATED. The pyldap fork was merged back into python-ldap,
+# and released as python-ldap 3.0.0." 2.4.28's setup passes `-R` to the linker — a
+# SunOS flag GCC rejects — so it cannot build on a current toolchain:
+#     cc: error: unrecognized command-line option '-R'
+# The replacement is not a choice this project made: it is the package the fork
+# became, at the version Odoo itself moved to in 13.0.
+# `--overrides` pins versions; it cannot rename a package. Adding python-ldap
+# alone left pyldap==2.4.28 in the resolution and it failed to build exactly as
+# before. The fork's own final release is the bridge: 3.0.0.post1 contains no
+# code and only requires python-ldap.
+_PYLDAP_OVERRIDE = [
+    "# pyldap==2.4.28 passes '-R' to cc and cannot build. 3.0.0.post1 is the fork's",
+    "# own last release, which only requires python-ldap — the package it became.",
+    "pyldap==3.0.0.post1; sys_platform != 'win32'",
+    "# and the version Odoo itself moved to in 13.0, rather than whatever is latest.",
+    "python-ldap==3.1.0; sys_platform != 'win32'",
+]
+
+
 def render_migration_overrides(version: str, python: str | None = None) -> str:
     """Per-version requirements repair for old branches, fed to ``--overrides``.
 
@@ -539,6 +563,8 @@ def render_migration_overrides(version: str, python: str | None = None) -> str:
     if python and python_tuple(python)[:2] == (3, 10):
         lines.append("# gevent==21.8.0 has no cp310 wheel; lift to the branch's own 3.11 pins.")
         lines.extend(_PY310_OVERRIDES)
+    if odoo_major(version) <= PYLDAP_LAST_MAJOR:
+        lines.extend(_PYLDAP_OVERRIDE)
     return "\n".join(lines) + "\n"
 
 

@@ -6,6 +6,8 @@ at module level, parsed and never executed.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from odoo_dwg import planners, preflight, templates
@@ -150,3 +152,41 @@ def test_the_chain_s_own_oca_linking_is_unchanged(tmp_path):
         if c.description.startswith("Link OCA")
     }
     assert versions == {"13.0", "14.0"}  # the steps, not the source
+
+
+def test_a_module_inside_a_named_oca_repository_is_on_the_path_odoo_scans(tmp_path):
+    """Odoo scans an add-ons path entry exactly one level deep.
+
+    A repository is linked as a directory of modules, so the entry has to be the
+    repository, not its parent. Listing only the parent generated an environment
+    that linked four OCA repositories no step could load, and coverage reported
+    every one of their modules as somebody else's to supply.
+    """
+    MigrationEnv.base_dir = str(tmp_path / "envs")
+    env = MigrationEnv(source="12.0", target="14.0", oca_repos=["e-commerce"])
+    module = env.addons_oca_dir("13.0") / "e-commerce" / "website_sale_product_style_badge"
+    module.mkdir(parents=True)
+    (module / "__manifest__.py").write_text("{}", encoding="utf-8")
+    entries = [Path(part) for part in env.addons_path("13.0").split(",")]
+    # The test Odoo itself applies: some entry must be the module's own parent.
+    assert module.parent in entries
+    # And the source version, which a demo seed installs from.
+    source_module = env.addons_oca_dir("12.0") / "e-commerce" / "some_module"
+    assert source_module.parent in [Path(p) for p in env.source_addons_path.split(",")]
+
+
+def test_coverage_resolves_a_module_inside_a_named_repository(tmp_path):
+    MigrationEnv.base_dir = str(tmp_path / "envs")
+    env = MigrationEnv(source="12.0", target="14.0", oca_repos=["partner-contact"])
+    for version in env.chain():
+        (env.addons_oca_dir(version) / "partner-contact" / "partner_firstname").mkdir(parents=True)
+    sources = preflight.coverage_sources(env, "13.0")
+    assert any((src / "partner_firstname").exists() for src in sources)
+
+
+def test_the_bare_oca_directory_is_still_a_path_entry(tmp_path):
+    # It predates naming repositories, and the docs still describe dropping a
+    # module into it by hand.
+    MigrationEnv.base_dir = str(tmp_path / "envs")
+    env = MigrationEnv(source="12.0", target="14.0", oca_repos=["e-commerce"])
+    assert str(env.addons_oca_dir("13.0")) in env.addons_path("13.0").split(",")
