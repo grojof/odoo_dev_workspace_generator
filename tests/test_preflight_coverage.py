@@ -340,3 +340,37 @@ def test_a_hand_edited_decisions_file_cannot_stop_a_preflight():
     one = ModuleDecision(module="m", source="12.0", target="18.0", decision="dropped",
                          reason="why", evidence={"resolved": False})
     assert decisions_from_json(decisions_to_json([one])) == [one]
+
+
+def test_a_module_absorbed_mid_chain_is_not_missing_at_every_later_step(tmp_path):
+    """The case a real 12 -> 14 demo run produced, and stopped on.
+
+    `account_coa_menu` is merged into `account_menu` at 13.0. At 14.0 apriori
+    says nothing about the old name — it no longer exists to say anything about —
+    so looking the original up at every step reported it missing for 14.0 and
+    blocked the run, telling the operator to supply code that should not exist.
+    """
+    env = MigrationEnv(source="12.0", target="14.0")
+    for version, mapping in (("13.0", '{"account_coa_menu": "account_menu"}'), ("14.0", "{}")):
+        path = preflight.apriori_path(env, version)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"renamed_modules = {{}}\nmerged_modules = {mapping}\n", encoding="utf-8")
+    # The successor is on disk for both steps; the original is on disk for neither.
+    for version in env.chain():
+        (env.addons_oca_dir(version) / "account_menu").mkdir(parents=True)
+
+    coverage = preflight.gather_coverage(env, ["account_coa_menu"])
+    assert coverage.blocking == {}
+    assert coverage.warnings == {}
+
+
+def test_a_module_that_really_is_missing_is_still_blocking(tmp_path):
+    env = MigrationEnv(source="12.0", target="14.0")
+    for version in env.chain():
+        path = preflight.apriori_path(env, version)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("renamed_modules = {}\nmerged_modules = {}\n", encoding="utf-8")
+        env.addons_oca_dir(version).mkdir(parents=True, exist_ok=True)
+    coverage = preflight.gather_coverage(env, ["client_only_module"])
+    # Carrying successors forward must not make everything resolve.
+    assert coverage.blocking["13.0"] == ["client_only_module"]

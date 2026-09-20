@@ -257,6 +257,12 @@ def gather_coverage(
     Every step is native, so every step's coverage is verifiable."""
     coverage = Coverage()
     authors = authors or {}
+    # The name each module answers to at the step being examined. A module the
+    # chain renames or absorbs keeps its *new* name from then on, and a later
+    # step's apriori.py says nothing about the old one — so looking the original
+    # up at every step reported a module absorbed at 13.0 as missing at 14.0 and
+    # blocked the run, telling the operator to supply code that should not exist.
+    carried = {module: module for module in modules}
     for version in env.chain():
         sources = coverage_sources(env, version)
         if not any(exists(src) for src in sources):
@@ -272,12 +278,19 @@ def gather_coverage(
         recorded = {d.module: d for d in (decisions or [])
                     if d.source == env.source and d.target == env.target}
         for module in modules:
-            found = next((src for src in sources if exists(src / module)), None)
-            # One hop through what OpenUpgrade declares.
-            successor = renames.get(module)
+            # Resolved under the name this step knows it by; reported under the
+            # operator's, which is what their database holds and what a recorded
+            # decision was made about.
+            name = carried[module]
+            found = next((src for src in sources if exists(src / name)), None)
+            successor = renames.get(name)
             resolved_successor = bool(
                 successor and any(exists(src / successor) for src in sources)
             )
+            if successor:
+                # Declared is enough to carry it: the rename happens whether or
+                # not the successor is on disk for this step.
+                carried[module] = successor
             answer = recorded.get(module)
             if answer is not None:
                 # A decision is never believed over the sources. It was made about

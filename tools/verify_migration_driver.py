@@ -48,6 +48,7 @@ def _build(
     failing_step: str | None = None,
     source: str = SOURCE,
     target: str = TARGET,
+    absorbed: tuple[str, str] | None = None,
 ) -> tuple[Path, MigrationEnv]:
     """Render the driver and the stub host it runs against."""
     MigrationEnv.base_dir = str(root / "envs")
@@ -57,9 +58,14 @@ def _build(
 
     stubs = root / "bin"
     # One installed module authored by Odoo: coverage warns, never blocks.
+    listing = 'printf "base\\tOdoo S.A.\\n"'
+    if absorbed:
+        # One module of somebody else's, which the first step absorbs into
+        # another. Odoo's own modules are only ever warned about.
+        listing += f'; printf "{absorbed[0]}\\tACME\\n"'
     _stub(stubs / "psql",
           f'if [[ "$*" == *base* && "$*" == *latest_version* ]]; then echo {source}.1.0; '
-          'else printf "base\\tOdoo S.A.\\n"; fi')
+          f'else {listing}; fi')
     for name in ("pg_restore", "dropdb", "createdb", "uv"):
         _stub(stubs / name, "exit 0")
     _stub(stubs / "pg_dump", "exit 1" if failing_pg_dump else 'echo "dump of $*"')
@@ -80,6 +86,21 @@ def _build(
             directory.mkdir(parents=True, exist_ok=True)
     for directory in (env.conf_dir, env.logs_dir, env.checkpoints_dir):
         Path(directory).mkdir(parents=True, exist_ok=True)
+    if absorbed:
+        old_name, new_name = absorbed
+        first, rest = env.chain()[0], env.chain()[1:]
+        # The first step declares the merge; no later step mentions the old name,
+        # because by then it does not exist to mention.
+        for version in env.chain():
+            apriori = Path(env.apriori_file(version))
+            apriori.parent.mkdir(parents=True, exist_ok=True)
+            merged = f'{{"{old_name}": "{new_name}"}}' if version == first else "{}"
+            apriori.write_text(
+                f"renamed_modules = {{}}\nmerged_modules = {merged}\n", encoding="utf-8"
+            )
+        # The successor is on disk for every step; the original for none.
+        for version in [first, *rest]:
+            (Path(env.addons_custom_dir(version)) / new_name).mkdir(parents=True, exist_ok=True)
     (root / "source.dump").write_text("source", encoding="utf-8")
     return script, env
 
@@ -235,6 +256,40 @@ def main() -> int:
             and first_step in stopped
             and "[done]" not in legacy_missing.stdout,
             stopped,
+        )
+
+    # A module the chain absorbs mid-way must not be reported as missing at every
+    # step after the one that absorbed it. A real 12 -> 14 demo run stopped here:
+    # `account_coa_menu` merges into `account_menu` at 13.0, and 14.0's apriori
+    # says nothing about the old name, so preflight asked the operator to supply
+    # code that should not exist.
+    with tempfile.TemporaryDirectory(prefix="odwg-driver-") as tmp:
+        root = Path(tmp)
+        script, env = _build(root, absorbed=("acme_old_module", "acme_new_module"))
+        absorbed_run = _run(root, script)
+        check(
+            "a module absorbed at the first step does not block the later ones",
+            absorbed_run.returncode == 0 and "[done]" in absorbed_run.stdout,
+            absorbed_run.stdout + absorbed_run.stderr,
+        )
+        check(
+            "and it is never named as missing",
+            "acme_old_module missing" not in absorbed_run.stderr,
+            absorbed_run.stderr,
+        )
+
+    # A module nobody accounts for must still block, or the carry-forward would
+    # have made everything resolve.
+    with tempfile.TemporaryDirectory(prefix="odwg-driver-") as tmp:
+        root = Path(tmp)
+        script, env = _build(root, absorbed=("acme_orphan", "acme_absent"))
+        for version in env.chain():
+            shutil.rmtree(Path(env.addons_custom_dir(version)) / "acme_absent")
+        orphan = _run(root, script)
+        check(
+            "a module whose successor is nowhere still blocks",
+            orphan.returncode != 0 and "acme_orphan missing" in orphan.stderr,
+            orphan.stdout + orphan.stderr,
         )
 
     # A failing step must name itself and its log, not die silently on set -e.

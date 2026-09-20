@@ -904,11 +904,20 @@ def _render_coverage_helper() -> str:
             "if not modules_tsv.strip():",
             '    print("[coverage] %s: no module list to check" % version, file=sys.stderr)',
             "    sys.exit(1)",
+            "# The list as the *next* step will see it: a module this step renames",
+            "# or absorbs answers to its new name from here on, and the next step's",
+            "# apriori.py says nothing about the old one. Checking the original at",
+            "# every step reported a module absorbed at 13.0 as missing at 14.0 and",
+            "# stopped the run, asking for code that should not exist.",
+            "carried = []",
             "for line in modules_tsv.splitlines():",
             '    name, _, author = line.strip().partition("\\t")',
-            "    if not name or resolves(name):",
+            "    if not name:",
             "        continue",
             "    successor = renames.get(name)",
+            '    carried.append("%s\\t%s" % (successor or name, author))',
+            "    if resolves(name):",
+            "        continue",
             "    if successor and resolves(successor):",
             "        continue",
             "    if author.strip().lower() in ODOO_AUTHORS:",
@@ -921,6 +930,8 @@ def _render_coverage_helper() -> str:
             "for name in blocking:",
             '    print("[coverage] %s missing for %s — place it in %s" % (name, version, customdir),',
             "          file=sys.stderr)",
+            "# stdout carries the list forward; every diagnostic goes to stderr.",
+            'print("\\n".join(carried))',
             "sys.exit(1 if blocking else 0)",
             "PYCOV",
             "}",
@@ -941,7 +952,7 @@ def _render_preflight_db(env: MigrationEnv) -> str:
         _render_coverage_helper(),
         "",
         "preflight_db() {",
-        "  local base_ver blocking=0",
+        "  local base_ver blocking=0 next_tsv",
         '  base_ver=$(psql -X -d "$DB" -tAc "SELECT latest_version FROM ir_module_module WHERE name=\'base\'") '
         '|| fail "could not query the restored database \'$DB\'"',
         f'  case "$base_ver" in {source_major}.*) ;; *) fail "database base version \'$base_ver\' does not match declared source {env.source}";; esac',
@@ -956,8 +967,11 @@ def _render_preflight_db(env: MigrationEnv) -> str:
         custom = shlex.quote(str(env.addons_custom_dir(version)))
         lines += [
             f"  # coverage: step {version}",
-            f'  ODWG_MODULES_TSV="$modules_tsv" coverage_step {version} {apriori} {custom} '
-            f"{sources} || blocking=1",
+            f'  next_tsv=$(ODWG_MODULES_TSV="$modules_tsv" coverage_step {version} {apriori} '
+            f'{custom} {sources}) || blocking=1',
+            # Kept even when the step reported blocking modules: the later steps
+            # still have to be checked, and against the names they will use.
+            '  if [ -n "$next_tsv" ]; then modules_tsv="$next_tsv"; fi',
         ]
     lines += [
         '  [ "$blocking" = 0 ] || fail "addons coverage incomplete (see [coverage] lines above)"',
