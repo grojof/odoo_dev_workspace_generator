@@ -8,9 +8,9 @@ updated: 2026-09-20
 
 # Roadmap
 
-**Released: v0.1.0 (2026-09-19).** F0–F3 are complete; see [`CHANGELOG.md`](../CHANGELOG.md).
+**Released: v0.2.0 (2026-09-20).** F0–F3 are complete; see [`CHANGELOG.md`](../CHANGELOG.md).
 
-**Next release (0.2.0), on `fix/harden-for-0-2-0` until it merges:** the outbound firewall and mail capture (change `add-egress-control`);
+**What 0.2.0 brought:** the outbound firewall and mail capture (change `add-egress-control`);
 `harden-for-0-2-0`, which closed what repeated pre-release audit rounds found (each round one docs review and
 one code review, both verified by hand before anything was changed); and `read-pg-hba-from-the-server`, which
 ended the longest-running of them by asking PostgreSQL for its own rules instead of re-implementing its

@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-20
+
 ### Added
 - **Outbound firewall and mail capture** (change `add-egress-control`), both opt-in in `provision apply`, see
   [`docs/egress-control.md`](docs/egress-control.md).
@@ -52,7 +54,6 @@ All notable changes to this project are documented here. The format is based on
 - Both reader paths now point at their next station: `wsl-setup` and `provisioning` end on creating a first
   workspace, and `README.md` says what "provision is optional" means — you may prepare the host yourself,
   but a workspace needs PostgreSQL, the role and wkhtmltopdf either way.
-
 - **`provision check` reads the loopback rules from PostgreSQL, consulting `pg_hba.conf` only to tell a
   role named `"all"` from the keyword** (change
   `read-pg-hba-from-the-server`). `pg_hba_file_rules` is the server's own parse: continued records folded,
@@ -244,7 +245,6 @@ All notable changes to this project are documented here. The format is based on
 - The migration flow shows the interpreter **a step's venv was really built with** when it differs from the
   one about to be planned, so a pin that was never persisted is visible before the preview rather than
   silently rebuilt away.
-
 - **A newly generated workspace dead-ended at F5.** Its README never said to create a database, so the
   debugger's default (the workspace name) hit `database "<name>" does not exist`. The README now opens with
   the `createdb` to run, the URL to open, Odoo's own database manager and its `admin_passwd`, where mail
@@ -256,7 +256,6 @@ All notable changes to this project are documented here. The format is based on
 - **A contributor could not run the first command in CONTRIBUTING.md.** There was no development-environment
   section, and the `openspec` CLI (a Node package) was named nowhere in the repository. Both are there now,
   along with what an OpenSpec change is made of, for a human rather than an agent.
-
 - **A host whose `pg_hba.conf` already trusted the development role on `hostssl` could not be provisioned
   at all.** The rewriter counted any `host…` type as the role's trust line and so inserted nothing, while
   the check and the verification had been tightened to plain `host` — the step then failed on a rule it had
@@ -276,7 +275,6 @@ All notable changes to this project are documented here. The format is based on
 - Every `psql` the plan runs carries `-X` (four did not), pathname expansion is off while the verification
   walks its findings, and the step's own name no longer promises more than it reads: the view is the file as
   the server parses it now, and the connection check is what proves the loaded rules.
-
 - **A `pg_hba.conf` PostgreSQL refuses to load made `provision apply` report success on a host it had not
   changed.** `pg_ctl reload` returns 0 whether or not the file parsed, so with one malformed rule anywhere
   the server keeps its previous rules while the file on disk reads as narrowed — and the verification step,
@@ -295,7 +293,6 @@ All notable changes to this project are documented here. The format is based on
   role could not connect at all. Only a plain `host` rule counts as reached; every type still shadows.
 - The plan's verification survives a server older than PostgreSQL 15, where `pg_hba_file_rules` has no
   `file_name` column.
-
 - **A blanket `trust` written on any connection type but `host`/`hostnossl` was invisible to the
   narrowing** — and `hostssl` is not a corner case: Ubuntu 24.04 ships `ssl = on` and clients prefer TLS, so
   a `hostssl all all 127.0.0.1/32 trust` is the rule a loopback connection is actually matched against. It
@@ -309,7 +306,6 @@ All notable changes to this project are documented here. The format is based on
   what such a file shows while leaving the rest would report a success that did not happen.
 - The role's line goes before the **first `host` rule of any kind**. Preferring a rule for every role could
   only push it later — behind a group-role rule, for instance, which would shadow it.
-
 - **A blanket `trust` whose address merely *contained* loopback survived the narrowing** — `all` (what the
   official `postgres` image writes for `POSTGRES_HOST_AUTH_METHOD=trust`), `0.0.0.0/0`, `127.0.0.0/8` — and
   the check then reported `trust for odoo only`, with the network reachable in the `0.0.0.0/0` case. The
@@ -650,5 +646,6 @@ First release.
   marker and the venvs planner skips on the marker (not the venv directory), rebuilding half-built
   venvs with `uv venv --clear` instead of silently skipping them.
 
-[Unreleased]: https://github.com/grojof/odoo_dev_workspace_generator/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/grojof/odoo_dev_workspace_generator/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/grojof/odoo_dev_workspace_generator/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/grojof/odoo_dev_workspace_generator/releases/tag/v0.1.0
