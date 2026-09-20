@@ -139,7 +139,12 @@ def probe_state_sql(probes: list[Probe]) -> str:
     """
     models = sorted({p.model for p in probes if p.subject_kind == "model"})
     fields = sorted({(p.model, p.field) for p in probes if p.subject_kind == "field"})
-    modules = sorted({p.model for p in probes if p.subject_kind == "module"})
+    # The successor too: a subject *and* its successor both absent means neither
+    # was ever there, which is not the chain behaving.
+    modules = sorted(
+        {p.model for p in probes if p.subject_kind == "module"}
+        | {p.successor for p in probes if p.subject_kind == "module" and p.successor}
+    )
     parts: list[str] = []
     if models:
         parts.append(
@@ -173,8 +178,11 @@ class ProbeVerdict:
         return self.state in ("gone unannounced", "still there")
 
 
-#: Worst first: the two findings, then what behaved.
-_VERDICT_ORDER = ("gone unannounced", "still there", "gone as predicted", "intact")
+#: Worst first: the two findings, then what behaved — and last, what could not
+#: be observed at all, which is neither.
+_VERDICT_ORDER = (
+    "gone unannounced", "still there", "gone as predicted", "intact", "not observed"
+)
 
 
 def read_probe_states(
@@ -197,8 +205,15 @@ def read_probe_states(
         there = key in present
         if there:
             state = "still there" if probe.expected_gone else "intact"
+        elif not probe.expected_gone:
+            state = "gone unannounced"
+        elif probe.successor and (probe.subject_kind, probe.successor, "") not in present:
+            # Neither the subject nor what it became is in the database, so this
+            # probe measured nothing: the subject was never installed here.
+            # Calling that "gone as predicted" reassures without having looked.
+            state = "not observed"
         else:
-            state = "gone as predicted" if probe.expected_gone else "gone unannounced"
+            state = "gone as predicted"
         verdicts.append(ProbeVerdict(probe, state))
     verdicts.sort(
         key=lambda v: (_VERDICT_ORDER.index(v.state), _version_key(v.probe.version), v.probe.name)

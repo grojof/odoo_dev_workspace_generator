@@ -197,3 +197,40 @@ def test_the_generated_manifest_says_who_it_is_by():
     manifest = templates.render_tester_module(probes, uncovered, "12.0 - 19.0")["__manifest__.py"]
     assert f'"author": "{templates.TESTER_AUTHOR}"' in manifest
     assert templates.TESTER_AUTHOR.lower() not in ("odoo", "odoo s.a.", "odoo sa")
+
+
+def _module_probe(name: str, successor: str) -> tester.Probe:
+    return tester.Probe(name=name, kind="merged_module", version="13.0", model=name,
+                        field="", detail="d", successor=successor)
+
+
+def test_a_subject_that_was_never_there_is_not_reported_as_the_chain_behaving():
+    """A real 12 -> 14 run reported two module probes as `gone as predicted`
+    whose subjects had never been installed. Absent proves nothing on its own."""
+    installed = _module_probe("account_coa_menu", "account_menu")
+    never = _module_probe("base_vat_sanitized", "base_vat")
+    rows = [["module", "account_menu", ""]]   # only the successor of the first
+    states = {v.probe.name: v.state for v in tester.read_probe_states([installed, never], rows)}
+    assert states["account_coa_menu"] == "gone as predicted"
+    assert states["base_vat_sanitized"] == "not observed"
+
+
+def test_not_observed_is_neither_a_finding_nor_counted_as_a_pass():
+    verdicts = tester.read_probe_states([_module_probe("m", "s")], [])
+    assert verdicts[0].state == "not observed" and not verdicts[0].is_finding
+    # It sorts last, after everything that was actually measured — including the
+    # passes. A probe that looked at nothing must not read as one that looked.
+    mixed = tester.read_probe_states(
+        [
+            _module_probe("m", "s"),                       # not observed
+            _probe("moved_field", field="kept"),           # intact
+            _probe("removed_field", field="gone"),         # gone as predicted
+        ],
+        [["field", "sale.order", "kept"]],
+    )
+    assert [v.state for v in mixed] == ["gone as predicted", "intact", "not observed"]
+
+
+def test_the_state_query_asks_about_successors_too():
+    sql = tester.probe_state_sql([_module_probe("old_mod", "new_mod")])
+    assert "'new_mod'" in sql and "'old_mod'" in sql
