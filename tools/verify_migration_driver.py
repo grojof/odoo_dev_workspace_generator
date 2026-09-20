@@ -66,7 +66,16 @@ def _build(
     if absorbed:
         # One module of somebody else's, which the first step absorbs into
         # another. Odoo's own modules are only ever warned about.
-        listing += f'; printf "{absorbed[0]}\\tACME\\n"'
+        #
+        # The database *changes* as the chain runs: once the first step has
+        # migrated, the module answers to its successor's name. A stub that
+        # answered the same thing at every step could not represent that, and
+        # made the per-step coverage check look wrong when it was right.
+        listing += (
+            f'; if [ -e "$STATE/{env.chain()[0]}" ]; '
+            f'then printf "{absorbed[1]}\\tACME\\n"; '
+            f'else printf "{absorbed[0]}\\tACME\\n"; fi'
+        )
     _stub(stubs / "psql",
           f'if [[ "$*" == *base* && "$*" == *latest_version* ]]; then echo {source}.1.0; '
           f'else {listing}; fi')
@@ -81,7 +90,10 @@ def _build(
                 f'echo "traceback" >> {env.logs_dir}/{version}.log; exit 1',
             )
         else:
-            _stub(env.venv_dir(version) / "bin" / "python", "exit 0")
+            # Each step records that it ran, so the psql stub can answer as a
+            # database that the chain has changed.
+            _stub(env.venv_dir(version) / "bin" / "python",
+                  f'mkdir -p "$STATE" && touch "$STATE/{version}"; exit 0')
         odoo_bin = Path(env.odoo_bin(version))
         odoo_bin.parent.mkdir(parents=True, exist_ok=True)
         odoo_bin.write_text("", encoding="utf-8")
@@ -123,7 +135,10 @@ def _run(root: Path, script: Path, dump: str = "source.dump") -> subprocess.Comp
         cwd=root,
         capture_output=True,
         text=True,
-        env={"PATH": f"{root / 'bin'}:/usr/bin:/bin", "HOME": str(root)},
+        env={"PATH": f"{root / 'bin'}:/usr/bin:/bin", "HOME": str(root),
+             # Where a step records that it ran, so the psql stub can answer as
+             # a database the chain has changed.
+             "STATE": str(root / "steps-run")},
     )
 
 
@@ -328,6 +343,49 @@ def main() -> int:
             and "OCA never ported it" in decided.stderr,
             decided.stderr,
         )
+
+    # A module the chain installs *along the way*. The preflight reads the
+    # source database once, so it cannot see one: `partner_firstname_portal`
+    # appeared in an OCA repository at 18.0, was auto-installed there, and had
+    # vanished from that repository by 19.0 — installed, with no code, and
+    # nothing had asked. Each step re-reads the live database for exactly this.
+    with tempfile.TemporaryDirectory(prefix="odwg-driver-") as tmp:
+        root = Path(tmp)
+        script, env = _build(root)
+        first, last = env.chain()[0], env.chain()[-1]
+        # The stub database grows a module once the first step has run.
+        _stub(
+            Path(root) / "bin" / "psql",
+            f'if [[ "$*" == *base* && "$*" == *latest_version* ]]; then echo {SOURCE}.1.0; '
+            'else printf "base\\tOdoo S.A.\\n"; '
+            # `if`, not `&&`: a trailing test that fails becomes this stub's exit
+            # status, and the host preflight reads that as "PostgreSQL not
+            # reachable".
+            f'if [ -e "$STATE/{first}" ]; then printf "acme_appeared\\tACME\\n"; fi; fi',
+        )
+        appeared = _run(root, script)
+        check(
+            "a module installed after the preflight, resolving nowhere, stops the run",
+            appeared.returncode != 0 and "acme_appeared missing" in appeared.stderr,
+            appeared.stdout + appeared.stderr,
+        )
+        check(
+            "and it stops at the step that found it, keeping the work before it",
+            f"[checkpoint] {first}" in appeared.stdout and "[done]" not in appeared.stdout
+            and "since the preflight" in appeared.stderr,
+            appeared.stdout + appeared.stderr,
+        )
+        # Supplying it is enough; nothing else changes.
+        for version in env.chain():
+            (Path(env.addons_custom_dir(version)) / "acme_appeared").mkdir(
+                parents=True, exist_ok=True)
+        supplied = _run(root, script)
+        check(
+            "and supplying it lets the chain finish",
+            supplied.returncode == 0 and "[done]" in supplied.stdout,
+            supplied.stdout + supplied.stderr,
+        )
+        assert last  # the chain reached its end
 
     # A module that resolves but whose manifest names something that does not.
     # Odoo refuses to upgrade it at load time, so coverage saying "everything

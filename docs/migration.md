@@ -472,6 +472,12 @@ The others are printed too, one line each, so you can see the question was asked
 
 If the module never installed, every probe reports `absent` rather than a reassuring `intact`.
 
+**A module the chain installs along the way.** The preflight reads the source database once, so it cannot
+see a module that does not exist yet: `partner_firstname_portal` appeared in an OCA repository at 18.0, was
+auto-installed there because its dependencies were present, and had vanished from that repository by 19.0 —
+installed, with no code, and nothing had asked. Each step therefore re-reads the live database and judges
+what the preflight never saw, stopping at the step that found it rather than at the end.
+
 **A probe can only report a loss if there was something to lose.** A field whose *model* is not in the
 database, a module whose successor is not there either — neither was ever present, so the probe measured
 nothing and says `not observed`. A real 12 → 19 run produced four alarms at one step about `stock.quant`

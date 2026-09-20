@@ -7,6 +7,11 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Each step checks the database as it is then, not only as it started.** The preflight reads the source
+  database once, so a module the chain installs *along the way* is invisible to it — an OCA glue module
+  appeared at 18.0, was auto-installed because its dependencies were there, and had gone from that
+  repository by 19.0. Every step now re-reads the live list and judges what the preflight never saw,
+  stopping at the step that found it and keeping the checkpoints before it.
 - **A step's log is read for the run that wrote it.** Step logs are appended to, never rotated, so a step
   re-run after a failure carries every earlier attempt in the same file. The report counted them all and
   led with `Failed to initialize database` about an attempt already superseded. Each step's summary is now

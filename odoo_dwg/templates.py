@@ -776,11 +776,42 @@ def _render_step_preconditions(env: MigrationEnv, version: str) -> str:
             (env.upgrade_scripts_dir(version), "the OpenUpgrade scripts"),
             (env.openupgrade_clone_dir(version) / "openupgrade_framework", "openupgrade_framework"),
         ]
-    return "".join(
+    lines = [
         f'  [ -d {shlex.quote(str(path))} ] || '
         f'die "{version}: {what} not found at {path} — regenerate the environment"\n'
         for path, what in needed
+    ]
+    # Coverage again, against the database as it is *now*. The preflight reads
+    # the source database once, so a module the chain auto-installs along the way
+    # is invisible to it: `partner_firstname_portal` appeared in an OCA
+    # repository at 18.0, was auto-installed there, and vanished from the
+    # repository at 19.0 — installed, with no code, and nothing had asked.
+    sources = " ".join(shlex.quote(str(path)) for path in env.coverage_dirs(version))
+    query = (
+        "SELECT name || E'\\t' || coalesce(author, '') FROM ir_module_module "
+        "WHERE state='installed' ORDER BY name"
     )
+    lines.append(
+        f'  step_modules=$(psql -X -d "$DB" -tAc {shlex.quote(query)}) '
+        f'|| die "{version}: could not list the installed modules"\n'
+    )
+    lines.append(
+        # By the module *name*, which is the first field: the step's rows are
+        # "name<TAB>author" and the known list holds names, so comparing whole
+        # lines matched nothing and made every module look new.
+        '  new_modules=$(printf \'%s\\n\' "$step_modules" | '
+        'awk -F\'\\t\' \'NR==FNR {known[$0]; next} $1 != "" && !($1 in known)\' '
+        '"$LOGS/known-modules.txt" -)\n'
+    )
+    lines.append(
+        f'  [ -z "$new_modules" ] || ODWG_MODULES_TSV="$new_modules" coverage_step {version} '
+        f"{shlex.quote(str(env.apriori_file(version)))} "
+        f"{shlex.quote(str(env.addons_custom_dir(version)))} "
+        f"{shlex.quote(str(env.decisions_file))} {sources} >/dev/null "
+        f'|| die "{version}: a module installed since the preflight resolves nowhere '
+        f'(see [coverage] lines above)"\n'
+    )
+    return "".join(lines)
 
 
 def _native_step_command(env: MigrationEnv, version: str) -> str:
@@ -1021,6 +1052,7 @@ def _render_preflight_db(env: MigrationEnv) -> str:
         f'  case "$base_ver" in {source_major}.*) ;; *) fail "database base version \'$base_ver\' does not match declared source {env.source}";; esac',
         '  modules_tsv=$(psql -X -d "$DB" -tAc "SELECT name || E\'\\t\' || coalesce(author, \'\') FROM ir_module_module WHERE state=\'installed\' ORDER BY name") '
         '|| fail "could not list the installed modules of \'$DB\'"',
+        '  : > "$LOGS/known-modules.txt"',
     ]
     for version in env.chain():
         # The step's own add-ons path, so coverage asks exactly what the step
@@ -1038,6 +1070,12 @@ def _render_preflight_db(env: MigrationEnv) -> str:
             '  if [ -n "$next_tsv" ]; then modules_tsv="$next_tsv"; fi',
         ]
     lines += [
+        # The names the preflight accounted for. A step judges what is *not*
+        # here — a module the chain installed along the way, which the source
+        # database never had. Anything already accounted for reaches the same
+        # verdict twice, so judging it again buys nothing and only widens what a
+        # gate lets through.
+        '  printf \'%s\\n\' "$modules_tsv" | cut -f1 > "$LOGS/known-modules.txt"',
         '  [ "$blocking" = 0 ] || fail "addons coverage incomplete (see [coverage] lines above)"',
         '  echo "[preflight] database checks passed"',
         "}",
