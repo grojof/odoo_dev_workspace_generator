@@ -71,10 +71,16 @@ Odoo logs. The driver now records each step as it runs it (`logs/steps.tsv`, one
 event); a run can be **followed live** from those marks, and reported on **afterwards and
 cumulatively** — every run of the environment, opening with what is still unresolved. The parsing is
 the tool's, not an assistant's: `odoo_dwg/runlog.py` is pure and reads three sources it does not write
-(the step log, Odoo's own log line, the firewall's journal). Still to come in this phase: a generated
-tester add-on covering what changes between versions, mail capture and **restore** (the migrated
-database becomes production, so the redirection must be undoable), and three thin skills — migration
-triage, an OpenSnitch rule check, and Mailpit configuration.
+(the step log, Odoo's own log line, the firewall's journal).
+
+Alongside it, **mail capture stopped being a one-way door** (change `capture-mail-without-losing-it`):
+the old redirect overwrote the client's SMTP credentials with no record of them, so it could only be used
+on a copy destined for the bin — which is the opposite of what a rehearsed migration produces. Capture now
+deactivates and adds, restore gives back exactly what was there, and a read-only check answers whether
+mail can leave.
+
+Still to come in this phase: a generated tester add-on covering what changes between versions, and three
+thin skills — migration triage, an OpenSnitch rule check, and Mailpit configuration.
 
 ## F0 — Foundation ✅
 

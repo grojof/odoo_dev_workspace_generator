@@ -110,21 +110,46 @@ def test_existing_interpreters_come_from_each_venvs_pyvenv_cfg(base, monkeypatch
 # --- phrase-gated database change -----------------------------------------------
 
 
-def test_mail_redirect_needs_a_valid_name_and_the_phrase(monkeypatch, capsys):
+@pytest.mark.parametrize("action", ["capture_mail", "restore_mail"])
+def test_the_mail_actions_need_a_valid_name_and_the_phrase(monkeypatch, capsys, action):
+    act = getattr(common, action)
     applied = []
     monkeypatch.setattr(common, "apply_if_confirmed", lambda commands: applied.append(commands))
     monkeypatch.setattr(common, "ask_text", lambda *a, **k: "acme;drop")
     monkeypatch.setattr(common, "confirm_with_phrase",
                         lambda *a: pytest.fail("an invalid name must stop before the phrase"))
-    common.redirect_mail("127.0.0.1", 5432, "odoo")
+    act("127.0.0.1", 5432, "odoo")
     assert "Invalid database name" in capsys.readouterr().out
     monkeypatch.setattr(common, "ask_text", lambda *a, **k: "acme_copy")
     monkeypatch.setattr(common, "confirm_with_phrase", lambda *a: False)
-    common.redirect_mail("127.0.0.1", 5432, "odoo")
+    act("127.0.0.1", 5432, "odoo")
     assert applied == []  # no phrase, no change
     monkeypatch.setattr(common, "confirm_with_phrase", lambda *a: True)
-    common.redirect_mail("127.0.0.1", 5432, "odoo")
+    act("127.0.0.1", 5432, "odoo")
     assert len(applied) == 1 and "-d acme_copy" in applied[0][0].command
+
+
+def test_checking_the_mail_asks_for_no_phrase_and_writes_nothing(monkeypatch, capsys):
+    monkeypatch.setattr(common, "ask_text", lambda *a, **k: "acme_copy")
+    monkeypatch.setattr(common, "confirm_with_phrase",
+                        lambda *a: pytest.fail("a read-only check must ask for no phrase"))
+    monkeypatch.setattr(common, "apply_if_confirmed",
+                        lambda commands: pytest.fail("a read-only check must plan nothing"))
+    monkeypatch.setattr(common, "psql_scalar", lambda *a, **k: "f")
+    monkeypatch.setattr(common, "psql_rows", lambda *a, **k: [
+        ["server", "1", "Client SMTP", "smtp.client.example", "587", "true"],
+    ])
+    common.check_mail("127.0.0.1", 5432, "odoo")
+    assert "Mail can leave" in capsys.readouterr().out
+
+
+def test_checking_a_database_it_cannot_read_says_so(monkeypatch, capsys):
+    monkeypatch.setattr(common, "ask_text", lambda *a, **k: "acme_copy")
+    monkeypatch.setattr(common, "psql_scalar", lambda *a, **k: None)
+    monkeypatch.setattr(common, "psql_rows",
+                        lambda *a, **k: pytest.fail("an unreadable database is not queried"))
+    common.check_mail("127.0.0.1", 5432, "odoo")
+    assert "Could not read database" in capsys.readouterr().out
 
 
 # --- the CLI reports instead of crashing ------------------------------------------

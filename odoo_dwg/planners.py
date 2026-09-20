@@ -829,15 +829,34 @@ def plan_mailpit_uninstall() -> list[Command]:
     ]
 
 
-def plan_mail_redirect(database: str, host: str, port: int, user: str) -> list[Command]:
-    """Point a database's mail servers at Mailpit and stop it fetching mail. For
-    rehearsal copies only; the workflow asks for a confirmation phrase first."""
+def _psql(database: str, host: str, port: int, user: str, sql: str) -> str:
+    return (
+        f"psql -X -w -h {shlex.quote(host)} -p {int(port)} -U {shlex.quote(user)} "
+        f"-d {shlex.quote(database)} -v ON_ERROR_STOP=1 -c {shlex.quote(sql)}"
+    )
+
+
+def plan_mail_capture(database: str, host: str, port: int, user: str) -> list[Command]:
+    """Stop a database's mail leaving, leaving its configuration where it is.
+
+    Nothing the client configured is overwritten: its servers are deactivated and
+    one pointing at Mailpit is added, so ``plan_mail_restore`` can give the
+    database back exactly what it had."""
     return [
         Command(
-            tf("Redirect the mail of database {} to Mailpit", database),
-            f"psql -X -h {shlex.quote(host)} -p {int(port)} -U {shlex.quote(user)} "
-            f"-d {shlex.quote(database)} -v ON_ERROR_STOP=1 "
-            f"-c {shlex.quote(egress.mail_redirect_sql())}",
+            tf("Capture the mail of database {} in Mailpit", database),
+            _psql(database, host, port, user, egress.mail_capture_sql()),
+        )
+    ]
+
+
+def plan_mail_restore(database: str, host: str, port: int, user: str) -> list[Command]:
+    """Give a captured database back the mail configuration it had. Fails, rather
+    than reporting success, on a database that was never captured."""
+    return [
+        Command(
+            tf("Restore the mail configuration of database {}", database),
+            _psql(database, host, port, user, egress.mail_restore_sql()),
         )
     ]
 

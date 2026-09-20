@@ -31,7 +31,7 @@ from ..planners import write_text_file_command
 from ..prompts import ask_bool, ask_text, choose, clear_screen, confirm_with_phrase
 from ..system import apply_commands, journal_since, list_dirs, preview_commands
 from ..ui import level_text, render_table, title
-from .common import redirect_mail
+from .common import capture_mail, check_mail, restore_mail
 
 
 def _exists(path) -> bool:
@@ -654,7 +654,9 @@ def migration_menu() -> None:
                 "Report on the runs so far",
                 "Follow a running migration",
                 "Clean a migration environment",
-                "Redirect a database's mail to Mailpit",
+                "Capture a database's mail in Mailpit",
+                "Restore a database's mail configuration",
+                "Check whether a database can mail out",
                 "Back",
             ],
             default_index=None,
@@ -675,7 +677,15 @@ def migration_menu() -> None:
             _watch_run()
         elif action == "Clean a migration environment":
             _clean_environment()
-        elif action == "Redirect a database's mail to Mailpit":
+        elif action in (
+            "Capture a database's mail in Mailpit",
+            "Restore a database's mail configuration",
+            "Check whether a database can mail out",
+        ):
             # Migration databases use the environment's defaults (host, port, role).
             defaults = MigrationEnv(source="12.0", target="19.0")
-            redirect_mail(defaults.db_host, defaults.db_port, defaults.db_user)
+            {
+                "Capture a database's mail in Mailpit": capture_mail,
+                "Restore a database's mail configuration": restore_mail,
+                "Check whether a database can mail out": check_mail,
+            }[action](defaults.db_host, defaults.db_port, defaults.db_user)

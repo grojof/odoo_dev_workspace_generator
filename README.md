@@ -119,7 +119,8 @@ By surface:
   [`docs/provisioning.md`](docs/provisioning.md) (host check/apply).
 - **Migration** — [`docs/migration.md`](docs/migration.md) (interpreters, preflight, staging, checkpointing driver).
 - **Host safety** — [`docs/egress-control.md`](docs/egress-control.md) (the outbound firewall that denies by
-  default and asks, the local mail capture, and redirecting a copied database's mail).
+  default and asks, the local mail capture, and capturing a copied database's mail without losing its
+  configuration).
 - **Editor** — [`docs/editor-integration.md`](docs/editor-integration.md) (the official Odoo extension, what a
   workspace emits for it, and how to keep up with its releases).
 - **What is supported** — [`docs/support-matrix.md`](docs/support-matrix.md) (hosts, Python per Odoo version,

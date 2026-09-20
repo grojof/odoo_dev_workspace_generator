@@ -1,21 +1,18 @@
-# mail-capture Specification
+# mail-capture Specification Delta
 
-## Purpose
+## REMOVED Requirements
 
-Lets Odoo's mail be read without being delivered. A loopback-only Mailpit receives what the generated `odoo.conf` sends. For a database whose own mail servers would bypass `odoo.conf`, actions capture its mail, give the configuration back, and say whether mail can leave — the capture moving no value the client configured, so the database it is applied to can still go into production.
+### Requirement: Redirect a database's mail to the local capture
 
-## Requirements
+**Reason**: It overwrote the client's SMTP hosts, users and passwords with no record of what they had been,
+which made it unusable on the database that a rehearsed migration produces — the one that goes into
+production. Replaced by a capture that moves no values at all.
 
-### Requirement: Optional Mailpit installation
+**Migration**: The action is gone from the menus. A database whose servers were rewritten by it cannot be
+restored by the new action, because the old one kept nothing to restore from; its settings must be entered
+by hand, once.
 
-`provision apply` SHALL offer, as an opt-in step, to install Mailpit from a pinned upstream release verified
-by its SHA-256 digest. It SHALL run as a system service bound to `127.0.0.1`, with SMTP on port `1025` and the
-web UI on port `8025`. A digest mismatch SHALL abort before anything is installed.
-
-#### Scenario: Mailpit captures without delivering
-
-- **WHEN** Odoo sends mail through `127.0.0.1:1025`
-- **THEN** the message appears in Mailpit's UI and API and is not delivered anywhere
+## ADDED Requirements
 
 ### Requirement: Mail is captured without losing the way back
 

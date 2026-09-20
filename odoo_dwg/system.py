@@ -480,6 +480,24 @@ def pg_restore_lists(dump_path: str) -> tuple[bool, str]:
     return False, lines[-1] if lines else "pg_restore --list failed"
 
 
+def psql_rows(
+    query: str, db: str, host: str = "127.0.0.1", port: int = 5432, user: str = DEFAULT_DB_ROLE
+) -> list[list[str]] | None:
+    """Tab-separated rows from a read-only query, or None on any failure.
+
+    ``-tAF$'\t'``: unaligned, no header, tab-separated — the same reading
+    ``pg_hba_rules`` uses. A backslash-t in single quotes would reach psql as two
+    characters, not a tab."""
+    command = (
+        f"psql -X -w -h {shlex.quote(host)} -p {int(port)} -U {shlex.quote(user)} "
+        f"-d {shlex.quote(db)} -tAF$'\\t' -c {shlex.quote(query)} 2>/dev/null"
+    )
+    result = run(command, check=False)
+    if result.returncode != 0:
+        return None
+    return [line.split("\t") for line in result.stdout.splitlines() if line.strip()]
+
+
 def psql_scalar(
     query: str, db: str, host: str = "127.0.0.1", port: int = 5432, user: str = DEFAULT_DB_ROLE
 ) -> str | None:

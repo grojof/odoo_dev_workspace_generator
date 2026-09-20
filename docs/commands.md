@@ -64,7 +64,9 @@ Every menu shows a numbered list; `0` (or `Back`/`Cancel`) always returns withou
 | Manage → Regenerate a venv | Removes and rebuilds one instance venv | Phrase `REBUILD` |
 | Manage → Refresh shared repos | `git pull --ff-only` on present clones in the shared cache | Preview + confirm |
 | Manage → Add a version | Extends an existing workspace with a new Odoo version. It writes files like **Refresh generated files**, and the other versions keep their interpreters. The workspace changes only once the plan has run: a declined or failed plan adds nothing. | Preview + confirm |
-| Manage → Redirect a database's mail to Mailpit | Points every mail server of a named database at `127.0.0.1:1025` and clears its credentials, and deactivates fetchmail servers. Odoo 12–19. Rehearsal copies only ([egress-control](egress-control.md#a-copied-database-still-mails-out-redirect-it)). | Phrase `REDIRECT` |
+| Manage → Capture a database's mail in Mailpit | Deactivates a named database's mail servers **without altering them** and adds one pointing at `127.0.0.1:1025`; deactivates fetchmail; records what it did inside that database. Odoo 12–19, safe to repeat ([egress-control](egress-control.md#a-copied-database-still-mails-out-capture-it)). | Phrase `CAPTURE` |
+| Manage → Restore a database's mail configuration | Removes the capture's server and switches back on exactly what the capture switched off, then drops its record. Refuses a database that was never captured. | Phrase `RESTORE` |
+| Manage → Check whether a database can mail out | Reads only. Names every active mail server, whether fetchmail is running, and whether a capture is in effect. | — |
 
 ### System provisioning (optional; the Ubuntu releases in the [support matrix](support-matrix.md))
 
@@ -82,7 +84,9 @@ Every menu shows a numbered list; `0` (or `Back`/`Cancel`) always returns withou
 | Preflight check | Read-only verification: chain tools, PostgreSQL, dump integrity, and — against a named database — version match, installed modules, per-step addons coverage | Never mutates |
 | Stage custom modules | Per chain step, copies the previous stage and runs `odoo-module-migrator` on it; then analysis findings, inert `pre-migration.py` scaffolds, and a per-module report | Source dir never modified; phrase `RESTAGE` to replace staged code |
 | Clean a migration environment | Removes one `<src>-to-<tgt>` directory; the shared `.repos` cache is a separate opt-in | Phrase `DELETE`; the PostgreSQL DB is never touched |
-| Redirect a database's mail to Mailpit | Same as the workspace action, for the migration's databases. Never for a database going back to production. | Phrase `REDIRECT` |
+| Capture a database's mail in Mailpit | Same as the workspace action, for the migration's databases. | Phrase `CAPTURE` |
+| Restore a database's mail configuration | The step before cutover: the migrated database mails out again through the client's own servers. | Phrase `RESTORE` |
+| Check whether a database can mail out | Reads only. Use it after restoring, before cutover. | — |
 
 ## The generated driver
 

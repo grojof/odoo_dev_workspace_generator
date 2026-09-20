@@ -57,6 +57,7 @@ python tools/verify_migration_driver.py          # run the generated migration d
 python tools/verify_generated_shell.py           # ShellCheck every generated script
 python tools/verify_pg_hba_trust.py              # run the pg_hba rewriter, and ask PostgreSQL about it
 python tools/verify_promoted_modules.py         # promote reviewed code, then stage again and derive nothing
+python tools/verify_mail_capture.py              # capture, check and restore a database's mail configuration
 ```
 
 | Tool | Needs |
@@ -64,9 +65,18 @@ python tools/verify_promoted_modules.py         # promote reviewed code, then st
 | `verify_support_matrix.py`, `verify_odools_config.py`, `verify_egress_pins.py` | the network |
 | `verify_workspace_versions.py` | the network **and** a host it may change (it previews, asks, and cleans up) |
 | `verify_generated_shell.py` | `shellcheck` on the host |
-| `verify_pg_hba_trust.py` | the host's PostgreSQL binaries; it runs a cluster of its own and takes about a minute |
+| `verify_pg_hba_trust.py`, `verify_mail_capture.py` | the host's PostgreSQL binaries; each runs a cluster of its own |
 | `verify_migration_driver.py` | nothing but `bash` |
 | `verify_promoted_modules.py` | nothing but `bash` and `git` |
+
+`verify_mail_capture.py` runs capture → check → restore against a cluster of its own, on two
+`ir_mail_server` schemas that differ the way Odoo's differ across the chain (a 12-era one, and a 19-era one
+where `smtp_authentication` is `NOT NULL`). It asserts what the operator depends on: the client's row comes
+back from restore column for column, a server the client had switched off is not switched on, a second
+capture leaves the capture's own server active, restore leaves no table behind, and a database that was
+never captured is refused. The unit suite asserts the SQL's text; this runs it — which is how a capture
+that switched off its own server on the second run, and a boolean read as `t` when PostgreSQL renders it
+`true`, were both found.
 
 `verify_promoted_modules.py` runs the promote → consume cycle a rehearsed migration depends on, with a
 stub module migrator: the first staging derives every step, a correction made by hand survives

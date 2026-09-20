@@ -39,7 +39,7 @@ from ..system import (
 )
 from ..ui import level_text
 from .common import apply_if_confirmed as _apply_if_confirmed
-from .common import redirect_mail
+from .common import capture_mail, check_mail, restore_mail
 
 
 def _exists(path: Path) -> bool:
@@ -349,7 +349,9 @@ def _manage_workspace() -> None:
                 "Regenerate a venv",
                 "Refresh shared repos",
                 "Add a version",
-                "Redirect a database's mail to Mailpit",
+                "Capture a database's mail in Mailpit",
+                "Restore a database's mail configuration",
+                "Check whether a database can mail out",
                 "Back",
             ],
             default_index=None,
@@ -364,8 +366,12 @@ def _manage_workspace() -> None:
             _refresh_repos(cfg)
         elif action == "Add a version":
             _add_version(cfg)
-        elif action == "Redirect a database's mail to Mailpit":
-            redirect_mail(cfg.db_host, cfg.db_port, cfg.db_user)
+        elif action == "Capture a database's mail in Mailpit":
+            capture_mail(cfg.db_host, cfg.db_port, cfg.db_user)
+        elif action == "Restore a database's mail configuration":
+            restore_mail(cfg.db_host, cfg.db_port, cfg.db_user)
+        elif action == "Check whether a database can mail out":
+            check_mail(cfg.db_host, cfg.db_port, cfg.db_user)
 
 
 # --- entry ----------------------------------------------------------------

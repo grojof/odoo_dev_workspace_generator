@@ -454,10 +454,14 @@ A step marked *skip* is shown as having run nothing that time, so its silence is
 Each step's `odoo.conf` sends mail to the local capture (`127.0.0.1:1025`). With the
 [outbound firewall](egress-control.md) installed, every `odoo-bin` step is also rejected on any non-local
 connection, and each attempt is logged.
-- **Rehearsing on a copy:** also run **Redirect a database's mail to Mailpit** on it, so that its own mail
-  servers do not bypass `odoo.conf`.
-- **A database going back to production:** do **not** redirect it. Keep the firewall on during the run, and
-  review what it tried to reach before cutover ([live production migrations](egress-control.md#live-production-migrations)).
+- **Rehearsing on a copy:** also run **Capture a database's mail in Mailpit** on it, so that its own mail
+  servers do not bypass `odoo.conf`. The capture moves none of the client's settings, so the same database can
+  be handed back later.
+- **A database going back to production:** capture it for the run, then run **Restore a database's mail
+  configuration** before cutover and confirm with **Check whether a database can mail out**. The record of what
+  was captured travels inside the database, through every step of the chain. Keep the firewall on during the
+  run, and review what it tried to reach before cutover
+  ([live production migrations](egress-control.md#live-production-migrations)).
 
 ## Cleaning up
 

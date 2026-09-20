@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 
 # --- pinned upstream releases -------------------------------------------------
 
@@ -249,21 +250,196 @@ def render_mailpit_unit() -> str:
     )
 
 
-def mail_redirect_sql() -> str:
-    """Point every mail server of a database at Mailpit and stop fetching mail.
+#: The table capture writes its record in. No Odoo model refers to it, so nothing
+#: loads it; restore drops it. It has to live in the database and not beside it,
+#: because it must survive the dump and restore of every migration step.
+CAPTURE_RECORD_TABLE = "odwg_mail_capture"
+#: The name the added server carries in Odoo's own UI.
+CAPTURE_SERVER_NAME = "Mailpit (odoo_dwg capture)"
+#: Lower than any sequence Odoo's UI produces, so the capture is the one picked.
+CAPTURE_SERVER_SEQUENCE = -1
 
-    Column- and table-aware so it runs on Odoo 12–19: ``smtp_authentication``
-    appeared in later versions and ``fetchmail_server`` exists only with its module.
-    Meant for rehearsal copies — never for a database going back to production."""
+
+def mail_capture_sql() -> str:
+    """Stop a database's mail leaving, without altering what is configured.
+
+    Odoo picks its outgoing server with an ``active``-filtered search ordered by
+    ``sequence``, from 12.0 to 19.0, so deactivating the client's servers and
+    adding one of our own with a lower sequence captures the mail while every
+    host, user and password stays in its own column, untouched.
+
+    The added row is *cloned* from an existing one: ``ir_mail_server`` gained
+    required columns between 12.0 and 19.0 (``smtp_authentication`` among them),
+    and an ``INSERT`` naming columns has to be right for eight schemas.
+    ``jsonb_populate_record`` against the table's own row type inherits whatever
+    columns that version has, already satisfying their constraints.
+    """
     return (
+        f"CREATE TABLE IF NOT EXISTS {CAPTURE_RECORD_TABLE} ("
+        "relation text NOT NULL, row_id integer NOT NULL, role text NOT NULL, "
+        "captured_at timestamptz NOT NULL DEFAULT now(), "
+        "PRIMARY KEY (relation, row_id)); "
         "DO $$ BEGIN "
-        "UPDATE ir_mail_server SET "
-        f"smtp_host = '{MAILPIT_SMTP_HOST}', smtp_port = {MAILPIT_SMTP_PORT}, "
-        "smtp_encryption = 'none', smtp_user = NULL, smtp_pass = NULL; "
-        "IF EXISTS (SELECT 1 FROM information_schema.columns "
-        "WHERE table_name = 'ir_mail_server' AND column_name = 'smtp_authentication') THEN "
-        "UPDATE ir_mail_server SET smtp_authentication = 'login'; END IF; "
+        # Recorded before anything is switched off, or there is nothing to observe.
+        f"INSERT INTO {CAPTURE_RECORD_TABLE} (relation, row_id, role) "
+        "SELECT 'ir_mail_server', id, 'deactivated' FROM ir_mail_server WHERE active "
+        f"AND id NOT IN (SELECT row_id FROM {CAPTURE_RECORD_TABLE} "
+        "WHERE relation = 'ir_mail_server') ON CONFLICT DO NOTHING; "
+        # Never our own server: without this, a second capture switches off the
+        # only thing keeping the mail in.
+        "UPDATE ir_mail_server SET active = false WHERE active "
+        f"AND id NOT IN (SELECT row_id FROM {CAPTURE_RECORD_TABLE} "
+        "WHERE relation = 'ir_mail_server' AND role = 'added'); "
+        "UPDATE ir_mail_server SET active = true WHERE NOT active "
+        f"AND id IN (SELECT row_id FROM {CAPTURE_RECORD_TABLE} "
+        "WHERE relation = 'ir_mail_server' AND role = 'added'); "
+        f"IF NOT EXISTS (SELECT 1 FROM {CAPTURE_RECORD_TABLE} "
+        "WHERE relation = 'ir_mail_server' AND role = 'added') THEN "
+        # No row to clone means no mail server at all, and Odoo already falls back
+        # to the configuration file. Nothing is added, and the check says so.
+        "WITH added AS (INSERT INTO ir_mail_server "
+        "SELECT (jsonb_populate_record(NULL::ir_mail_server, to_jsonb(src) || jsonb_build_object("
+        "'id', nextval(pg_get_serial_sequence('ir_mail_server', 'id')), "
+        f"'name', '{CAPTURE_SERVER_NAME}', "
+        f"'smtp_host', '{MAILPIT_SMTP_HOST}', 'smtp_port', {MAILPIT_SMTP_PORT}, "
+        "'smtp_encryption', 'none', 'smtp_user', NULL, 'smtp_pass', NULL, "
+        f"'sequence', {CAPTURE_SERVER_SEQUENCE}, 'active', true))).* "
+        "FROM (SELECT * FROM ir_mail_server ORDER BY id LIMIT 1) src RETURNING id) "
+        f"INSERT INTO {CAPTURE_RECORD_TABLE} (relation, row_id, role) "
+        "SELECT 'ir_mail_server', id, 'added' FROM added; END IF; "
         "IF to_regclass('fetchmail_server') IS NOT NULL THEN "
-        "UPDATE fetchmail_server SET active = false; END IF; "
+        f"INSERT INTO {CAPTURE_RECORD_TABLE} (relation, row_id, role) "
+        "SELECT 'fetchmail_server', id, 'deactivated' FROM fetchmail_server WHERE active "
+        "ON CONFLICT DO NOTHING; "
+        "UPDATE fetchmail_server SET active = false WHERE active; END IF; "
         "END $$;"
+    )
+
+
+def mail_restore_sql() -> str:
+    """Give a captured database back the mail configuration it had.
+
+    Only the rows capture recorded: a mail server the client had switched off
+    before the capture stays off. A recorded row that no longer exists is raised
+    as a notice rather than passed over — a mail server a migration removed is a
+    difference between the database that was captured and the one handed back.
+    """
+    return (
+        "DO $$ DECLARE missing integer; BEGIN "
+        f"IF to_regclass('{CAPTURE_RECORD_TABLE}') IS NULL THEN "
+        "RAISE EXCEPTION 'no mail capture is recorded in this database'; END IF; "
+        "DELETE FROM ir_mail_server WHERE id IN "
+        f"(SELECT row_id FROM {CAPTURE_RECORD_TABLE} "
+        "WHERE relation = 'ir_mail_server' AND role = 'added'); "
+        "UPDATE ir_mail_server SET active = true WHERE id IN "
+        f"(SELECT row_id FROM {CAPTURE_RECORD_TABLE} "
+        "WHERE relation = 'ir_mail_server' AND role = 'deactivated'); "
+        f"SELECT count(*) INTO missing FROM {CAPTURE_RECORD_TABLE} r "
+        "WHERE r.relation = 'ir_mail_server' AND r.role = 'deactivated' "
+        "AND NOT EXISTS (SELECT 1 FROM ir_mail_server s WHERE s.id = r.row_id); "
+        "IF missing > 0 THEN RAISE NOTICE "
+        "'% mail server(s) recorded by the capture no longer exist', missing; END IF; "
+        "IF to_regclass('fetchmail_server') IS NOT NULL THEN "
+        "UPDATE fetchmail_server SET active = true WHERE id IN "
+        f"(SELECT row_id FROM {CAPTURE_RECORD_TABLE} "
+        "WHERE relation = 'fetchmail_server' AND role = 'deactivated'); END IF; "
+        f"DROP TABLE {CAPTURE_RECORD_TABLE}; "
+        "END $$;"
+    )
+
+
+def mail_state_sql(*, fetchmail: bool, captured: bool) -> str:
+    """Read what mail this database can send. Writes nothing.
+
+    ``fetchmail`` and ``captured`` say which optional tables exist: a query may
+    not name a table that does not, so the caller asks ``to_regclass`` first and
+    the parts are composed here.
+    """
+    parts = [
+        "SELECT 'server', id::text, coalesce(name, ''), coalesce(smtp_host, ''), "
+        "smtp_port::text, active::text FROM ir_mail_server"
+    ]
+    if fetchmail:
+        parts.append(
+            "SELECT 'fetchmail', id::text, coalesce(name, ''), '', '', active::text "
+            "FROM fetchmail_server"
+        )
+    if captured:
+        parts.append(
+            "SELECT 'record', row_id::text, relation, role, '', '' "
+            f"FROM {CAPTURE_RECORD_TABLE}"
+        )
+    return " UNION ALL ".join(parts) + " ORDER BY 1, 2"
+
+
+@dataclass(frozen=True)
+class MailServer:
+    """One row of ``ir_mail_server``, as the state query reports it."""
+
+    id: str
+    name: str
+    host: str
+    port: str
+    active: bool
+
+    @property
+    def is_capture(self) -> bool:
+        return self.host == MAILPIT_SMTP_HOST and self.port == str(MAILPIT_SMTP_PORT)
+
+
+@dataclass(frozen=True)
+class MailState:
+    """What a database can currently do with mail."""
+
+    servers: tuple[MailServer, ...] = ()
+    fetchmail_active: int = 0
+    captured: bool = False
+    deactivated: int = 0
+
+    @property
+    def escaping(self) -> tuple[MailServer, ...]:
+        """Active servers pointing anywhere but the capture — how mail leaves."""
+        return tuple(s for s in self.servers if s.active and not s.is_capture)
+
+    @property
+    def falls_back_to_config(self) -> bool:
+        """No active server at all: Odoo uses the configuration file's
+        ``smtp_server``, whatever that happens to be. Not the same as captured,
+        and not assumed to be the capture."""
+        return not any(s.active for s in self.servers)
+
+
+def read_mail_state(rows: list[list[str]]) -> MailState:
+    """The state query's rows, read. Unknown kinds and short rows are ignored:
+    the query is ours, but a psql that printed a notice is not worth crashing on.
+
+    A boolean reaches here as ``true``/``false``: the query casts it to text for
+    the union, and ``boolean::text`` is the word. The ``t``/``f`` an operator sees
+    in psql is that client's *display* of an uncast boolean, not this."""
+    servers: list[MailServer] = []
+    fetchmail = 0
+    captured = False
+    deactivated = 0
+    for row in rows:
+        if len(row) < 6:
+            continue
+        # The columns mean different things per kind; the query fixes the order.
+        kind, first, second, third, fourth, last = row[:6]
+        if kind == "server":
+            servers.append(
+                MailServer(
+                    id=first, name=second, host=third, port=fourth, active=last == "true"
+                )
+            )
+        elif kind == "fetchmail" and last == "true":
+            fetchmail += 1
+        elif kind == "record":
+            captured = True
+            if third == "deactivated":
+                deactivated += 1
+    return MailState(
+        servers=tuple(servers),
+        fetchmail_active=fetchmail,
+        captured=captured,
+        deactivated=deactivated,
     )

@@ -7,6 +7,14 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Mail can be captured without losing the way back.** Capture no longer overwrites anything: it
+  deactivates the database's mail servers — host, user and password stay where they are — and adds one of
+  its own pointing at Mailpit, visible and testable from Odoo's own *Outgoing Mail Servers*. **Restore**
+  gives the database back exactly what it had, switching on only what the capture switched off; a server
+  you had disabled stays disabled. **Check** answers, read-only, whether mail can leave. The record of what
+  was captured lives inside the database, so it survives every `pg_dump`/`pg_restore` of a migration chain
+  — which is what makes the database a chain produces fit to go into production. Phrases `CAPTURE` and
+  `RESTORE`; `tools/verify_mail_capture.py` runs the cycle against a throwaway PostgreSQL.
 - **A run can be followed while it happens.** The driver is started by hand and a 12 → 19 chain takes
   hours; this shows where it is — every step of the chain, including the ones it has not reached, with how
   long each took or has been taking — what the running step is saying, and what it has reached for outside
@@ -46,6 +54,12 @@ All notable changes to this project are documented here. The format is based on
   for the operator to fill by hand, so whether a module is ported to a step's version — a fact the branch
   states — was answered by whoever last copied something in. A repository OCA has not ported to a version
   is reported for that step and does not fail the generation.
+
+### Removed
+
+- **The one-way mail redirect.** It rewrote the client's SMTP host, user and password with no record of
+  what they had been, so it could only ever be used on a copy that would be thrown away. Replaced by
+  capture and restore, which move no value at all.
 
 ### Fixed
 - **The 12 → 13 step found no OpenUpgrade analysis at all.** Up to 13.0 the analysis lives in each

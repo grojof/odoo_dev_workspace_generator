@@ -463,7 +463,11 @@ _ES: dict[str, str] = {
     "Upgrade pip/wheel/setuptools in {}": "Actualizar pip/wheel/setuptools en {}",
     "Install Odoo {} requirements": "Instalar los requisitos de Odoo {}",
     # --- egress control and mail capture ---
-    "Redirect a database's mail to Mailpit": 'Redirigir el correo de una base de datos a Mailpit',
+    "Capture a database's mail in Mailpit": 'Capturar en Mailpit el correo de una base de datos',
+    "Restore a database's mail configuration":
+        'Restaurar la configuración de correo de una base de datos',
+    'Check whether a database can mail out':
+        'Comprobar si una base de datos puede mandar correo fuera',
     'Create download directory {}': 'Crear el directorio de descarga {}',
     'Download {}': 'Descargar {}',
     'Verify {} SHA-512 (abort on mismatch)': 'Verificar el SHA-512 de {} (aborta si no coincide)',
@@ -479,8 +483,10 @@ _ES: dict[str, str] = {
     'Install Mailpit to {}': 'Instalar Mailpit en {}',
     'Remove downloaded files': 'Eliminar los ficheros descargados',
     'Enable and (re)start Mailpit': 'Habilitar y (re)iniciar Mailpit',
-    'Redirect the mail of database {} to Mailpit':
-        'Redirigir el correo de la base de datos {} a Mailpit',
+    'Capture the mail of database {} in Mailpit':
+        'Capturar en Mailpit el correo de la base de datos {}',
+    'Restore the mail configuration of database {}':
+        'Restaurar la configuración de correo de la base de datos {}',
     'Install or update the outbound firewall (OpenSnitch)?':
         '¿Instalar o actualizar el cortafuegos de salida (OpenSnitch)?',
     'Install or update the local mail capture (Mailpit)?':
@@ -490,10 +496,27 @@ _ES: dict[str, str] = {
         'Preguntar a PostgreSQL por las reglas que tiene para {}',
     'OpenSnitch blocks every outbound connection without a rule, asking in its UI when it is open. Odoo may reach only localhost, plus DNS on port 53; the development tools keep their hosts. See docs/egress-control.md.':
         'OpenSnitch bloquea toda conexión saliente sin regla y pregunta en su interfaz cuando está abierta. Odoo solo puede llegar a localhost, más DNS en el puerto 53; las herramientas de desarrollo conservan sus destinos. Ver docs/egress-control.md.',
-    'Database whose mail to redirect': 'Base de datos a la que redirigir el correo',
+    'Database whose mail to capture': 'Base de datos cuyo correo capturar',
+    'Database whose mail configuration to restore':
+        'Base de datos cuya configuración de correo restaurar',
+    'Database whose mail to check': 'Base de datos cuyo correo comprobar',
     'Invalid database name: {}': 'Nombre de base de datos no válido: {}',
-    'Every mail server of {} will point at Mailpit and lose its credentials, and mail fetching stops. Use it on rehearsal copies only — never on a database going back to production.':
-        'Todos los servidores de correo de {} apuntarán a Mailpit y perderán sus credenciales, y se detiene la recepción de correo. Úsalo solo en copias de ensayo — nunca en una base de datos que vuelve a producción.',
+    "The mail servers of {} will be deactivated and one pointing at Mailpit added. Nothing configured is overwritten: 'Restore the mail configuration' gives this database back exactly what it has now.":
+        'Los servidores de correo de {} se desactivarán y se añadirá uno que apunta a Mailpit. No se sobrescribe nada de lo configurado: «Restaurar la configuración de correo» le devuelve a esta base de datos exactamente lo que tiene ahora.',
+    '{} will mail out again through the servers it had before the capture. Do this when the database is going into production, not while it is still being rehearsed.':
+        '{} volverá a mandar correo fuera por los servidores que tenía antes de la captura. Hazlo cuando la base de datos vaya a producción, no mientras se sigue ensayando.',
+    'Could not read database {}.': 'No se pudo leer la base de datos {}.',
+    'Could not read the mail configuration of {}.':
+        'No se pudo leer la configuración de correo de {}.',
+    'Mail can leave {}.': 'El correo puede salir de {}.',
+    'Mail cannot leave {}.': 'El correo no puede salir de {}.',
+    '{} has no active mail server: Odoo will use the smtp_server of its configuration file, whatever that points at.':
+        '{} no tiene ningún servidor de correo activo: Odoo usará el smtp_server de su fichero de configuración, apunte a donde apunte.',
+    'A capture is in effect: {} mail server(s) deactivated, not lost.':
+        'Hay una captura en efecto: {} servidor(es) de correo desactivados, no perdidos.',
+    ' — the capture': ' — la captura',
+    '{} fetchmail server(s) are still fetching.':
+        '{} servidor(es) fetchmail siguen recibiendo correo.',
     'Turn on {} (and at every start)': 'Encender {} (y en cada arranque)',
     'Turn off {} (and keep it off after a restart)':
         'Apagar {} (y mantenerlo apagado tras reiniciar)',
