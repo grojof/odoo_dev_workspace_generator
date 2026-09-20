@@ -80,6 +80,45 @@ step reached for while it ran.
 - **WHEN** an operator has a step's start and end from the step log
 - **THEN** they are accepted by the journal's time filters as they are written
 
+### Requirement: The runs can be reported on, and what is open is named first
+
+The system SHALL offer an action that reads back what the runs left — the driver's step log, each step's
+Odoo log, and the outbound firewall's journal — and writes a report into the environment.
+
+The report SHALL open with **what is still unresolved**, which is what it exists for: a step that failed, a
+step that never finished, a step of the chain that never ran, and a step that *passed while its log holds an
+error*, since a step succeeding and a step's log being clean are not the same thing. A report with nothing
+recorded SHALL say so rather than read as a clean one.
+
+A step's log SHALL be summarised by what its lines carry — level, logger, message and how many times it
+occurred — and SHALL NOT be classified by meaning: what an OpenUpgrade step warns about is not something
+this project asserts without evidence. Repeated lines SHALL be counted rather than repeated, because one
+broken field can emit the same warning per record and ten thousand copies of it hide everything else.
+
+The firewall's answers SHALL be asked for by **the step's own window**, from the step log, and SHALL be
+limited to the step's own process, so the report says what the migration reached for rather than what the
+host did while it ran. Refusals SHALL come first: on a host with the outbound firewall, Odoo is rejected
+anywhere but localhost, so a refusal is the half worth reading. Where the journal cannot be read the report
+SHALL say the answers were unavailable rather than imply there were none.
+
+A step reported as skipped SHALL be shown as having run nothing that time, so its silence is not read as a
+clean run.
+
+#### Scenario: What is open comes before what happened
+
+- **WHEN** a run's last step failed
+- **THEN** the report names it under "still open" before the per-run detail
+
+#### Scenario: A step that passed with errors in its log
+
+- **WHEN** a step exits zero and its log holds an ERROR line
+- **THEN** the report names it as open, with the first such message
+
+#### Scenario: A step's reach is asked for by its own window
+
+- **WHEN** a step ran between two recorded instants
+- **THEN** the firewall's journal is asked for exactly that window, and only that step's process
+
 ### Requirement: Per-branch odoo-bin command shape
 
 The system SHALL run each step with the target version's `odoo-bin` from that step's virtualenv, using

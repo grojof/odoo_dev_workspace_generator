@@ -7,6 +7,14 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **A report on the runs so far**, from the driver's step log, each step's Odoo log and the outbound
+  firewall's journal. It opens with what is **still open** — a step that failed, never finished, never
+  ran, or *passed while its log holds an error*, since a step succeeding and its log being clean are not
+  the same thing. Each step's log is summarised by what its lines carry (level, logger, message, count)
+  and never classified by meaning: repeated lines are counted rather than repeated, because one broken
+  field emits the same warning per record. The firewall's answers are asked for by the step's own window
+  and its own process, so the report says what the migration reached for rather than what the host did
+  while it ran, with refusals first.
 - **The migration driver records every step as it happens**, appending one line per event to
   `logs/steps.tsv`: when, which run, which step, what happened (`start`, `ok`, `fail`, `skip`, `restore`)
   and the exit code when one failed. Appended and never rewritten, so a run you interrupt still leaves a

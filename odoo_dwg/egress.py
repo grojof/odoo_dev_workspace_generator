@@ -83,6 +83,10 @@ HARDENED_SETTINGS: dict[str, object] = {
     "Server.Loggers": [{"Name": "syslog", "Format": "rfc5424"}],
 }
 
+#: The syslog tag 1.8.0 writes its decisions under — the name to ask the journal
+#: for, stated here once so a reader and this configuration cannot drift apart.
+OPENSNITCH_JOURNAL_TAG = "opensnitch"
+
 # Hosts any process may reach: the development flow (git, gh, pip, uv, apt, npm,
 # Odoo/OCA clones, release downloads). Odoo never gets here: its rule comes first.
 DEV_INFRASTRUCTURE_HOSTS: tuple[str, ...] = (

@@ -371,6 +371,49 @@ With the [outbound firewall](egress-control.md) installed, `odoo-bin` is rejecte
 anything in that window is a step reaching for the outside — worth knowing before that code reaches
 production.
 
+### The report: what happened, and what is still open
+
+**Menu → Migration → Report on the runs so far** reads the step log, each step's Odoo log and the firewall's
+journal, and writes `reports/report-<stamp>.md` into the environment. It is generated when you ask for it;
+the history it reads from is what accumulates.
+
+It opens with **Still open**, which is the part that matters:
+
+```markdown
+## Still open
+
+- **Step 18.0 failed** — exit 1 — see …/logs/18.0.log
+- **Step 17.0 passed with 3 error line(s)** — first: could not load sale_x
+```
+
+That second kind is the one worth having: a step can exit zero and still have logged errors, and "the chain
+finished" is not the same as "nothing went wrong".
+
+Then, per step of the latest run, its log summarised by what the lines actually carry — level, logger,
+message and **how many times** it occurred:
+
+```markdown
+| Level | Logger | Count | First message |
+| --- | --- | --- | --- |
+| ERROR | `odoo.modules.registry` | 1 | could not load sale_x |
+| WARNING | `odoo.modules.loading` | 412 | sale_x: field removed |
+```
+
+Counted rather than repeated: one broken field emits the same warning per record, and four hundred copies of
+it would hide the error above. Nothing here tells you what a warning *means* — that is your judgement, and
+inventing categories would be asserting something about OpenUpgrade this project has not verified.
+
+And, where the firewall is installed, what the step reached for — asked of the journal **for that step's own
+window**, and only for that step's process:
+
+```markdown
+**The step reached outside its own machine:**
+
+- `reject` pypi.org ×3 (rule `00-odwg-003-reject-odoo-external`)
+```
+
+A step marked *skip* is shown as having run nothing that time, so its silence is not read as a clean run.
+
 ### Keeping a migration from reaching the outside
 
 Each step's `odoo.conf` sends mail to the local capture (`127.0.0.1:1025`). With the

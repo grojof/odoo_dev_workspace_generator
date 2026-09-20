@@ -445,6 +445,27 @@ def _as_the_server_reads_them(rules: list[pghba.Rule]) -> list[pghba.Rule]:
     return out
 
 
+def journal_since(tag: str, since: str, until: str = "") -> str:
+    """The system journal for one unit tag between two instants, or "".
+
+    The driver writes each step's start and end in the form the journal's own
+    time filters take, so a step's window is asked for rather than estimated.
+    Reading the journal needs no root for a user in the `adm` or
+    `systemd-journal` group; where it does, this returns nothing rather than
+    prompting, and the report says the firewall's answers were not available.
+    """
+    if not since:
+        return ""
+    command = (
+        f"journalctl -t {shlex.quote(tag)} --no-pager "
+        f"--since {shlex.quote(since)}"
+    )
+    if until:
+        command += f" --until {shlex.quote(until)}"
+    result = run(command, check=False)
+    return result.stdout if result.returncode == 0 else ""
+
+
 # --- migration preflight probes --------------------------------------------
 
 

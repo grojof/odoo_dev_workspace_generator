@@ -232,3 +232,38 @@ def test_the_driver_records_every_step_as_it_happens():
     ) not in script
     # The step's own outcome is marked before the run gives up on it.
     assert script.index('mark "18.0" fail') < script.index("step 18.0 failed")
+
+
+def test_the_report_leads_with_what_is_still_open():
+    """The section the report exists for. A step that passed while its log holds
+    an error belongs in it: success and a clean log are not the same thing."""
+    from odoo_dwg import runlog
+
+    env = MigrationEnv(source="16.0", target="18.0")
+    history = runlog.runs(runlog.parse_steps("\n".join([
+        "2026-09-20T11:00:00+02:00\tabc\t-\trun-start\t16.0 -> 18.0",
+        "2026-09-20T11:00:01+02:00\tabc\t17.0\tstart\t",
+        "2026-09-20T11:05:00+02:00\tabc\t17.0\tok\t",
+        "2026-09-20T11:05:01+02:00\tabc\t18.0\tstart\t",
+        "2026-09-20T11:09:00+02:00\tabc\t18.0\tfail\t1",
+    ])))
+    logs = {"18.0": runlog.summarise_log(
+        "2026-09-20 11:06:00,1 9 WARNING db odoo.modules.loading: field gone\n"
+    )}
+    decisions = {"18.0": [runlog.Decision("reject", "00-odwg-003", "pypi.org", "odoo-bin", 3)]}
+    report = templates.render_migration_report(
+        env, history, logs, decisions, [("Step 18.0 failed", "exit 1 — see 18.0.log")]
+    )
+
+    assert report.index("## Still open") < report.index("## Runs")
+    assert "Step 18.0 failed" in report
+    assert "| WARNING | `odoo.modules.loading` | 1 |" in report
+    assert "`reject` pypi.org ×3" in report and "00-odwg-003" in report
+    # A skipped step is not silently read as a clean one.
+    assert "ran nothing this time" in report
+
+
+def test_a_report_with_nothing_recorded_says_so_rather_than_looking_clean():
+    env = MigrationEnv(source="16.0", target="18.0")
+    report = templates.render_migration_report(env, [], {}, {}, [])
+    assert "No run has been recorded yet" in report

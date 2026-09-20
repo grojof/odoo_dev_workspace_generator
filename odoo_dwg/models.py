@@ -975,6 +975,17 @@ class MigrationEnv:
         return self.root / "checkpoints"
 
     @property
+    def steps_file(self) -> Path:
+        """The driver's own record: one appended line per event of every run."""
+        return self.logs_dir / "steps.tsv"
+
+    @property
+    def reports_dir(self) -> Path:
+        """Where generated reports go. Inside the environment, so they belong to
+        this chain and cleaning names them among what it deletes."""
+        return self.root / "reports"
+
+    @property
     def logs_dir(self) -> Path:
         return self.root / "logs"
 

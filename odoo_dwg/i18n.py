@@ -122,6 +122,18 @@ _ES: dict[str, str] = {
     # staging
     "Stage custom modules": "Preparar módulos custom (staging)",
     "Promote reviewed modules": "Promover módulos revisados",
+    "Report on the runs so far": "Informe de las ejecuciones hasta ahora",
+    "Create {}": "Crear {}",
+    "Report written: {}": "Informe escrito: {}",
+    "No run recorded yet in {} — the driver writes one line per event as it goes.":
+        "Todavía no hay ninguna ejecución registrada en {} — el driver escribe una línea por evento según avanza.",
+    "Step {} failed": "El paso {} falló",
+    "exit {} — see {}": "salida {} — ver {}",
+    "Step {} never finished": "El paso {} nunca terminó",
+    "started {} and recorded no outcome": "empezó {} y no registró resultado",
+    "Step {} passed with {} error line(s)": "El paso {} pasó con {} línea(s) de error",
+    "first: {}": "la primera: {}",
+    "{} step(s) never ran in this run": "{} paso(s) no se ejecutaron en esta pasada",
     "Decided ({})": "Decidido ({})",
     "OCA repositories this chain needs (comma-separated, optional)":
         "Repositorios de OCA que necesita esta cadena (separados por comas, opcional)",

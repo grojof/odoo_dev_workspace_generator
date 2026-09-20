@@ -14,7 +14,7 @@ import shlex
 from datetime import datetime
 from pathlib import Path
 
-from .. import analysis, planners, preflight, templates
+from .. import analysis, egress, planners, preflight, runlog, templates
 from ..i18n import t, tf
 from ..models import (
     DB_NAME_RE,
@@ -28,7 +28,7 @@ from ..models import (
 )
 from ..planners import write_text_file_command
 from ..prompts import ask_bool, ask_text, choose, confirm_with_phrase
-from ..system import apply_commands, list_dirs, preview_commands
+from ..system import apply_commands, journal_since, list_dirs, preview_commands
 from ..ui import level_text, render_table
 from .common import redirect_mail
 
@@ -290,6 +290,89 @@ def _existing_dirs(parent: Path):
         return []
 
 
+def _open_items(env: MigrationEnv, latest, logs: dict) -> list[tuple[str, str]]:
+    """What the run left unresolved. This is the section the report exists for:
+    a step that did not finish, and a step that passed while its log holds an
+    error — success and a clean log are not the same thing."""
+    items: list[tuple[str, str]] = []
+    for step in latest.steps:
+        if step.outcome == "fail":
+            items.append((
+                tf("Step {} failed", step.version),
+                tf("exit {} — see {}", step.code or "?", str(env.logs_dir / f"{step.version}.log")),
+            ))
+        elif step.outcome == "unfinished":
+            items.append((
+                tf("Step {} never finished", step.version),
+                tf("started {} and recorded no outcome", step.started or "?"),
+            ))
+        errors = [entry for entry in logs.get(step.version, []) if entry.level in ("ERROR", "CRITICAL")]
+        if errors and step.outcome == "ok":
+            items.append((
+                tf("Step {} passed with {} error line(s)", step.version, len(errors)),
+                tf("first: {}", errors[0].first[:120]),
+            ))
+    remaining = [v for v in env.chain() if (latest.step(v) is None)]
+    if remaining:
+        items.append((
+            tf("{} step(s) never ran in this run", len(remaining)),
+            ", ".join(remaining),
+        ))
+    return items
+
+
+def _migration_report() -> None:
+    """Read back what the runs left: the driver's step log, each step's Odoo log,
+    and what the outbound firewall answered inside each step's own window."""
+    env = _ask_env()
+    if env is None:
+        return
+    text = _read_text(env.steps_file)
+    if not text:
+        print(level_text("INFO", tf(
+            "No run recorded yet in {} — the driver writes one line per event as it goes.",
+            str(env.steps_file),
+        )))
+        return
+
+    history = runlog.runs(runlog.parse_steps(text))
+    latest = history[-1]
+    logs = {
+        step.version: runlog.summarise_log(
+            _read_text(env.logs_dir / f"{step.version}.log") or ""
+        )
+        for step in latest.steps
+    }
+    # The firewall's answers, asked for by the step's own window rather than
+    # estimated. `odoo-bin` only: what the *migration* reached for, not what the
+    # host did while it ran.
+    decisions = {}
+    for step in latest.steps:
+        since, until = step.window
+        journal = journal_since(egress.OPENSNITCH_JOURNAL_TAG, since, until) if since else ""
+        answers = runlog.summarise_decisions(journal, process="odoo-bin")
+        if answers:
+            decisions[step.version] = answers
+
+    report = templates.render_migration_report(
+        env, history, logs, decisions, _open_items(env, latest, logs)
+    )
+    target = env.reports_dir / f"report-{_stamp()}.md"
+    commands = [
+        Command(
+            tf("Create {}", str(env.reports_dir)),
+            f"mkdir -p {shlex.quote(str(env.reports_dir))}",
+        ),
+        *write_text_file_command(target, report),
+    ]
+    preview_commands(commands)
+    if not ask_bool("Apply this plan now?", False):
+        print(level_text("INFO", t("Cancelled.")))
+        return
+    apply_commands(commands)
+    print(level_text("OK", tf("Report written: {}", str(target))))
+
+
 def _clean_environment() -> None:
     base = Path(MigrationEnv.base_dir).expanduser()
     environments = [name for name in list_dirs(str(base)) if "-to-" in name]
@@ -488,6 +571,7 @@ def migration_menu() -> None:
                 "Preflight check",
                 "Stage custom modules",
                 "Promote reviewed modules",
+                "Report on the runs so far",
                 "Clean a migration environment",
                 "Redirect a database's mail to Mailpit",
                 "Back",
@@ -504,6 +588,8 @@ def migration_menu() -> None:
             _stage_modules()
         elif action == "Promote reviewed modules":
             _promote_modules()
+        elif action == "Report on the runs so far":
+            _migration_report()
         elif action == "Clean a migration environment":
             _clean_environment()
         elif action == "Redirect a database's mail to Mailpit":
