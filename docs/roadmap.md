@@ -106,8 +106,13 @@ read-only checks were exercised against the running chain.
 It cost six fixes, all in shipped code and none visible to the suite (see `CHANGELOG.md`) — the reason for
 running it.
 
-**Next:** a second pass with the rehearsal tester installed, so the fates above are reported as probe
-verdicts rather than checked by hand; then the real 12 client.
+A second pass added the rehearsal tester: the generated add-on installed on Odoo 12, carried its 25 probe
+records through both steps, and reported them afterwards without Odoo running — 7 `gone as predicted`
+(including the absorbed `account_coa_menu`), 16 `intact` across every quiet class, and **2 `not observed`**,
+which is the honest answer for two module subjects that had never been installed in that database and which
+an earlier pass had reported as the chain behaving.
+
+**Next:** the real 12 client, and a 12 → 19 rehearsal on demo data with the same module set.
 
 ## F0 — Foundation ✅
 
