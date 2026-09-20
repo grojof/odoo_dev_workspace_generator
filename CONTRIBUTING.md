@@ -41,6 +41,20 @@ python -m odoo_dwg --help           # CLI smoke test
 
 Real end-to-end validation happens on a Linux host (WSL Ubuntu 24.04 is the reference box).
 
+**A stub must be able to disagree with the code it stands in for.** Two bugs reached a real host past a
+green verifier because its fixture was built from the product's own accessor, or failed in a way the real
+thing never fails:
+
+- the demo seed's precondition was checked against a file the verifier had created at
+  `env.odoo_bin(source)` — the same wrong path the product used — so the stub agreed with the mistake;
+- "a failed `pg_dump` leaves nothing behind" passed against a script that *did* leave the partial file,
+  because the stub exited non-zero without writing one.
+
+When writing a stub, derive its paths from what the real host would have, not from the code under test, and
+make it fail the way the real binary fails — after doing part of the work, and refusing what the real one
+refuses (a `psql` with no `-U` must die, or a check missing its connection arguments passes here and does
+nothing there).
+
 The checks above need no network and change nothing. The tools below are **not** part of the suite. Each
 checks something the suite cannot: an external fact that may have moved (the support matrix, the editor
 configuration, the pinned firewall and mail-capture releases), or the behaviour of generated shell on a real

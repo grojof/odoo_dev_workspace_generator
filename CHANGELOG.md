@@ -6,6 +6,31 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+*Six defects, all in shipped code, all found by the first real rehearsal — a 12 → 14 demo migration on the
+reference host. None was visible to 419 unit tests or seven verifiers.*
+
+- **A module absorbed mid-chain blocked the run.** Coverage resolved every step against the source
+  database's module list with one hop through that step's own `apriori.py`, so a module merged at 13.0 was
+  reported missing at 14.0 — where its old name no longer exists to be declared. The migration stopped and
+  told the operator to supply code that should not exist. Both implementations had it: the Python check and
+  the driver's embedded one, which now emits the module list as the next step will see it.
+- **OCA repositories were linked one level too deep for the path that names them.** A migration
+  environment listed `addons/odoo<major>/oca` as one add-ons path entry while each repository is linked
+  *inside* it, and Odoo scans an entry exactly one level deep. No OCA module was loadable, and coverage
+  reported every one of them as somebody else's to supply.
+- **Odoo 12's venv could not be built at all.** Its requirements pin `pyldap==2.4.28`, whose setup passes
+  `-R` to `cc`. The override bridges through the fork's own final release, which only requires
+  `python-ldap`.
+- **A demo seed looked for `openupgrade-<source>/odoo-bin`**, a path that cannot exist — the source version
+  is not a step — and stopped with "generate the environment first" while the clone it needed was there.
+- **The seed's existing-database check never fired**: its `psql -lqt` carried no connection arguments, so
+  it failed as the OS user and the pipeline quietly yielded nothing.
+- **The rehearsal tester was written only into the chain's steps**, so it could be installed nowhere: it is
+  installed at the source version, which is where its records are written.
+
+
 ### Added
 - **A chain can be rehearsed before there is a client dump.** *Seed a demo source database* prepares the
   source version — which the chain itself never builds, since `chain()` is the *steps* — and writes a
