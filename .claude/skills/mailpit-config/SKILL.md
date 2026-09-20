@@ -47,3 +47,10 @@ Both change a database and both are behind a confirmation phrase in the menu. Na
 - Captured mail is read at `http://127.0.0.1:8025`.
 - Never suggest editing `ir_mail_server` by hand. The capture exists so that nothing has to be retyped.
 - Background: `docs/egress-control.md`.
+
+## A migrated database
+
+A rehearsal chain leaves the mail configuration exactly as it found it — capture deactivates and adds, it
+never overwrites — so after a 12 → 19 run the client's own servers are still in the database, switched off.
+`restore` is what switches them back on, and it is the step before a cutover. Check after restoring: the
+expected answer there is **`Mail can leave`**, the opposite of what you want during a rehearsal.

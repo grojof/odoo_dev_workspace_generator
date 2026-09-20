@@ -7,7 +7,16 @@ project's idea of the format rather than the format.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from odoo_dwg import analysis, templates, tester
+
+#: Resolved from this file, like the support-matrix tests: pytest may be
+#: run from anywhere.
+PROBE_SPEC = (
+    Path(__file__).resolve().parent.parent
+    / "openspec" / "specs" / "migration-preflight" / "spec.md"
+)
 
 FIELDS = """---Fields in module 'sale'---
 sale         / sale.order.line          / qty_delivered_manual (float)  : DEL
@@ -294,3 +303,12 @@ def test_a_field_is_not_lost_from_a_model_the_database_never_had():
 def test_the_state_query_asks_about_the_model_of_a_field_subject():
     sql = tester.probe_state_sql([_probe("removed_field", model="sale.order", field="x")])
     assert "FROM ir_model WHERE model IN ('sale.order')" in sql
+
+
+def test_the_spec_names_every_verdict_the_code_can_print():
+    """These strings are what the operator reads, so the spec names them as they
+    are printed. Prose drifts from constants without anything noticing."""
+    spec = PROBE_SPEC.read_text(encoding="utf-8")
+    for state in tester._VERDICT_ORDER:
+        assert f"`{state}`" in spec, f"{state} is printed but not named in the spec"
+    assert "`absent`" in spec

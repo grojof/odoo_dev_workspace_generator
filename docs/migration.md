@@ -371,6 +371,47 @@ With the [outbound firewall](egress-control.md) installed, `odoo-bin` is rejecte
 anything in that window is a step reaching for the outside — worth knowing before that code reaches
 production.
 
+### When a module has no code anywhere: `decisions.json`
+
+Coverage stops a run when an installed module resolves in no source of a step and OpenUpgrade declares no
+successor for it. That is not a bug to work around — it is a question only you can answer, and it happens
+for real: OCA ported `website_sale_product_attribute_filter_category` to 14.0, 15.0, 17.0 and 18.0 but
+**not** to 16.0 or 19.0.
+
+Record the answer in the environment's own `decisions.json`:
+
+```json
+{
+  "decisions": [
+    {
+      "module": "website_sale_product_attribute_filter_category",
+      "source": "12.0", "target": "19.0",
+      "decision": "dropped",
+      "reason": "OCA has not ported it to 16.0 or 19.0 (present in 14, 15, 17, 18)",
+      "evidence": {"checked": "2026-09-20"}
+    }
+  ]
+}
+```
+
+Both readings honour it — the preflight action *and* the driver, which is the one that stops the run — and
+a decision is matched under **any name the module carries in the chain**, since a rename does not make it a
+different module. An applied decision is always named in the output with its reason, never applied
+silently:
+
+```
+[coverage] website_sale_product_attribute_filter_category: dropped for 16.0 — as you recorded (OCA has not
+ported it to 16.0 or 19.0)
+```
+
+**A decision is never believed over the sources.** It is applied only while the module still resolves
+nowhere and still has no successor that does; when either changes — OCA ports it, OpenUpgrade declares a
+successor — the preflight reports the decision as **stale** instead of applying it. A file that cannot be
+read decides nothing, so a typo cannot open the gate.
+
+The file is the operator's, carried between clients: the fates of Odoo and OCA modules are facts the tool
+derives every time, and this records the one thing no source states.
+
 ### Rehearsing before there is a client dump
 
 The driver needs a source dump, and before a client's database exists nobody has one. **Menu → Migration →
@@ -465,6 +506,10 @@ The others are printed too, one line each, so you can see the question was asked
 
 - **`intact`** — the subject is still there and nothing said it would go.
 - **`gone as predicted`** — it went, and what it became is there instead.
+- **`not yet reached`** — the probe is about a step this database has not reached, so its subject being
+  present says nothing yet. Expect many of these when checking between steps.
+- **`past its step`** — the database is beyond the probe's step, so a missing subject cannot be blamed on
+  it.
 - **`not observed`** — neither the subject nor its successor is in the database, so this probe measured
   nothing: the subject was never installed here. It sorts **last**, after everything that was actually
   measured, and is not counted as a pass. A real run reported two module probes as `gone as predicted`

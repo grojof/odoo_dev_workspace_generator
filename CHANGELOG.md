@@ -7,6 +7,11 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **The specs, docs and skills record what two full rehearsals established.** The probe verdicts are
+  named in the spec as they are printed, and a test fails if the code grows one the spec does not name —
+  prose drifts from constants without anything noticing. `decisions.json` is documented: where it lives,
+  what it holds, and that a decision is never believed over the sources. The three skills describe the
+  current output rather than a tool that no longer exists.
 - **Each step checks the database as it is then, not only as it started.** The preflight reads the source
   database once, so a module the chain installs *along the way* is invisible to it — an OCA glue module
   appeared at 18.0, was auto-installed because its dependencies were there, and had gone from that
