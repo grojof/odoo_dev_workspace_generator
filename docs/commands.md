@@ -84,6 +84,8 @@ Every menu shows a numbered list; `0` (or `Back`/`Cancel`) always returns withou
 | Preflight check | Read-only verification: chain tools, PostgreSQL, dump integrity, and — against a named database — version match, installed modules, per-step addons coverage | Never mutates |
 | Stage custom modules | Per chain step, copies the previous stage and runs `odoo-module-migrator` on it; then analysis findings, inert `pre-migration.py` scaffolds, and a per-module report | Source dir never modified; phrase `RESTAGE` to replace staged code |
 | Clean a migration environment | Removes one `<src>-to-<tgt>` directory; the shared `.repos` cache is a separate opt-in | Phrase `DELETE`; the PostgreSQL DB is never touched |
+| Generate the migration tester | Writes an add-on of the tool's own into each step's `custom`, with one probe per class of change *this chain* contains, taken from its own analysis files. Names the classes the chain never exercises ([migration](migration.md#rehearsing-against-a-module-built-to-break)). | Previewed, confirmed |
+| Check the migration tester | Reads only. Asks a database what became of each probe's subject; reports what disappeared unannounced and what a script left behind, first. | — |
 | Capture a database's mail in Mailpit | Same as the workspace action, for the migration's databases. | Phrase `CAPTURE` |
 | Restore a database's mail configuration | The step before cutover: the migrated database mails out again through the client's own servers. | Phrase `RESTORE` |
 | Check whether a database can mail out | Reads only. Use it after restoring, before cutover. | — |

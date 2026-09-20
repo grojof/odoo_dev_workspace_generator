@@ -15,7 +15,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from .. import analysis, egress, planners, preflight, runlog, templates
+from .. import analysis, egress, planners, preflight, runlog, templates, tester
 from ..i18n import t, tf
 from ..models import (
     DB_NAME_RE,
@@ -29,9 +29,16 @@ from ..models import (
 )
 from ..planners import write_text_file_command
 from ..prompts import ask_bool, ask_text, choose, clear_screen, confirm_with_phrase
-from ..system import apply_commands, journal_since, list_dirs, preview_commands
+from ..system import (
+    apply_commands,
+    journal_since,
+    list_dirs,
+    preview_commands,
+    psql_rows,
+    psql_scalar,
+)
 from ..ui import level_text, render_table, title
-from .common import capture_mail, check_mail, restore_mail
+from .common import apply_if_confirmed, capture_mail, check_mail, restore_mail
 
 
 def _exists(path) -> bool:
@@ -505,22 +512,42 @@ def _step_analysis_records(env: MigrationEnv, version: str) -> list[analysis.Ana
     findings, which reads exactly like having none. The work file the tool writes
     beside it (``…_work.txt``) is deliberately not read.
     """
-    clone = env.openupgrade_clone_dir(version)
     records: list[analysis.AnalysisRecord] = []
-    patterns = (
-        "openupgrade_scripts/scripts/*/*/upgrade_analysis.txt",
-        "addons/*/migrations/*/upgrade_analysis.txt",
-        "odoo/addons/*/migrations/*/upgrade_analysis.txt",
-        "addons/*/migrations/*/openupgrade_analysis.txt",
-        "odoo/addons/*/migrations/*/openupgrade_analysis.txt",
-    )
-    for pattern in patterns:
-        for path in clone.glob(pattern):
+    for text in _analysis_texts(env, version):
+        records += analysis.parse_analysis(text)
+    return records
+
+
+# The patterns live here once. Stating them twice is how the 12 -> 13 step came
+# to be read by one reader and not the other.
+_ANALYSIS_PATTERNS = (
+    "openupgrade_scripts/scripts/*/*/upgrade_analysis.txt",
+    "addons/*/migrations/*/upgrade_analysis.txt",
+    "odoo/addons/*/migrations/*/upgrade_analysis.txt",
+    "addons/*/migrations/*/openupgrade_analysis.txt",
+    "odoo/addons/*/migrations/*/openupgrade_analysis.txt",
+)
+
+
+def _analysis_texts(env: MigrationEnv, version: str) -> list[str]:
+    """Every analysis file of the step's OpenUpgrade clone, read."""
+    clone = env.openupgrade_clone_dir(version)
+    texts: list[str] = []
+    for pattern in _ANALYSIS_PATTERNS:
+        for path in sorted(clone.glob(pattern)):
             try:
-                records += analysis.parse_analysis(path.read_text(encoding="utf-8", errors="replace"))
+                texts.append(path.read_text(encoding="utf-8", errors="replace"))
             except OSError:
                 continue
-    return records
+    return texts
+
+
+def _step_changes(env: MigrationEnv, version: str) -> list[analysis.ChangeRecord]:
+    """Every class of change the step declares, not only the breaking ones."""
+    changes: list[analysis.ChangeRecord] = []
+    for text in _analysis_texts(env, version):
+        changes += analysis.harvest_changes(text)
+    return changes
 
 
 def _staged_module_files(module_dir: Path) -> list[tuple[str, str]]:
@@ -653,6 +680,8 @@ def migration_menu() -> None:
                 "Promote reviewed modules",
                 "Report on the runs so far",
                 "Follow a running migration",
+                "Generate the migration tester",
+                "Check the migration tester",
                 "Clean a migration environment",
                 "Capture a database's mail in Mailpit",
                 "Restore a database's mail configuration",
@@ -675,6 +704,10 @@ def migration_menu() -> None:
             _migration_report()
         elif action == "Follow a running migration":
             _watch_run()
+        elif action == "Generate the migration tester":
+            _generate_tester()
+        elif action == "Check the migration tester":
+            _check_tester()
         elif action == "Clean a migration environment":
             _clean_environment()
         elif action in (
@@ -689,3 +722,75 @@ def migration_menu() -> None:
                 "Restore a database's mail configuration": restore_mail,
                 "Check whether a database can mail out": check_mail,
             }[action](defaults.db_host, defaults.db_port, defaults.db_user)
+
+
+def _generate_tester() -> None:
+    """Write the rehearsal tester into an environment, from that chain's sources."""
+    env = _ask_env()
+    if env is None:
+        return
+    by_version: dict[str, list[analysis.ChangeRecord]] = {}
+    for version in env.chain():
+        changes = _step_changes(env, version)
+        if changes:
+            by_version[version] = changes
+        else:
+            print(level_text("WARN", tf("No analysis files read for {}.", version)))
+    if not by_version:
+        print(level_text("ERROR", t("No OpenUpgrade analysis files were read: clone the environment first.")))
+        return
+    probes, uncovered = tester.choose_probes(by_version)
+    print(level_text("INFO", tf("{} probes, from this chain's own sources.", str(len(probes)))))
+    for probe in probes:
+        print(f"  {probe.version}  {probe.kind:<18} {probe.subject}")
+    if uncovered:
+        # Named, not dropped: a class with no probe is not a class that passed.
+        print(level_text("WARN", tf("Classes this chain never exercises: {}", ", ".join(uncovered))))
+    apply_if_confirmed(planners.plan_generate_tester(env, probes, uncovered))
+
+
+def _check_tester() -> None:
+    """Ask a migrated database what became of each probe's subject."""
+    env = _ask_env()
+    if env is None:
+        return
+    database = ask_text("Database to ask about the tester", required=True)
+    if not DB_NAME_RE.fullmatch(database):
+        print(level_text("ERROR", tf("Invalid database name: {}", database)))
+        return
+    where = (database, env.db_host, env.db_port, env.db_user)
+    installed = psql_scalar(
+        f"SELECT to_regclass('{tester.PROBE_TABLE}') IS NOT NULL", *where
+    )
+    if installed is None:
+        print(level_text("ERROR", tf("Could not read database {}.", database)))
+        return
+    if installed != "t":
+        print(level_text("WARN", tf("The tester is not installed in {}.", database)))
+        return
+    rows = psql_rows(tester.PROBE_ROWS_SQL, *where)
+    probes = tester.probes_from_rows(rows or [])
+    if not probes:
+        print(level_text("WARN", tf("The tester in {} declares no probe.", database)))
+        return
+    states = psql_rows(tester.probe_state_sql(probes), *where)
+    if states is None:
+        print(level_text("ERROR", tf("Could not read the models of {}.", database)))
+        return
+    _report_probes(database, tester.read_probe_states(probes, states))
+
+
+def _report_probes(database: str, verdicts: list) -> None:
+    """Findings first — they are the reason the tester exists; the rest is what
+    behaved, and is worth one line each so the operator can see it was asked."""
+    findings = [verdict for verdict in verdicts if verdict.is_finding]
+    if findings:
+        print(level_text("WARN", tf("{} probe(s) need looking at in {}.", str(len(findings)), database)))
+    else:
+        print(level_text("OK", tf("Every probe behaved as its sources predicted in {}.", database)))
+    for verdict in verdicts:
+        mark = "!" if verdict.is_finding else " "
+        print(f"  {mark} {verdict.probe.version}  {verdict.state:<18} "
+              f"{verdict.probe.kind}: {verdict.probe.subject}")
+        if verdict.is_finding:
+            print(f"      {verdict.probe.detail}")

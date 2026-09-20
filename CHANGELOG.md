@@ -7,6 +7,16 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **A rehearsal can be run against a module built to break.** The tool generates an add-on of its own for
+  a chain, carrying one probe per class of change *that chain* contains — a field removed, a field that
+  moved module, a model made obsolete or renamed, a field that stopped being stored, stopped being
+  related, became or stopped being computed, lost a selection key, became company-dependent. Every probe
+  is derived from a line of the chain's own `upgrade_analysis.txt` files, and carries that line verbatim;
+  classes the chain never exercises are **named**, not dropped. **Check the migration tester** then asks a
+  database what became of each subject, reading `ir_model` and `ir_model_fields`, so it answers even for a
+  step where nothing loaded. It reports first the two things a run's logs never mention: a subject **gone
+  unannounced** — the quiet loss, where the module loaded, the step passed and a column is empty — and one
+  **still there** where the sources said it would go, which is a migration script that did not run.
 - **Mail can be captured without losing the way back.** Capture no longer overwrites anything: it
   deactivates the database's mail servers — host, user and password stay where they are — and adds one of
   its own pointing at Mailpit, visible and testable from Odoo's own *Outgoing Mail Servers*. **Restore**

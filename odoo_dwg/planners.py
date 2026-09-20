@@ -13,7 +13,7 @@ import shlex
 from collections.abc import Callable
 from pathlib import Path
 
-from . import egress, templates
+from . import egress, templates, tester
 from .i18n import tf
 from .models import (
     PKG_RESOURCES_LAST_MAJOR,
@@ -1350,4 +1350,30 @@ def plan_build_venv(
             f"touch {shlex.quote(str(cfg.venv_ready_marker(version)))}",
         ),
     ]
+    return commands
+
+
+def plan_generate_tester(
+    env: MigrationEnv, probes: list, uncovered: list[str]
+) -> list[Command]:
+    """Write the rehearsal tester into every step's ``addons/odoo<major>/custom``.
+
+    Into the environment and nowhere else: the module is a rehearsal instrument,
+    and its manifest says so. Each step gets the same tree, so the module is
+    present whichever step the operator stops at.
+    """
+    chain = f"{env.source} - {env.target}"
+    files = templates.render_tester_module(probes, uncovered, chain)
+    commands: list[Command] = []
+    for version in env.chain():
+        root = env.addons_custom_dir(version) / tester.TESTER_MODULE
+        directories = sorted({str((root / path).parent) for path in files})
+        commands.append(
+            Command(
+                tf("Create the tester tree for {}", version),
+                "mkdir -p " + " ".join(shlex.quote(d) for d in directories),
+            )
+        )
+        for path, content in files.items():
+            commands += write_text_file_command(root / path, content)
     return commands

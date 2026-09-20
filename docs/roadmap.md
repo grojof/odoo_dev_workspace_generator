@@ -79,8 +79,13 @@ on a copy destined for the bin — which is the opposite of what a rehearsed mig
 deactivates and adds, restore gives back exactly what was there, and a read-only check answers whether
 mail can leave.
 
-Still to come in this phase: a generated tester add-on covering what changes between versions, and three
-thin skills — migration triage, an OpenSnitch rule check, and Mailpit configuration.
+And the rehearsal got an instrument of its own (change `rehearse-with-a-module-that-breaks`): an add-on
+generated per chain, carrying one probe per class of change that chain contains, derived from its own
+analysis files — so a step can be asked what it took away, and the quiet classes (a field that moved
+module, one that stopped being stored) stop being invisible.
+
+Still to come in this phase: three thin skills — migration triage, an OpenSnitch rule check, and Mailpit
+configuration.
 
 ## F0 — Foundation ✅
 

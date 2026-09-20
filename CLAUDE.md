@@ -108,6 +108,7 @@ python tools/verify_generated_shell.py     # ShellCheck over every generated scr
 python tools/verify_pg_hba_trust.py        # the pg_hba rewriter, against a throwaway PostgreSQL
 python tools/verify_promoted_modules.py    # the promote / consume cycle, with a stub module migrator
 python tools/verify_mail_capture.py        # mail capture, check and restore, against a throwaway PostgreSQL
+python tools/verify_migration_tester.py    # the rehearsal tester: it is a module, and its query runs
 ```
 
 End-to-end validation (cloning Odoo, building venvs, running `odoo-bin`, migrations) happens on a real

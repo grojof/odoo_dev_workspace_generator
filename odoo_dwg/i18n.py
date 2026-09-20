@@ -462,6 +462,24 @@ _ES: dict[str, str] = {
     "Create venv {}": "Crear el venv {}",
     "Upgrade pip/wheel/setuptools in {}": "Actualizar pip/wheel/setuptools en {}",
     "Install Odoo {} requirements": "Instalar los requisitos de Odoo {}",
+    # --- the rehearsal tester ---
+    'Generate the migration tester': 'Generar el tester de migración',
+    'Check the migration tester': 'Comprobar el tester de migración',
+    'Create the tester tree for {}': 'Crear el árbol del tester para {}',
+    'No analysis files read for {}.': 'No se leyó ningún fichero de análisis para {}.',
+    'No OpenUpgrade analysis files were read: clone the environment first.':
+        'No se leyó ningún fichero de análisis de OpenUpgrade: clona antes el entorno.',
+    "{} probes, from this chain's own sources.":
+        '{} sondas, sacadas de las fuentes de esta propia cadena.',
+    'Classes this chain never exercises: {}':
+        'Clases que esta cadena no ejercita nunca: {}',
+    'Database to ask about the tester': 'Base de datos a la que preguntar por el tester',
+    'The tester is not installed in {}.': 'El tester no está instalado en {}.',
+    'The tester in {} declares no probe.': 'El tester de {} no declara ninguna sonda.',
+    'Could not read the models of {}.': 'No se pudieron leer los modelos de {}.',
+    '{} probe(s) need looking at in {}.': 'Hay {} sonda(s) que mirar en {}.',
+    'Every probe behaved as its sources predicted in {}.':
+        'Cada sonda se comportó en {} como predecían sus fuentes.',
     # --- egress control and mail capture ---
     "Capture a database's mail in Mailpit": 'Capturar en Mailpit el correo de una base de datos',
     "Restore a database's mail configuration":

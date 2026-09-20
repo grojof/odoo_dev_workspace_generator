@@ -58,6 +58,7 @@ python tools/verify_generated_shell.py           # ShellCheck every generated sc
 python tools/verify_pg_hba_trust.py              # run the pg_hba rewriter, and ask PostgreSQL about it
 python tools/verify_promoted_modules.py         # promote reviewed code, then stage again and derive nothing
 python tools/verify_mail_capture.py              # capture, check and restore a database's mail configuration
+python tools/verify_migration_tester.py          # generate the rehearsal tester, and run the query it asks
 ```
 
 | Tool | Needs |
@@ -65,9 +66,18 @@ python tools/verify_mail_capture.py              # capture, check and restore a 
 | `verify_support_matrix.py`, `verify_odools_config.py`, `verify_egress_pins.py` | the network |
 | `verify_workspace_versions.py` | the network **and** a host it may change (it previews, asks, and cleans up) |
 | `verify_generated_shell.py` | `shellcheck` on the host |
-| `verify_pg_hba_trust.py`, `verify_mail_capture.py` | the host's PostgreSQL binaries; each runs a cluster of its own |
+| `verify_pg_hba_trust.py`, `verify_mail_capture.py`, `verify_migration_tester.py` | the host's PostgreSQL binaries; each runs a cluster of its own |
 | `verify_migration_driver.py` | nothing but `bash` |
 | `verify_promoted_modules.py` | nothing but `bash` and `git` |
+
+`verify_migration_tester.py` generates the rehearsal tester from analysis lines copied verbatim out of
+OpenUpgrade's files, then asks whether the result is a *module*: every `.py` compiles, the manifest
+evaluates to a dict that ships what it declares and sets no `auto_install`, the data file parses with one
+record per probe and unique ids, and the access rule is read-only on its own model. It then creates
+`ir_model`, `ir_model_fields` and the probe table in a throwaway cluster and runs the real query, so both
+findings are produced by PostgreSQL rather than asserted. It also checks that no status in the whole
+harvested vocabulary is claimed by two class patterns, and — where the host has the environment's clones —
+generates the real chain's tester and checks every probe against a record that states it.
 
 `verify_mail_capture.py` runs capture → check → restore against a cluster of its own, on two
 `ir_mail_server` schemas that differ the way Odoo's differ across the chain (a 12-era one, and a 19-era one

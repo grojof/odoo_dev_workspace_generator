@@ -371,6 +371,54 @@ With the [outbound firewall](egress-control.md) installed, `odoo-bin` is rejecte
 anything in that window is a step reaching for the outside — worth knowing before that code reaches
 production.
 
+### Rehearsing against a module built to break
+
+A chain rehearsed only against the client's own add-ons exercises the classes of change *that client*
+happens to meet. **Menu → Migration → Generate the migration tester** writes an add-on of the tool's own
+into every step's `addons/odoo<major>/custom`, with one probe per class of change the chain actually
+contains — taken from that chain's own `upgrade_analysis.txt` files and `apriori.py`, never invented:
+
+```
+23 probes, from this chain's own sources.
+  16.0  removed_model      base.update.translations
+  16.0  unstored_field     sale.order/show_update_pricelist
+  16.0  moved_field        account.move/partner_shipping_id
+  ...
+[WARN] Classes this chain never exercises: company_dependent
+```
+
+The classes with no instance are named rather than dropped: a class with no probe is not a class that
+passed.
+
+Each probe is a **declaration**, not synthesized model code — a record naming the subject, the class, the
+step its analysis predicts it at, and that file's own line. (Generated model code referring to the subject
+would fail on the *source* version when derived wrongly, destroying the rehearsal instead of measuring it.)
+
+After a step, **Check the migration tester** asks the database what became of each subject, by reading its
+`ir_model` and `ir_model_fields`. It needs no Odoo running, which is the point: the step worth asking about
+is often the one where something failed to load.
+
+```
+[WARN] 2 probe(s) need looking at in acme_16.
+  ! 16.0  gone unannounced   moved_field: account.move/partner_shipping_id
+      sale / account.move / partner_shipping_id (many2one): module is now 'account' ('sale')
+  ! 16.0  still there        removed_model: base.update.translations
+      obsolete model base.update.translations [transient]
+    16.0  intact             unstored_field: sale.order/show_update_pricelist
+```
+
+The two findings come first, and they are the two the run's logs never mention:
+
+- **gone unannounced** — the subject is not there and nothing predicted it would go. This is the quiet
+  loss: the module loaded, the step passed, and a column is empty.
+- **still there** — the sources said it would go and it did not, so a migration script did not run.
+
+The others (`intact`, `gone as predicted`) are printed too, one line each, so you can see the question was
+asked. If the module never installed, every probe reports `absent` rather than a reassuring `intact`.
+
+The tester is a rehearsal instrument. Its manifest says so, it depends on `base` alone, and it declares no
+menu, no group, no `auto_install` and read-only access to its own table.
+
 ### Following a run while it happens
 
 You start the driver by hand, and a 12 → 19 chain takes hours. **Menu → Migration → Follow a running
