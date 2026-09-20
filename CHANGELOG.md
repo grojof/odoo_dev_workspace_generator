@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Coverage checks that a module's dependencies resolve, not only the module.** A module can resolve —
+  its OCA repository is cloned — while its manifest names a dependency living in a *different* repository
+  nobody cloned. Odoo refuses to upgrade such a module at load time, so a chain ran fifteen minutes and
+  failed at step 16 on `account_statement_import_base` needing `account_statement_base` from
+  `OCA/account-reconcile`. One key of a manifest, read before anything starts, answers it. Both the
+  preflight and the driver check it, and the driver stops before the first step.
 - **A probe is judged against its own step.** The rehearsal tester's quiet classes claim that a subject
   *survives* the step that changed it; checking a 12 → 19 chain only at the end reported six of them as
   silent losses when a **later** step had removed the subject. Where the database is past a probe's step,

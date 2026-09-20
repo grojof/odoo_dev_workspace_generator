@@ -68,6 +68,10 @@ class Coverage:
     # ``{version: [(module, decision, reason)]}`` — a module with no successor
     # that a recorded decision accounts for. Not blocking: it was answered.
     decided: dict[str, list[tuple[str, str, str]]] = field(default_factory=dict)
+    # ``{version: {module: [dependency]}}`` — a module that *does* resolve, whose
+    # manifest names something that does not. Odoo refuses to upgrade such a
+    # module, so this stops the step as surely as a missing module does.
+    unmet: dict[str, dict[str, list[str]]] = field(default_factory=dict)
     # ``{version: [(module, decision, why it no longer holds)]}`` — a decision
     # the sources have overtaken. Reported, never applied.
     stale: dict[str, list[tuple[str, str, str]]] = field(default_factory=dict)
@@ -320,6 +324,9 @@ def gather_coverage(
                     blocking.append(module)
             elif found == sources[0]:
                 coverage.customs.add(module)
+        unmet = missing_dependencies(modules, sources, exists)
+        if unmet:
+            coverage.unmet[version] = unmet
         if blocking:
             coverage.blocking[version] = blocking
         if warnings:
@@ -539,6 +546,48 @@ def chain_fates(
         if module not in named
     ]
     return found, unread
+
+
+def manifest_depends(path: Path) -> list[str]:
+    """The ``depends`` of a module's manifest, or none when it cannot be read.
+
+    Parsed with ``ast``, never executed: a manifest is a literal by construction
+    and there is no reason to run a checkout's code to read one key.
+    """
+    for name in ("__manifest__.py", "__openerp__.py"):
+        try:
+            data = ast.literal_eval((path / name).read_text(encoding="utf-8"))
+        except (OSError, ValueError, SyntaxError, TypeError):
+            continue
+        if isinstance(data, dict):
+            depends = data.get("depends")
+            return [d for d in depends if isinstance(d, str)] if isinstance(depends, list) else []
+    return []
+
+
+def missing_dependencies(
+    modules: list[str], sources: list[Path], exists: Exists = Path.exists
+) -> dict[str, list[str]]:
+    """``{module: [dependency that resolves nowhere]}`` for a step's sources.
+
+    Coverage asks whether each installed module resolves. It never asked whether
+    what those modules *depend on* resolves, so a module brought in by a rename
+    could name a dependency living in an OCA repository nobody cloned — and the
+    step failed on it at load time, after the whole chain had run that far.
+    Reading one key of a manifest answers it before anything starts.
+    """
+    missing: dict[str, list[str]] = {}
+    for module in modules:
+        found = next((src for src in sources if exists(src / module)), None)
+        if found is None:
+            continue
+        absent = [
+            dep for dep in manifest_depends(found / module)
+            if not any(exists(src / dep) for src in sources)
+        ]
+        if absent:
+            missing[module] = sorted(absent)
+    return missing
 
 
 def suggest_demo_modules(

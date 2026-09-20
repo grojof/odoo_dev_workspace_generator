@@ -398,3 +398,39 @@ def test_a_decision_follows_the_module_through_a_rename(tmp_path):
         assert coverage.blocking == {}, f"blocked when recorded as {recorded_as}"
         # Named, not applied silently.
         assert any("dropped" in str(row) for rows in coverage.decided.values() for row in rows)
+
+
+def test_a_resolvable_module_with_an_unresolvable_dependency_is_reported(tmp_path):
+    """A real 12 -> 19 run failed at step 16 on this, fifteen minutes in.
+
+    `account_statement_import_base` resolved — the OCA repository was cloned —
+    but its manifest names `account_statement_base`, which lives in a *different*
+    OCA repository nobody had cloned. Odoo refuses to upgrade such a module, so
+    coverage saying "everything resolves" was not the same as the step running.
+    """
+    env = MigrationEnv(source="12.0", target="14.0")
+    for version in env.chain():
+        path = preflight.apriori_path(env, version)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("renamed_modules = {}\nmerged_modules = {}\n", encoding="utf-8")
+        module = env.addons_oca_dir(version) / "client_mod"
+        module.mkdir(parents=True)
+        (module / "__manifest__.py").write_text(
+            "{'name': 'x', 'depends': ['base', 'not_cloned_anywhere']}", encoding="utf-8"
+        )
+        (env.addons_oca_dir(version) / "base").mkdir()
+
+    coverage = preflight.gather_coverage(env, ["client_mod"])
+    assert coverage.blocking == {}          # it resolves
+    assert coverage.unmet["13.0"] == {"client_mod": ["not_cloned_anywhere"]}
+
+
+def test_a_manifest_that_cannot_be_read_names_no_dependency(tmp_path):
+    env = MigrationEnv(source="12.0", target="14.0")
+    version = "13.0"
+    module = env.addons_oca_dir(version) / "broken"
+    module.mkdir(parents=True)
+    (module / "__manifest__.py").write_text("{not python", encoding="utf-8")
+    assert preflight.missing_dependencies(
+        ["broken"], [env.addons_oca_dir(version)]
+    ) == {}

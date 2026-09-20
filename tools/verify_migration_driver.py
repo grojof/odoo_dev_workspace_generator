@@ -329,6 +329,45 @@ def main() -> int:
             decided.stderr,
         )
 
+    # A module that resolves but whose manifest names something that does not.
+    # Odoo refuses to upgrade it at load time, so coverage saying "everything
+    # resolves" was not the same as the step running: a real 12 -> 19 chain
+    # failed at step 16 on `account_statement_import_base` needing
+    # `account_statement_base`, which lives in another OCA repository.
+    with tempfile.TemporaryDirectory(prefix="odwg-driver-") as tmp:
+        root = Path(tmp)
+        script, env = _build(root, absorbed=("acme_needy", "acme_needy"))
+        for version in env.chain():
+            module = Path(env.addons_custom_dir(version)) / "acme_needy"
+            module.mkdir(parents=True, exist_ok=True)
+            (module / "__manifest__.py").write_text(
+                "{'name': 'needy', 'depends': ['base', 'never_cloned']}", encoding="utf-8"
+            )
+            # `base` is present, as it is in any real environment — the Odoo
+            # clone provides it. Only the second dependency is missing, so the
+            # message names what is actually absent.
+            (Path(env.addons_custom_dir(version)) / "base").mkdir(exist_ok=True)
+        needy = _run(root, script)
+        check(
+            "a module whose dependency resolves nowhere stops the run",
+            needy.returncode != 0 and "acme_needy needs never_cloned" in needy.stderr,
+            needy.stdout + needy.stderr,
+        )
+        check(
+            "and it is stopped before any step runs",
+            "[step] upgrading to" not in needy.stdout,
+            needy.stdout,
+        )
+        # Supplying it is enough.
+        for version in env.chain():
+            (Path(env.addons_custom_dir(version)) / "never_cloned").mkdir(exist_ok=True)
+        supplied = _run(root, script)
+        check(
+            "and supplying the dependency lets the run through",
+            supplied.returncode == 0 and "[done]" in supplied.stdout,
+            supplied.stdout + supplied.stderr,
+        )
+
     # A decisions file that cannot be read must not let everything through.
     with tempfile.TemporaryDirectory(prefix="odwg-driver-") as tmp:
         root = Path(tmp)
