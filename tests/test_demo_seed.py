@@ -190,3 +190,13 @@ def test_the_bare_oca_directory_is_still_a_path_entry(tmp_path):
     MigrationEnv.base_dir = str(tmp_path / "envs")
     env = MigrationEnv(source="12.0", target="14.0", oca_repos=["e-commerce"])
     assert str(env.addons_oca_dir("13.0")) in env.addons_path("13.0").split(",")
+
+
+def test_the_seed_runs_the_plain_odoo_bin_not_an_openupgrade_fork(tmp_path):
+    # There is no OpenUpgrade 12.0 at all — the 12 to 13 step runs OpenUpgrade 13
+    # — so a source precondition naming one can never pass.
+    env = _env(tmp_path)
+    assert env.source_odoo_bin == env.odoo_clone_dir("12.0") / "odoo-bin"
+    script = templates.render_seed_demo_sh(env, [])
+    assert "openupgrade-12.0" not in script
+    assert str(env.source_odoo_bin) in script

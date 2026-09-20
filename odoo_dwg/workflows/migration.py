@@ -908,9 +908,15 @@ def _seed_demo() -> None:
 
 
 def _modules_on_disk(env: MigrationEnv) -> list[str]:
-    """Module directories linked under the source version's add-ons, if any."""
+    """Modules the source version can actually install.
+
+    Resolved the way Odoo resolves: each add-ons path entry, one level down, a
+    directory with a ``__manifest__.py``. Walking only ``oca/`` found nothing at
+    all, because a named repository is linked as a directory *of* modules —
+    which is the same mistake that made the path itself wrong.
+    """
     found: list[str] = []
-    for base in (env.addons_oca_dir(env.source), env.addons_custom_dir(env.source)):
+    for base in [env.addons_custom_dir(env.source), *env.oca_dirs(env.source)]:
         for name in list_dirs(str(base)):
             if (Path(base) / name / "__manifest__.py").exists():
                 found.append(name)

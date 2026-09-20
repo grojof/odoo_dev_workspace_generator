@@ -1270,7 +1270,7 @@ def render_seed_demo_sh(env: MigrationEnv, modules: list[str]) -> str:
     """
     q = shlex.quote
     venv = env.venv_dir(env.source)
-    odoo_bin = env.odoo_bin(env.source)
+    odoo_bin = env.source_odoo_bin
     conf = env.config_file(env.source)
     log = env.logs_dir / f"seed-{env.source}.log"
     database = env.source_database

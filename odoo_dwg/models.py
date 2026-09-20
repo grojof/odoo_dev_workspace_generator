@@ -994,6 +994,17 @@ class MigrationEnv:
         return f"seed_{odoo_major(self.source)}"
 
     @property
+    def source_odoo_bin(self) -> Path:
+        """The ``odoo-bin`` a demo seed runs, from the plain Odoo clone.
+
+        Not ``odoo_bin(self.source)``: that answers for a migration *step*, and
+        for a <= 13 step it names the OpenUpgrade fork. There is no OpenUpgrade
+        12.0 at all, so the seed's precondition failed on a path that could never
+        exist — while the clone it needed was right there.
+        """
+        return self.odoo_clone_dir(self.source) / "odoo-bin"
+
+    @property
     def source_addons_path(self) -> str:
         """``addons_path`` for the **source** version, which is plain Odoo.
 

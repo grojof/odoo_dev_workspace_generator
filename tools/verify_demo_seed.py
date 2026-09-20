@@ -73,7 +73,11 @@ def _build(
            if failing_module else "")
         + "exit 0",
     )
-    odoo_bin = Path(env.odoo_bin(SOURCE))
+    # The *plain* clone, which is what a seed runs. Building this fixture from
+    # `env.odoo_bin(SOURCE)` made the stub agree with the product's own wrong
+    # assumption — it created `openupgrade-12.0/odoo-bin`, a path that cannot
+    # exist, and the precondition passed here while failing on a real host.
+    odoo_bin = Path(env.source_odoo_bin)
     odoo_bin.parent.mkdir(parents=True, exist_ok=True)
     odoo_bin.write_text("", encoding="utf-8")
     Path(env.logs_dir).mkdir(parents=True, exist_ok=True)
@@ -196,6 +200,11 @@ def main() -> int:
         script, env, stubs = _build(root)
         (env.venv_dir(SOURCE) / "bin" / "python").unlink()
         result, _ = _run(root, script, stubs)
+        check(
+            "the seed never looks for an OpenUpgrade checkout of the source",
+            "openupgrade-" + SOURCE not in script.read_text(encoding="utf-8"),
+            "the seed names a checkout that does not exist for the source version",
+        )
         check(
             "no source venv stops the seed with what to do",
             result.returncode != 0 and "generate the environment first" in result.stderr,
