@@ -491,7 +491,8 @@ def test_every_migration_action_previews_before_it_applies(base, monkeypatch, ac
                         lambda _c: seen.__setitem__("preview", seen["preview"] + 1))
     monkeypatch.setattr(migration, "apply_commands",
                         lambda _c: seen.__setitem__("apply", seen["apply"] + 1))
-    monkeypatch.setattr(migration, "_ask_env", lambda: MigrationEnv(source="16.0", target="18.0"))
+    monkeypatch.setattr(migration, "_ask_env",
+                        lambda **_k: MigrationEnv(source="16.0", target="18.0"))
     monkeypatch.setattr(migration, "_choose_step_interpreters", lambda _e: True)
     monkeypatch.setattr(migration.preflight, "gather_host_facts", lambda *a, **k: None)
     monkeypatch.setattr(migration.preflight, "preflight_rows", lambda *a, **k: [])

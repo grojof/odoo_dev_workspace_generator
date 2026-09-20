@@ -369,3 +369,46 @@ def test_a_checkpoint_that_cannot_be_written_stops_the_chain():
     assert body.index("die ") < body.index('echo "[checkpoint] $1"')
     # Not `a && b || c`, which would also fire on a failing echo (shellcheck SC2015).
     assert "&&" not in body
+
+
+def test_a_migration_environment_can_resolve_oca_from_its_own_version_branch():
+    """`addons/odoo<major>/oca` was created empty for the operator to fill by
+    hand, so whether a module is ported to a step's version — a fact the branch
+    states — was answered by whoever last copied something in."""
+    env = MigrationEnv(source="12.0", target="13.0", oca_repos=["server-tools"])
+    env.validate()
+    commands = planners.plan_migration_oca(env)
+    joined = "\n".join(c.command for c in commands)
+
+    assert "https://github.com/OCA/server-tools.git" in joined
+    assert str(env.oca_clone_dir("server-tools", "13.0")) in joined
+    assert f"ln -sfnT {env.oca_clone_dir('server-tools', '13.0')} " in joined
+    assert str(env.oca_link_dir("server-tools", "13.0")) in joined
+    # An environment naming none plans none.
+    assert planners.plan_migration_oca(MigrationEnv(source="12.0", target="13.0")) == []
+
+
+def test_a_repository_oca_has_not_ported_is_named_and_not_fatal():
+    """A module OCA has not ported is a fact the operator needs, not a reason to
+    refuse to build the environment."""
+    env = MigrationEnv(source="12.0", target="13.0", oca_repos=["server-tools"])
+    clone = next(c.command for c in planners.plan_migration_oca(env) if "git clone" in c.command)
+    # The branch is asked for before it is cloned, and its absence is reported.
+    assert clone.startswith("if git ls-remote --exit-code --heads ")
+    assert clone.index("ls-remote") < clone.index("git clone")
+    assert "has no 13.0 branch" in clone
+    # Nothing else is masked: the clone itself is not `|| true`-ed.
+    assert "|| true" not in clone
+    # And no link is left pointing at a clone that is not there.
+    link = next(c.command for c in planners.plan_migration_oca(env) if "ln -sfnT" in c.command)
+    assert link.index("[ -d ") < link.index("ln -sfnT")
+
+
+def test_an_oca_repository_name_that_could_escape_the_cache_is_refused():
+    for repo in ("../evil", "a/b"):
+        try:
+            MigrationEnv(source="12.0", target="13.0", oca_repos=[repo]).validate()
+        except ValueError as error:
+            assert "OCA repository" in str(error)
+        else:
+            raise AssertionError(f"accepted {repo!r}")

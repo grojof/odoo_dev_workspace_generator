@@ -1008,12 +1008,53 @@ def _venv_python(env: MigrationEnv, version: str, read: Read) -> str | None:
     return choice.python if choice else None
 
 
+def plan_migration_oca(env: MigrationEnv, exists: Exists = _never) -> list[Command]:
+    """Clone each named OCA repository per chain version and link it into that
+    step's ``oca`` directory.
+
+    A repository OCA has not ported to a version is a fact the operator needs,
+    not a reason to refuse to build the environment: the branch is asked for
+    first, and its absence is reported while the step's directory stays empty.
+    Nothing else is masked — a clone that fails for any other reason still fails
+    the step.
+    """
+    commands: list[Command] = []
+    for repo in env.oca_repos:
+        url = f"{WorkspaceConfig.oca_url_base}/{repo}.git"
+        for version in env.chain():
+            dest = env.oca_clone_dir(repo, version)
+            link = env.oca_link_dir(repo, version)
+            if not exists(dest):
+                commands.append(
+                    Command(
+                        tf("Clone OCA {} ({}) into the shared cache", repo, version),
+                        f"if git ls-remote --exit-code --heads {shlex.quote(url)} "
+                        f"{shlex.quote(version)} >/dev/null 2>&1; then "
+                        f"{_clone_command(url, version, dest)}; "
+                        f"else echo {shlex.quote(f'OCA {repo} has no {version} branch — that step has no OCA source for it')}; "
+                        f"fi",
+                    )
+                )
+            commands.append(
+                Command(
+                    tf("Link OCA {} for Odoo {}", repo, version),
+                    f"mkdir -p {shlex.quote(str(link.parent))} && "
+                    # Only when the clone is there: an unported repository leaves
+                    # no link rather than one pointing at nothing.
+                    f"if [ -d {shlex.quote(str(dest))} ]; then "
+                    f"ln -sfnT {shlex.quote(str(dest))} {shlex.quote(str(link))}; fi",
+                )
+            )
+    return commands
+
+
 def plan_generate_migration(
     env: MigrationEnv, exists: Exists = _never, read: Read = _never_read, stamp: str = ""
 ) -> list[Command]:
     """Full migration-environment plan: clones + uv venvs + configs + driver."""
     return (
         plan_migration_clones(env, exists)
+        + plan_migration_oca(env, exists)
         + plan_migration_venvs(env, exists, read)
         # The same reader: a hand-tuned step config is kept as .bak-<stamp>.
         + plan_migration_configs(env, read, stamp)

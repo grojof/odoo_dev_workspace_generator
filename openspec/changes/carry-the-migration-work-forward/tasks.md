@@ -30,21 +30,21 @@
 
 ## 4. Decisions
 
-- [ ] 4.1 The file's shape: module, source → target, decision, reason, and the evidence it was made against.
+- [x] 4.1 The file's shape: module, source → target, decision, reason, and the evidence it was made against.
       Hand-editable, and the operator's to carry between clients.
-- [ ] 4.2 `preflight`: apply a decision to the module it names; report *undecided* as its own class; report
+- [x] 4.2 `preflight`: apply a decision to the module it names; report *undecided* as its own class; report
       a decision the sources have overtaken as **stale** and do not apply it.
-- [ ] 4.3 The workflow action that records one, from the coverage table the operator is already reading.
-- [ ] 4.4 Tests: applied, undecided, and stale — each against a fixture where the sources changed under the
+- [x] 4.3 The workflow action that records one, from the coverage table the operator is already reading.
+- [x] 4.4 Tests: applied, undecided, and stale — each against a fixture where the sources changed under the
       decision.
 
 ## 5. OCA repositories in a migration environment
 
-- [ ] 5.1 `MigrationEnv.oca_repos`, validated as the workspace surface validates them.
-- [ ] 5.2 Generation clones per version into the shared cache and links under `addons/odoo<major>/oca`,
+- [x] 5.1 `MigrationEnv.oca_repos`, validated as the workspace surface validates them.
+- [x] 5.2 Generation clones per version into the shared cache and links under `addons/odoo<major>/oca`,
       reusing the workspace planners rather than a second implementation.
-- [ ] 5.3 A repository with no branch for a version is reported for that step and does not fail generation.
-- [ ] 5.4 Tests, including the report for a version OCA has not ported.
+- [x] 5.3 A repository with no branch for a version is reported for that step and does not fail generation.
+- [x] 5.4 Tests, including the report for a version OCA has not ported.
 
 ## 6. Prove it end to end
 

@@ -809,6 +809,84 @@ class WorkspaceConfig:
         return cls.from_dict(data)
 
 
+@dataclass(frozen=True)
+class ModuleDecision:
+    """What was decided about a module no step can resolve, and what it was
+    decided against.
+
+    The fates of Odoo and OCA modules are *facts*, derived from that step's
+    checkout and ``apriori.py`` whenever they are asked. This records the one
+    thing no source states: what the operator decided to do about a module that
+    resolves nowhere and has no declared successor.
+
+    ``evidence`` is what was true when the decision was made. A decision is never
+    believed over the sources: when they now say otherwise — an OCA module since
+    ported, a successor OpenUpgrade now declares — it is reported as stale rather
+    than applied.
+    """
+
+    module: str
+    source: str
+    target: str
+    decision: str
+    reason: str = ""
+    evidence: dict = field(default_factory=dict)
+
+    def key(self) -> tuple[str, str, str]:
+        return (self.module, self.source, self.target)
+
+    def to_dict(self) -> dict:
+        return {
+            "module": self.module,
+            "source": self.source,
+            "target": self.target,
+            "decision": self.decision,
+            "reason": self.reason,
+            "evidence": dict(self.evidence),
+        }
+
+    @classmethod
+    def from_dict(cls, data: object) -> ModuleDecision | None:
+        """One decision, or None when the entry cannot be read. The file is the
+        operator's and is edited by hand, so a malformed entry is skipped rather
+        than allowed to end a preflight."""
+        if not isinstance(data, dict):
+            return None
+        needed = ("module", "source", "target", "decision")
+        if not all(isinstance(data.get(key), str) and data.get(key) for key in needed):
+            return None
+        evidence = data.get("evidence")
+        return cls(
+            module=data["module"],
+            source=data["source"],
+            target=data["target"],
+            decision=data["decision"],
+            reason=data.get("reason") if isinstance(data.get("reason"), str) else "",
+            evidence=evidence if isinstance(evidence, dict) else {},
+        )
+
+
+def decisions_from_json(text: str) -> list[ModuleDecision]:
+    """Read a decisions file. Anything unreadable yields none: the file is the
+    operator's record, carried between clients and edited by hand, and a typo in
+    it must not stop a preflight from running."""
+    try:
+        data = json.loads(text)
+    except (ValueError, TypeError):
+        return []
+    entries = data.get("decisions") if isinstance(data, dict) else data
+    if not isinstance(entries, list):
+        return []
+    read = (ModuleDecision.from_dict(entry) for entry in entries)
+    return [decision for decision in read if decision is not None]
+
+
+def decisions_to_json(decisions: list[ModuleDecision]) -> str:
+    return json.dumps(
+        {"decisions": [decision.to_dict() for decision in decisions]}, indent=2
+    ) + "\n"
+
+
 @dataclass
 class PromotedModules:
     """Where reviewed module code is kept, one directory per version.
@@ -872,6 +950,11 @@ class MigrationEnv:
     # step uses the matrix's recommendation. An override exists so a migration
     # can be rehearsed on the exact Python a client runs.
     interpreter_overrides: dict[str, str] = field(default_factory=dict)
+    # OCA repositories this chain resolves modules from, cloned per version
+    # like the workspace surface does. Without them `addons/odoo<major>/oca` is
+    # filled by hand, and whether a module is ported to a step's version — a
+    # fact the branch states — is answered by whoever last copied something in.
+    oca_repos: list[str] = field(default_factory=list)
 
     # --- derived ----------------------------------------------------------
 
@@ -993,6 +1076,16 @@ class MigrationEnv:
     def addons_oca_dir(self, version: str) -> Path:
         return self.root / "addons" / f"odoo{odoo_major(version)}" / "oca"
 
+    def oca_clone_dir(self, repo: str, version: str) -> Path:
+        """The shared cache entry for one OCA repository at one version. Shared
+        with every environment under the same base, like the Odoo clones."""
+        return self.repos_dir / "oca" / f"{repo}-{version}"
+
+    def oca_link_dir(self, repo: str, version: str) -> Path:
+        """Where that checkout is linked inside the step's `oca` directory, so the
+        step's ``addons_path`` names a stable in-environment path."""
+        return self.addons_oca_dir(version) / repo
+
     def addons_path(self, version: str) -> str:
         """Operator code first (custom → OCA — first match wins in Odoo's module
         lookup), then the OpenUpgrade checkout, then core.
@@ -1075,5 +1168,14 @@ class MigrationEnv:
         if port_error:
             errors.append(port_error)
         errors += [e for e in (python_version_error(p) for p in self.interpreter_overrides.values()) if e]
+        if not isinstance(self.oca_repos, list):
+            errors.append(tf("oca_repos must be a list of OCA repository names."))
+        else:
+            bad = [
+                repo for repo in self.oca_repos
+                if not (isinstance(repo, str) and OCA_REPO_RE.fullmatch(repo) and ".." not in repo)
+            ]
+            if bad:
+                errors.append(tf("Invalid OCA repository name(s): {}.", ", ".join(map(str, bad))))
         if errors:
             raise ValueError(" ".join(errors))

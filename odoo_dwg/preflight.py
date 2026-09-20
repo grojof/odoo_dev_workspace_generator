@@ -25,7 +25,7 @@ from pathlib import Path
 
 from . import system
 from .i18n import tf
-from .models import DEFAULT_DB_ROLE, MigrationEnv, odoo_major
+from .models import DEFAULT_DB_ROLE, MigrationEnv, ModuleDecision, odoo_major
 
 Exists = Callable[[Path], bool]
 
@@ -65,6 +65,12 @@ class Coverage:
     warnings: dict[str, list[str]] = field(default_factory=dict)
     # Modules resolved from the operator's own per-version custom directory.
     customs: set[str] = field(default_factory=set)
+    # ``{version: [(module, decision, reason)]}`` — a module with no successor
+    # that a recorded decision accounts for. Not blocking: it was answered.
+    decided: dict[str, list[tuple[str, str, str]]] = field(default_factory=dict)
+    # ``{version: [(module, decision, why it no longer holds)]}`` — a decision
+    # the sources have overtaken. Reported, never applied.
+    stale: dict[str, list[tuple[str, str, str]]] = field(default_factory=dict)
     # ``[version]`` — steps whose sources are not on disk at all. Classifying a
     # module against nothing would report every one of them as missing, `base`
     # among them, and send the operator looking for code that is not the problem.
@@ -237,6 +243,7 @@ def gather_coverage(
     modules: list[str],
     exists: Exists = Path.exists,
     authors: dict[str, str] | None = None,
+    decisions: list[ModuleDecision] | None = None,
 ) -> Coverage:
     """Per **native** step, work out which installed modules that step cannot
     resolve, and split them by who has to do something about it.
@@ -260,12 +267,30 @@ def gather_coverage(
         renames = read_apriori(apriori_path(env, version))
         blocking: list[str] = []
         warnings: list[str] = []
+        decided: list[tuple[str, str, str]] = []
+        stale: list[tuple[str, str, str]] = []
+        recorded = {d.module: d for d in (decisions or [])
+                    if d.source == env.source and d.target == env.target}
         for module in modules:
             found = next((src for src in sources if exists(src / module)), None)
+            # One hop through what OpenUpgrade declares.
+            successor = renames.get(module)
+            resolved_successor = bool(
+                successor and any(exists(src / successor) for src in sources)
+            )
+            answer = recorded.get(module)
+            if answer is not None:
+                # A decision is never believed over the sources. It was made about
+                # a module that resolved nowhere and had no successor; if either
+                # is no longer true, say what changed instead of applying it.
+                overtaken = _overtaken(answer, found is not None, successor, resolved_successor)
+                if overtaken:
+                    stale.append((module, answer.decision, overtaken))
+                elif found is None and not resolved_successor:
+                    decided.append((module, answer.decision, answer.reason))
+                    continue
             if found is None:
-                # One hop through what OpenUpgrade declares, then give up.
-                successor = renames.get(module)
-                if successor and any(exists(src / successor) for src in sources):
+                if resolved_successor:
                     continue
                 if is_odoo_authored(authors.get(module)):
                     warnings.append(module)
@@ -277,7 +302,22 @@ def gather_coverage(
             coverage.blocking[version] = blocking
         if warnings:
             coverage.warnings[version] = warnings
+        if decided:
+            coverage.decided[version] = decided
+        if stale:
+            coverage.stale[version] = stale
     return coverage
+
+
+def _overtaken(
+    answer: ModuleDecision, resolves: bool, successor: str | None, successor_resolves: bool
+) -> str:
+    """Why a recorded decision no longer holds, or "" when it still does."""
+    if resolves:
+        return tf("the module now resolves in this step's sources")
+    if successor_resolves:
+        return tf("OpenUpgrade now declares {} as its successor", successor)
+    return ""
 
 
 def _same_major(base_version: str, declared_source: str) -> bool:
@@ -365,6 +405,18 @@ def preflight_rows(
         listing = ", ".join(missing_modules[:8]) + ("…" if len(missing_modules) > 8 else "")
         rows.append(("MISSING", tf("Coverage ({})", version),
                      tf("{} — place each module's {} branch in {}", listing, version, target)))
+
+    for version, entries in sorted((coverage.decided if coverage else {}).items()):
+        for module, decision, reason in entries:
+            rows.append(("INFO", tf("Decided ({})", version),
+                         tf("{}: {}{}", module, decision, f" — {reason}" if reason else "")))
+
+    # A decision the sources have overtaken is reported, never applied: the
+    # module is classified as if it had none, and this row says why.
+    for version, entries in sorted((coverage.stale if coverage else {}).items()):
+        for module, decision, why in entries:
+            rows.append(("WARN", tf("Decision no longer holds ({})", version),
+                         tf("{} was decided {} — {}", module, decision, why)))
 
     # Odoo's own modules, dropped upstream: named, but never a reason to refuse —
     # the upgrade uninstalls them and there is nothing for the operator to supply.

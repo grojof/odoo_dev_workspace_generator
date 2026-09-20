@@ -122,6 +122,19 @@ _ES: dict[str, str] = {
     # staging
     "Stage custom modules": "Preparar módulos custom (staging)",
     "Promote reviewed modules": "Promover módulos revisados",
+    "Decided ({})": "Decidido ({})",
+    "OCA repositories this chain needs (comma-separated, optional)":
+        "Repositorios de OCA que necesita esta cadena (separados por comas, opcional)",
+    "Invalid OCA repository name(s): {}.": "Nombre(s) de repositorio OCA no válido(s): {}.",
+    "OpenUpgrade now declares {} as its successor":
+        "OpenUpgrade ahora declara {} como su sucesor",
+    "{}: {}{}": "{}: {}{}",
+    "Decision no longer holds ({})": "La decisión ya no se sostiene ({})",
+    "{} was decided {} — {}": "{} se decidió como {} — {}",
+    "File recording what you decided about modules with no successor (empty to skip)":
+        "Fichero con lo que decidiste sobre módulos sin sucesor (vacío para omitir)",
+    "the module now resolves in this step's sources":
+        "el módulo ahora se resuelve en las fuentes de este paso",
     "A location for reviewed modules is required.":
         "Hace falta una ubicación para los módulos revisados.",
     "{} is inside the migration environments ({}), which cleaning deletes. "

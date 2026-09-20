@@ -21,7 +21,9 @@ from ..models import (
     MODULE_NAME_RE,
     Command,
     MigrationEnv,
+    ModuleDecision,
     PromotedModules,
+    decisions_from_json,
     interpreter_from_pyvenv,
 )
 from ..planners import write_text_file_command
@@ -49,10 +51,17 @@ def _stamp() -> str:
     return datetime.now().strftime("%Y%m%d-%H%M%S-%f")
 
 
-def _ask_env() -> MigrationEnv | None:
+def _ask_env(with_oca: bool = False) -> MigrationEnv | None:
     source = ask_text("Source Odoo version (e.g. 13.0)", required=True)
     target = ask_text("Target Odoo version (e.g. 18.0)", required=True)
-    env = MigrationEnv(source=source, target=target)
+    # Only where they are acted on: generation clones and links them, and every
+    # other action reads what generation already put on disk.
+    raw_oca = (
+        ask_text("OCA repositories this chain needs (comma-separated, optional)", "")
+        if with_oca else ""
+    )
+    oca = [repo.strip() for repo in raw_oca.split(",") if repo.strip()]
+    env = MigrationEnv(source=source, target=target, oca_repos=oca)
     try:
         env.validate()
     except ValueError as error:
@@ -124,7 +133,7 @@ def _print_preflight(rows: list[tuple[str, str, str]]) -> None:
 
 
 def _generate_environment() -> None:
-    env = _ask_env()
+    env = _ask_env(with_oca=True)
     if env is None:
         return
 
@@ -154,6 +163,16 @@ def _generate_environment() -> None:
         print(level_text("OK", tf("Environment ready. Run: bash {}/run_migration.sh <source-dump>", env.root)))
 
 
+def _read_decisions(path: Path) -> list[ModuleDecision]:
+    """The operator's record of what was decided about modules with no successor.
+
+    Absent or unreadable yields none: it is a hand-edited file carried between
+    clients, and a typo in it must not stop a preflight from running.
+    """
+    text = _read_text(path)
+    return decisions_from_json(text) if text else []
+
+
 def _preflight_check() -> None:
     env = _ask_env()
     if env is None:
@@ -163,6 +182,13 @@ def _preflight_check() -> None:
     if db and not DB_NAME_RE.fullmatch(db):
         print(level_text("ERROR", tf("Invalid database name: {}", db)))
         return
+    # Asked after the name is validated: a value the flow refuses should not cost
+    # the operator another question first.
+    raw_decisions = ask_text(
+        "File recording what you decided about modules with no successor (empty to skip)",
+        "", required=False,
+    )
+    decisions_path = Path(raw_decisions).expanduser() if raw_decisions.strip() else None
 
     host = preflight.gather_host_facts(env, dump or None)
     db_facts = preflight.gather_db_facts(env, db) if db else None
@@ -170,7 +196,8 @@ def _preflight_check() -> None:
     customs: set[str] | None = None
     if db_facts is not None and db_facts.installed_modules:
         coverage = preflight.gather_coverage(
-            env, db_facts.installed_modules, authors=db_facts.module_authors
+            env, db_facts.installed_modules, authors=db_facts.module_authors,
+            decisions=_read_decisions(decisions_path) if decisions_path else [],
         )
         customs = coverage.customs
 

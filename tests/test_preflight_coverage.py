@@ -282,3 +282,61 @@ def test_a_missing_apriori_is_not_remembered(tmp_path):
     assert preflight.read_apriori(path) == {}
     path.write_text("renamed_modules = {'old': 'new'}\nmerged_modules = {}\n")
     assert preflight.read_apriori(path) == {"old": "new"}
+
+
+# --- decisions about modules with no successor --------------------------------
+
+
+def _decided(tmp_path, monkeypatch, modules, also_on_disk=()):
+    """Coverage for a 12 → 13 chain with one recorded decision, against sources
+    the caller controls."""
+    from odoo_dwg.models import MigrationEnv, ModuleDecision
+
+    monkeypatch.setattr(MigrationEnv, "base_dir", str(tmp_path))
+    env = MigrationEnv(source="12.0", target="13.0")
+    sources = env.coverage_dirs("13.0")[0]
+    sources.mkdir(parents=True, exist_ok=True)
+    for name in also_on_disk:
+        (sources / name).mkdir(exist_ok=True)
+    decision = ModuleDecision(
+        module="gone", source="12.0", target="13.0",
+        decision="dropped", reason="the client does not use it",
+    )
+    return preflight.gather_coverage(env, modules, authors={}, decisions=[decision])
+
+
+def test_a_decision_answers_a_module_with_no_successor(tmp_path, monkeypatch):
+    """The same answer serves the next client: a module dropped with no successor
+    between two versions is dropped for everyone migrating between them."""
+    coverage = _decided(tmp_path, monkeypatch, ["gone"])
+    assert coverage.decided == {"13.0": [("gone", "dropped", "the client does not use it")]}
+    assert coverage.blocking == {} and coverage.stale == {}
+
+
+def test_a_decision_the_sources_have_overtaken_is_reported_not_applied(tmp_path, monkeypatch):
+    """A decision is never believed over the sources — an OCA module recorded as
+    dead that has since been ported would otherwise keep a client on a
+    workaround they no longer need."""
+    coverage = _decided(tmp_path, monkeypatch, ["gone"], also_on_disk=["gone"])
+    assert coverage.decided == {}
+    module, decision, why = coverage.stale["13.0"][0]
+    assert (module, decision) == ("gone", "dropped")
+    assert "now resolves" in why
+
+
+def test_a_module_with_no_decision_is_still_reported(tmp_path, monkeypatch):
+    coverage = _decided(tmp_path, monkeypatch, ["other"])
+    assert coverage.blocking == {"13.0": ["other"]}
+    assert coverage.decided == {} and coverage.stale == {}
+
+
+def test_a_hand_edited_decisions_file_cannot_stop_a_preflight():
+    """It is the operator's record, carried between clients and edited by hand."""
+    from odoo_dwg.models import ModuleDecision, decisions_from_json, decisions_to_json
+
+    assert decisions_from_json("not json at all") == []
+    assert decisions_from_json('{"decisions": [{"module": 1}]}') == []
+    assert decisions_from_json('{"decisions": "nope"}') == []
+    one = ModuleDecision(module="m", source="12.0", target="18.0", decision="dropped",
+                         reason="why", evidence={"resolved": False})
+    assert decisions_from_json(decisions_to_json([one])) == [one]
