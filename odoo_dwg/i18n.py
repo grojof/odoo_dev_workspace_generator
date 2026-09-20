@@ -121,6 +121,30 @@ _ES: dict[str, str] = {
     "Preflight passed.": "Preflight superado.",
     # staging
     "Stage custom modules": "Preparar módulos custom (staging)",
+    "Promote reviewed modules": "Promover módulos revisados",
+    "A location for reviewed modules is required.":
+        "Hace falta una ubicación para los módulos revisados.",
+    "{} is inside the migration environments ({}), which cleaning deletes. "
+    "Choose a location outside it.":
+        "{} está dentro de los entornos de migración ({}), que la limpieza borra. Elige una ubicación fuera.",
+    "Promote {} {} to {}": "Promover {} {} a {}",
+    "Take {} stage {} from the promoted copy":
+        "Tomar {} en el paso {} de la copia promovida",
+    "Directory holding your reviewed modules, one subdirectory per version (empty = none)":
+        "Directorio con tus módulos revisados, un subdirectorio por versión (vacío = ninguno)",
+    "Which module": "¿Qué módulo?",
+    "No staged modules in this environment.": "No hay módulos preparados en este entorno.",
+    "Environment vs promoted": "Entorno vs promovido",
+    "This replaces the promoted code of {} for: {}.":
+        "Esto reemplaza el código promovido de {} para: {}.",
+    "Promoted {} for: {}.": "Promovido {} para: {}.",
+    "The promoted copy is yours: commit it on the branch for that version if you keep it in git. "
+    "The throwaway repository inside each stage directory is not that history.":
+        "La copia promovida es tuya: haz commit en la rama de esa versión si la llevas en git. El repositorio desechable que hay dentro de cada directorio de preparación no es ese histórico.",
+    "same": "igual",
+    "diverged": "divergen",
+    "not promoted": "sin promover",
+    "only promoted": "solo promovido",
     "The staging tool (odoo-module-migrator) is not installed. This plan installs it:":
         "La herramienta de staging (odoo-module-migrator) no está instalada. Este plan la instala:",
     "Directory containing your custom modules (at the source version)":

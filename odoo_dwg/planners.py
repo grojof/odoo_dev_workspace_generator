@@ -22,6 +22,7 @@ from .models import (
     Command,
     InterpreterChoice,
     MigrationEnv,
+    PromotedModules,
     WorkspaceConfig,
     interpreter_from_pyvenv,
     odoo_major,
@@ -1041,12 +1042,58 @@ def plan_staging_tool(env: MigrationEnv) -> list[Command]:
     ]
 
 
-def plan_stage_module(env: MigrationEnv, module: str, source_dir: Path) -> list[Command]:
+def plan_promote_module(
+    env: MigrationEnv,
+    module: str,
+    versions: list[str],
+    into: PromotedModules,
+) -> list[Command]:
+    """Copy a module's reviewed code, for each named step, to the durable location.
+
+    Copy and not move: the environment stays runnable after a promotion, and a
+    promotion is not a point of no return — the durable copy can be discarded and
+    made again. The cost is that the two can drift, which the staging report
+    names rather than prevents; preventing it would mean locking the copy the
+    operator actually works in.
+
+    The staged directory carries the throwaway git repository the migrator needs;
+    it is not copied, because the durable location's history is the operator's.
+    """
+    commands: list[Command] = []
+    for version in versions:
+        source = env.addons_custom_dir(version) / module
+        target = into.module_dir(version, module)
+        parent = into.version_dir(version)
+        commands.append(
+            Command(
+                tf("Promote {} {} to {}", module, version, str(target)),
+                f"mkdir -p {shlex.quote(str(parent))} && "
+                f"rm -rf {shlex.quote(str(target))} && "
+                f"cp -a {shlex.quote(str(source))} {shlex.quote(str(parent))}/ && "
+                f"rm -rf {shlex.quote(str(target / '.git'))}",
+            )
+        )
+    return commands
+
+
+def plan_stage_module(
+    env: MigrationEnv,
+    module: str,
+    source_dir: Path,
+    promoted: PromotedModules | None = None,
+    exists: Exists = _never,
+) -> list[Command]:
     """Stage one custom module stepwise: the operator's source copy feeds the
     first step, each later step consumes the previous step's staged output, and
     `odoo-module-migrate` applies exactly that bump in place. The operator's
     source directory is never modified. Existing staged targets are replaced —
-    the workflow gates that behind an exact-phrase confirmation."""
+    the workflow gates that behind an exact-phrase confirmation.
+
+    A step whose code has been **promoted** takes it from there instead, and runs
+    no migrator: that code is already at that version and has been reviewed. This
+    is what makes a final run apply proven work rather than derive it a second
+    time. A chain with nothing promoted plans exactly what it always did.
+    """
     migrate_bin = env.staging_tool_venv / "bin" / "odoo-module-migrate"
     commands: list[Command] = [
         Command(
@@ -1063,6 +1110,21 @@ def plan_stage_module(env: MigrationEnv, module: str, source_dir: Path) -> list[
         target_parent = env.addons_custom_dir(version)
         target = target_parent / module
         log = env.staging_log_file(module, version)
+        kept = promoted.module_dir(version, module) if promoted else None
+        if kept is not None and exists(kept):
+            # Reviewed code for this step: copy it in and derive nothing. The
+            # report says so, because a step that was not derived is a step whose
+            # warnings this run will not show.
+            commands.append(
+                Command(
+                    tf("Take {} stage {} from the promoted copy", module, version),
+                    f"rm -rf {shlex.quote(str(target))} && "
+                    f"cp -a {shlex.quote(str(kept))} {shlex.quote(str(target_parent))}/",
+                )
+            )
+            previous = target
+            previous_version = version
+            continue
         commands += [
             Command(
                 tf("Copy {} stage {} from the {} stage", module, version, previous_version),

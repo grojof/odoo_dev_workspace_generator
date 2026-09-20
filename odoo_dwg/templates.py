@@ -574,7 +574,11 @@ def render_migration_scaffold(module: str, version: str, findings: list) -> str:
     return "\n".join(lines) + "\n"
 
 
-def render_staging_report(module: str, steps: list[tuple[str, str, list, str | None]]) -> str:
+def render_staging_report(
+    module: str,
+    steps: list[tuple[str, str, list, str | None]],
+    promoted: list[tuple[str, str]] | None = None,
+) -> str:
     """The per-module staging report the developer works through. ``steps`` is
     ``(version, tool_log_text, findings, scaffold_path_or_None)`` per step; the
     tool's log is carried verbatim. States the boundary: staging is a prepared
@@ -616,6 +620,18 @@ def render_staging_report(module: str, steps: list[tuple[str, str, list, str | N
             lines += ["### Candidate findings", "None detected.", ""]
         if scaffold:
             lines += [f"Scaffold written: `{scaffold}` — review and complete it.", ""]
+    if promoted:
+        lines += [
+            "## Promoted copy",
+            "",
+            "Your reviewed code lives outside this environment; this environment's copy is a working",
+            "copy of it. Neither is authoritative — where they differ, you decide which is right.",
+            "",
+            "| Step | Environment vs promoted |",
+            "| --- | --- |",
+        ]
+        lines += [f"| {version} | {state} |" for version, state in promoted]
+        lines.append("")
     return "\n".join(lines) + "\n"
 
 

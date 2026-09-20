@@ -810,6 +810,47 @@ class WorkspaceConfig:
 
 
 @dataclass
+class PromotedModules:
+    """Where reviewed module code is kept, one directory per version.
+
+    A migration is rehearsed several times and run once, and the corrections a
+    rehearsal produces live in the environment's ``addons/odoo<major>/custom`` —
+    which cleaning removes and re-staging replaces. This is the operator's own
+    place for the ones they have reviewed, deliberately outside every migration
+    environment so no action of this tool can reach it.
+
+    It is plain directories. A git repository over them, a branch per version, is
+    what the documentation recommends and what makes ``git diff 13.0..14.0`` the
+    answer to "what did that hop change" — but nothing here requires one.
+    """
+
+    base_dir: str
+
+    def version_dir(self, version: str) -> Path:
+        return Path(self.base_dir).expanduser() / version
+
+    def module_dir(self, version: str, module: str) -> Path:
+        return self.version_dir(version) / module
+
+    def validate(self) -> None:
+        """Refuse a location this tool's own actions could delete."""
+        errors: list[str] = []
+        if not str(self.base_dir).strip():
+            errors.append(tf("A location for reviewed modules is required."))
+        else:
+            base = Path(self.base_dir).expanduser()
+            environments = Path(MigrationEnv.base_dir).expanduser()
+            if base == environments or environments in base.parents:
+                errors.append(tf(
+                    "{} is inside the migration environments ({}), which cleaning deletes. "
+                    "Choose a location outside it.",
+                    str(base), str(environments),
+                ))
+        if errors:
+            raise ValueError(" ".join(errors))
+
+
+@dataclass
 class MigrationEnv:
     """An OpenUpgrade migration environment for a ``source`` → ``target`` chain."""
 

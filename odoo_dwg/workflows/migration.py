@@ -21,6 +21,7 @@ from ..models import (
     MODULE_NAME_RE,
     Command,
     MigrationEnv,
+    PromotedModules,
     interpreter_from_pyvenv,
 )
 from ..planners import write_text_file_command
@@ -183,6 +184,85 @@ def _preflight_check() -> None:
         print(level_text("OK", t("Preflight passed.")))
 
 
+def _ask_promoted(required: bool) -> PromotedModules | None:
+    """The operator's own place for reviewed code, one directory per version.
+
+    Empty means "not using one": staging then derives every step, as it always
+    did. A location inside the migration environments is refused, since cleaning
+    one would take the only copy of the work with it.
+    """
+    raw = ask_text(
+        "Directory holding your reviewed modules, one subdirectory per version "
+        "(empty = none)",
+        "",
+        required=required,
+    )
+    if not raw.strip():
+        return None
+    promoted = PromotedModules(base_dir=raw.strip())
+    try:
+        promoted.validate()
+    except ValueError as error:
+        print(level_text("ERROR", str(error)))
+        return None
+    return promoted
+
+
+def _promote_modules() -> None:
+    """Copy reviewed module code out of an environment, so the next run can take
+    it as given instead of deriving it again."""
+    env = _ask_env()
+    if env is None:
+        return
+    promoted = _ask_promoted(required=True)
+    if promoted is None:
+        return
+    staged = sorted({
+        path.name
+        for version in env.chain()
+        for path in _existing_dirs(env.addons_custom_dir(version))
+    })
+    if not staged:
+        print(level_text("INFO", t("No staged modules in this environment.")))
+        return
+    module = choose("Which module", staged + ["Cancel"], default_index=None)
+    if module in ("", "Cancel"):
+        return
+    versions = [v for v in env.chain() if (env.addons_custom_dir(v) / module).is_dir()]
+
+    rows = preflight.divergence(env, module, promoted, versions)
+    if rows:
+        print(render_table(
+            [t("Step"), t("Environment vs promoted")], [[v, t(state)] for v, state in rows]
+        ))
+    already = [v for v, state in rows if state in ("same", "diverged")]
+    if already and not confirm_with_phrase(
+        tf("This replaces the promoted code of {} for: {}.", module, ", ".join(already)),
+        "PROMOTE",
+    ):
+        print(level_text("INFO", t("Cancelled.")))
+        return
+
+    commands = planners.plan_promote_module(env, module, versions, promoted)
+    preview_commands(commands)
+    if not ask_bool("Apply this plan now?", False):
+        print(level_text("INFO", t("Cancelled.")))
+        return
+    apply_commands(commands)
+    print(level_text("OK", tf("Promoted {} for: {}.", module, ", ".join(versions))))
+    print(level_text("INFO", t(
+        "The promoted copy is yours: commit it on the branch for that version if you keep it in git. "
+        "The throwaway repository inside each stage directory is not that history."
+    )))
+
+
+def _existing_dirs(parent: Path):
+    try:
+        return [path for path in parent.iterdir() if path.is_dir()]
+    except OSError:
+        return []
+
+
 def _clean_environment() -> None:
     base = Path(MigrationEnv.base_dir).expanduser()
     environments = [name for name in list_dirs(str(base)) if "-to-" in name]
@@ -283,6 +363,7 @@ def _stage_modules() -> None:
     if not _ensure_staging_tool(env):
         return
 
+    promoted = _ask_promoted(required=False)
     source_dir = Path(ask_text("Directory containing your custom modules (at the source version)", required=True)).expanduser()
     if not source_dir.is_dir():
         print(level_text("ERROR", tf("Not a directory: {}", str(source_dir))))
@@ -315,7 +396,9 @@ def _stage_modules() -> None:
 
     commands = []
     for module in modules:
-        commands += planners.plan_stage_module(env, module, source_dir)
+        commands += planners.plan_stage_module(
+            env, module, source_dir, promoted=promoted, exists=_exists
+        )
     preview_commands(commands)
     if not ask_bool("Apply this plan now?", False):
         return
@@ -356,8 +439,10 @@ def _stage_modules() -> None:
                     target, templates.render_migration_scaffold(module, version, findings)
                 )
             steps.append((version, log_text, findings, scaffold_path))
+        drift = preflight.divergence(env, module, promoted, list(env.chain())) if promoted else []
         write_commands += write_text_file_command(
-            env.staging_report_file(module), templates.render_staging_report(module, steps)
+            env.staging_report_file(module),
+            templates.render_staging_report(module, steps, promoted=drift),
         )
     preview_commands(write_commands)
     if ask_bool("Apply this plan now?", False):
@@ -375,6 +460,7 @@ def migration_menu() -> None:
                 "Generate a migration environment",
                 "Preflight check",
                 "Stage custom modules",
+                "Promote reviewed modules",
                 "Clean a migration environment",
                 "Redirect a database's mail to Mailpit",
                 "Back",
@@ -389,6 +475,8 @@ def migration_menu() -> None:
             _preflight_check()
         elif action == "Stage custom modules":
             _stage_modules()
+        elif action == "Promote reviewed modules":
+            _promote_modules()
         elif action == "Clean a migration environment":
             _clean_environment()
         elif action == "Redirect a database's mail to Mailpit":

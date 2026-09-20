@@ -18,6 +18,7 @@ pattern. The same implementation backs the menu action, the generate flow, and
 from __future__ import annotations
 
 import ast
+import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -177,6 +178,52 @@ def read_apriori(path: Path) -> dict[str, str]:
 def apriori_path(env: MigrationEnv, version: str) -> Path:
     """Where a step's OpenUpgrade checkout declares its module renames/merges."""
     return env.apriori_file(version)
+
+
+def tree_digest(root: Path) -> str | None:
+    """A content digest of a module directory, or None when it is not there.
+
+    Content and not timestamps: a ``cp -a`` and a ``git checkout`` both preserve
+    times that say nothing about what the files hold. The throwaway git
+    repository staging leaves inside a stage directory is skipped — it is the
+    migrator's scaffolding, not the module.
+    """
+    if not root.is_dir():
+        return None
+    digest = hashlib.sha256()
+    for path in sorted(root.rglob("*")):
+        if ".git" in path.relative_to(root).parts:
+            continue
+        digest.update(str(path.relative_to(root)).encode("utf-8"))
+        if path.is_file():
+            try:
+                digest.update(path.read_bytes())
+            except OSError:
+                digest.update(b"<unreadable>")
+    return digest.hexdigest()
+
+
+def divergence(env: MigrationEnv, module: str, promoted, versions: list[str]) -> list[tuple[str, str]]:
+    """``(version, state)`` per step: how the environment's copy of a module and
+    its promoted copy relate.
+
+    Promotion copies, so the two drift as soon as work continues in either. This
+    names the drift; it does not resolve it, and neither copy is authoritative —
+    the operator decides which one is right.
+    """
+    rows: list[tuple[str, str]] = []
+    for version in versions:
+        staged = tree_digest(env.addons_custom_dir(version) / module)
+        kept = tree_digest(promoted.module_dir(version, module))
+        if staged is None and kept is None:
+            continue
+        if kept is None:
+            rows.append((version, "not promoted"))
+        elif staged is None:
+            rows.append((version, "only promoted"))
+        else:
+            rows.append((version, "same" if staged == kept else "diverged"))
+    return rows
 
 
 def coverage_sources(env: MigrationEnv, version: str) -> list[Path]:

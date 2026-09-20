@@ -500,7 +500,8 @@ def test_every_migration_action_previews_before_it_applies(base, monkeypatch, ac
         source = base / "src" / "client_sales"
         source.mkdir(parents=True)
         (source / "__manifest__.py").write_text("{}")
-        answers = iter([str(base / "src"), "client_sales"])
+        # The promoted location is asked for first, and declined.
+        answers = iter(["", str(base / "src"), "client_sales"])
         monkeypatch.setattr(migration, "ask_text", lambda *a, **k: next(answers))
         # Without this the flow stops at "the staging tool is not installed" and
         # previews *that* plan instead — a pass for the wrong reason.
