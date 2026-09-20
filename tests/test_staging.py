@@ -4,6 +4,8 @@ scaffold and report templates. Fixture format mirrors the real
 
 from __future__ import annotations
 
+import ast
+
 from odoo_dwg import analysis, planners, templates
 from odoo_dwg.analysis import AnalysisRecord, Finding
 from odoo_dwg.models import MigrationEnv
@@ -86,8 +88,20 @@ def test_scaffold_is_inert_and_lists_findings():
     text = templates.render_migration_scaffold("client_sales", "17.0", [finding])
     assert "REVIEW REQUIRED" in text
     assert "from openupgradelib import openupgrade" in text
-    assert "partner_share_token" in text and "views/view.xml:12" in text
+    assert "partner_share_token" in text and "'views/view.xml':12" in text
     assert "pass  # TODO" in text  # does nothing until completed
+
+
+def test_a_file_name_cannot_write_code_into_the_scaffold():
+    """The path comes from the operator's module tree, and OpenUpgrade *executes*
+    this file: a newline in a file name must not end the comment it sits in."""
+    evil = "models.py\nimport os; os.system('id')\n#x.py"
+    finding = Finding(evil, 4,
+                      AnalysisRecord("base", "res.partner", "removed_field", "old_field"))
+    text = templates.render_migration_scaffold("client_sales", "18.0", [finding])
+    statements = [type(node).__name__ for node in ast.parse(text).body]
+    assert statements == ["ImportFrom", "FunctionDef"]
+    assert "\\n" in text  # the newline is shown, escaped, not acted on
 
 
 def test_report_carries_tool_log_verbatim_and_states_the_boundary():
@@ -103,3 +117,23 @@ def test_report_carries_tool_log_verbatim_and_states_the_boundary():
     assert "`ir.cron` field `doall`" in report
     assert "Scaffold written" in report
     assert "## Step 17.0" in report and "None detected." in report
+
+
+def test_the_scan_still_reads_names_the_way_the_regexes_did():
+    """The scan looks names up now instead of searching for each one. The two
+    boundary rules it replaced: a field matches inside a dotted name, a model
+    only as a whole one."""
+    records = [
+        AnalysisRecord("base", "res.partner", "removed_field", "token"),
+        AnalysisRecord("base", "res.partner", "removed_model", "res.partner"),
+        # Dotted field names do not occur in real analysis files, but the rule
+        # they fall under is the same one, and a fuzz against the old regexes
+        # found this the only place the two readings could part.
+        AnalysisRecord("base", "res.partner", "removed_field", "partner.bank"),
+    ]
+    files = [("m.py", "x = res.partner.token\ny = res.partner.bank.iban\nz = 'tokens'\n")]
+    hits = {(f.record.name, f.line) for f in analysis.scan_source(files, records)}
+    assert ("token", 1) in hits              # inside a dotted name
+    assert ("res.partner", 1) not in hits    # not inside a longer one
+    assert ("partner.bank", 2) in hits       # a dotted field, still bounded
+    assert ("token", 3) not in hits          # `tokens` is another word

@@ -41,22 +41,37 @@ Two optional user-facing **sections** plus one **mode**:
 | Surface | What it does | Requires root? |
 |---|---|---|
 | **workspace** | Per-client workspaces: shared Odoo/OCA repo cache, per-instance venv, `addons-custom`/`addons-oca`, per-version `odoo.conf`, VSCode files, and a robust per-workspace README. | No (user's home) |
-| **provision** *(optional)* | Prepare *a Linux host*: build dependencies, PostgreSQL + role, wkhtmltopdf, and rtlcss for right-to-left languages (opt-in). Optionally, an [outbound firewall that denies by default and asks, plus local mail capture](docs/egress-control.md) (OpenSnitch + Mailpit). Targets Ubuntu 24.04, per the [support matrix](docs/support-matrix.md). | `apply` may |
+| **provision** *(optional — prepare the host yourself if you prefer, but a workspace needs PostgreSQL, the development role and wkhtmltopdf either way)* | Prepare *a Linux host*: build dependencies, PostgreSQL + role, wkhtmltopdf, and rtlcss for right-to-left languages (opt-in). Optionally, an [outbound firewall that denies by default and asks, plus local mail capture](docs/egress-control.md) (OpenSnitch + Mailpit). Targets Ubuntu 24.04, per the [support matrix](docs/support-matrix.md). | `apply` may |
 | **migration** *(mode)* | OpenUpgrade chained upgrade **12 → 19** (sequential, no skips): **preflight verification** (host, dump, database, addons coverage), per-version interpreters via `uv`, **custom-module staging** (OCA `odoo-module-migrator` + analysis findings + scaffolds), a checkpointing driver, and environment cleanup. | No |
 
 ## Install & first run
+
+It has no runtime dependencies, so a tool installer is the shortest route:
+
+```bash
+uv tool install git+https://github.com/grojof/odoo_dev_workspace_generator
+odoo-dwg                            # interactive menu (asks language on start)
+```
+
+(`pipx install git+https://…` works the same way.)
+
+Or from a clone, with nothing installed at all:
 
 ```bash
 git clone https://github.com/grojof/odoo_dev_workspace_generator
 cd odoo_dev_workspace_generator
 
-python3 -m odoo_dwg                 # interactive menu (asks language on start)
+python3 -m odoo_dwg                 # the same menu
 ```
+
+`odoo-dwg` and `python3 -m odoo_dwg` are the same entry point; the examples below use the second so
+they work in a clone too.
 
 Common invocations:
 
 ```bash
 python3 -m odoo_dwg workspace       # create/manage per-client workspaces
+python3 -m odoo_dwg -v provision    # --verbose: stream every command's output
 python3 -m odoo_dwg provision       # check first — read-only readiness table:
 #   State  Capability               Detail
 #   OK     PostgreSQL               installed and running
@@ -80,9 +95,11 @@ Every command, menu action, and confirmation phrase: [`docs/commands.md`](docs/c
 
 ## Supported versions
 
-- **Development:** Odoo **17.0 / 18.0 / 19.0** (first class).
+- **Development:** any version in the [support matrix](docs/support-matrix.md) (**12.0 – 19.0**); one
+  workspace may host several at once.
 - **Migration:** the full **12.0 → 19.0** OpenUpgrade chain (one step per version).
-- **Python floors** (official "Source install"): 12→3.5, 13→3.6, 14→3.7, 17→3.10, 18→3.10.
+- **Python, PostgreSQL and hosts per version:** the [support matrix](docs/support-matrix.md), with the official
+  source behind every bound.
 
 ## Design principles
 
@@ -101,6 +118,8 @@ By surface:
 - **Host setup** — [`docs/wsl-setup.md`](docs/wsl-setup.md) (Ubuntu 24.04 on WSL 2, from zero) ·
   [`docs/provisioning.md`](docs/provisioning.md) (host check/apply).
 - **Migration** — [`docs/migration.md`](docs/migration.md) (interpreters, preflight, staging, checkpointing driver).
+- **Host safety** — [`docs/egress-control.md`](docs/egress-control.md) (the outbound firewall that denies by
+  default and asks, the local mail capture, and redirecting a copied database's mail).
 - **Editor** — [`docs/editor-integration.md`](docs/editor-integration.md) (the official Odoo extension, what a
   workspace emits for it, and how to keep up with its releases).
 - **What is supported** — [`docs/support-matrix.md`](docs/support-matrix.md) (hosts, Python per Odoo version,

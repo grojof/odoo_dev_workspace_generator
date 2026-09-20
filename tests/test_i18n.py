@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from odoo_dwg import i18n
+from odoo_dwg import i18n, ui
 
 
 @pytest.fixture(autouse=True)
@@ -31,7 +31,7 @@ def test_missing_string_falls_back_to_english():
 def test_tf_translates_template_then_fills():
     i18n.set_language("es")
     # The English template is the catalog key, so interpolation still translates.
-    assert i18n.tf("Value out of range ({}-{}).", 1, 5) == "Valor fuera de rango (1-5)."
+    assert i18n.tf("Invalid PostgreSQL role: {}", "x;y") == "Rol PostgreSQL no válido: x;y"
 
 
 def test_set_language_normalizes_prefix():
@@ -49,7 +49,7 @@ from pathlib import Path  # noqa: E402
 PACKAGE = Path(__file__).resolve().parent.parent / "odoo_dwg"
 # Calls whose first argument is shown to the operator (translated at a chokepoint).
 _FIRST_ARG = {
-    "t", "tf", "ask_text", "ask_bool", "ask_int", "ask_port", "ask_secret",
+    "t", "tf", "ask_text", "ask_bool",
     "prompt_label", "title", "confirm_with_phrase", "choose", "Command",
 }
 
@@ -94,9 +94,51 @@ def test_every_ui_string_has_a_spanish_translation():
     literals = _ui_literals()
     assert len(literals) > 150  # the extractor still sees the UI
     missing = {text: where for text, where in literals.items() if text not in i18n._ES}
-    assert not missing, f"add these to i18n._ES_TO_EN: {missing}"
+    assert not missing, f"add these to i18n._ES: {missing}"
 
 
-def test_catalog_has_one_spanish_text_per_english_key():
-    english = list(i18n._ES_TO_EN.values())
-    assert len(english) == len(set(english))
+def test_the_catalog_is_authored_in_the_direction_it_is_read():
+    """English keys, Spanish values — the same direction `t()` looks up.
+
+    The catalog used to be written Spanish→English and inverted at import, which
+    silently merged any two English strings whose Spanish happened to match."""
+    for english, spanish in i18n._ES.items():
+        assert isinstance(english, str) and isinstance(spanish, str)
+    # No key appears twice (Python would have merged them), and the values are
+    # free to repeat — two English strings may legitimately share one Spanish.
+    assert len(i18n._ES) > 250
+    # A key is the literal the code passes to t()/tf(), so it must be English:
+    # nothing that is only in the Spanish half may be a key.
+    spanish_only = {"í", "ó", "¿", "¡", "ñ"}
+    # "Español" is the language's own name: the same word on both sides.
+    suspicious = [k for k in i18n._ES
+                  if k != "Español" and any(ch in k for ch in spanish_only)]
+    assert not suspicious, f"these keys look Spanish: {suspicious}"
+
+
+def test_a_table_cell_carries_colour_and_nothing_else():
+    """Module names and authors come from the database under migration, and land
+    in the preflight table: a cell must not be able to drive the terminal."""
+    cell = "evil\x1b[2J\x1b[1;31mFAKE OK\x1b[0m\x1b]0;title\x07\rmore\tand\x1b"
+    out = ui.render_table(["State", "Module"], [["MISSING", cell]])
+    for control in ("\x1b[2J", "\x1b]0;", "\r", "\t"):
+        assert control not in out, control
+    assert "\x1b[1;31m" in out and "\x1b[0m" in out       # colour survives
+    # Four borders and one row: the `\r` is removed rather than left to split the
+    # cell, which is what used to make this cell two rows tall.
+    assert out.count("\n") == 4
+
+    # Colour a cell opens and never closes would run past the border: `\x1b[8m`
+    # (conceal) from a module name hides every row printed after it.
+    opened = ui.render_table(["State", "Module"], [["MISSING", "sale\x1b[8m"], ["OK", "stock"]])
+    assert opened.rstrip().endswith("+")                  # the table ends in a border
+    assert "stock" in ui.strip_ansi(opened)
+    for row in opened.splitlines():
+        assert row.count("\x1b[") == 0 or row.endswith("|"), row
+    assert ui.sanitize_cell("sale\x1b[8m").endswith("\x1b[0m")
+    # Asserted on the sanitizer itself, not only through the table: the table
+    # survives a `\r` because `splitlines()` breaks on it, so removing the
+    # control class entirely left the table test green.
+    assert ui.sanitize_cell("a\rb") == "ab"
+    assert ui.sanitize_cell("a\x1bb") == "ab"
+    assert ui.sanitize_cell("a\nb") == "a\nb"      # a cell may span lines

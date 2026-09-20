@@ -16,6 +16,7 @@ import sys
 from . import __version__
 from .i18n import set_language, t, tf
 from .prompts import choose, clear_screen
+from .system import set_verbose
 from .workflows import migration_menu, provision_menu, workspace_menu
 
 _LANG_ENV = "ODWG_LANG"
@@ -83,9 +84,10 @@ def interactive_menu() -> int:
         except EOFError:
             print(t("\nInput closed. Exiting."))
             return 0
-        except RuntimeError as error:
-            # A command in a plan failed (already reported by apply_commands):
-            # surface it and return to the menu instead of crashing the CLI.
+        except (RuntimeError, ValueError, TypeError, OSError) as error:
+            # A failed plan command (already reported by apply_commands), or
+            # input the flows could not use — a malformed profile, an unreadable
+            # file: report it and return to the menu instead of a traceback.
             print(tf("\n[ERROR] The operation did not complete: {}", error))
             continue
 
@@ -101,6 +103,14 @@ def _build_parser() -> argparse.ArgumentParser:
         default=argparse.SUPPRESS,
         help="UI language (default: env/prompt).",
     )
+    common.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help=t("Stream every line a plan's commands print (default: one line per step, "
+               "plus warnings and the output of a step that fails). Also ODWG_VERBOSE=1."),
+    )
 
     parser = argparse.ArgumentParser(
         prog="odoo-dwg",
@@ -110,17 +120,37 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"odoo-dwg {__version__}")
 
     sub = parser.add_subparsers(dest="section")
-    sub.add_parser("workspace", parents=[common], help="Create / manage per-client workspaces.")
-    sub.add_parser("provision", parents=[common], help="Prepare a Linux host (optional).")
-    sub.add_parser("migrate", parents=[common], help="Run an OpenUpgrade migration (12→19).")
+    sub.add_parser("workspace", parents=[common],
+                   help=t("Create / manage per-client workspaces."))
+    sub.add_parser("provision", parents=[common], help=t("Prepare a Linux host (optional)."))
+    sub.add_parser("migrate", parents=[common],
+                   help=t("Run an OpenUpgrade migration (12→19)."))
     return parser
+
+
+def _language_from(argv: list[str] | None) -> str | None:
+    """The `--lang` value, read before the parser exists.
+
+    `--help` is printed by the parser itself, so the language has to be known
+    before it is built or the help text can never be translated."""
+    args = list(argv if argv is not None else sys.argv[1:])
+    for index, item in enumerate(args):
+        if item == "--lang" and index + 1 < len(args):
+            return args[index + 1]
+        if item.startswith("--lang="):
+            return item.split("=", 1)[1]
+    return os.environ.get("ODWG_LANG") or None
 
 
 def main(argv: list[str] | None = None) -> int:
     _configure_utf8_console()
+    early = _language_from(argv)
+    if early:
+        set_language("es" if str(early).lower().startswith("es") else "en")
     parser = _build_parser()
     args = parser.parse_args(argv)
     lang = getattr(args, "lang", None)
+    set_verbose(getattr(args, "verbose", False) or os.environ.get("ODWG_VERBOSE", "") == "1")
 
     if args.section is None:
         _select_language(lang)
@@ -137,7 +167,7 @@ def main(argv: list[str] | None = None) -> int:
     except (KeyboardInterrupt, EOFError):
         print(t("\nExiting."))
         return 0
-    except RuntimeError as error:
+    except (RuntimeError, ValueError, TypeError, OSError) as error:
         print(tf("\n[ERROR] The operation did not complete: {}", error))
         return 1
     return 0

@@ -5,6 +5,7 @@
 Brings an operator's custom modules along the chain one step at a time, running the OCA module migrator per bump and cross-referencing the result against OpenUpgrade's analysis files, so breaking references surface as reviewable findings and inert scaffolds instead of runtime errors.
 
 ## Requirements
+
 ### Requirement: Stepwise staging of custom modules
 
 The system SHALL provide a staging action that, for each selected custom module and each step of the
@@ -13,46 +14,55 @@ the environment's `addons/odoo<major>/custom` and runs `odoo-module-migrator` fo
 bump on the copy. The operator's original source directory MUST NOT be modified. All copies and tool
 invocations SHALL go through the plan → preview → apply flow.
 
+Re-staging a module whose staged code already exists SHALL require an exact-phrase confirmation: that code
+is replaced outright and may carry the operator's own edits.
+
+Where the migration tool requires a repository, the system SHALL make each stage directory a throwaway one
+and commit the pre-migration state into it with an identity, hook path and signing settings of its own, so
+that the operator's global git configuration — a mandatory signature, a global hook — can neither fail the
+step nor run against their code. The generated report SHALL say that the stage directories are throwaway
+repositories.
+
+Every operator-supplied value SHALL be validated before it reaches a plan: the source directory MUST exist,
+each named module MUST be a valid Odoo module name (`^[a-z_][a-z0-9_]{0,63}$`) and MUST be present in that
+directory. A value failing any of these SHALL stop the action naming the value, with nothing planned.
+
+#### Scenario: A module name carrying shell syntax is refused
+
+- **WHEN** the operator names `sale; rm -rf ~` among the modules to stage
+- **THEN** the action stops naming that value, and no command is planned
+
+#### Scenario: Replacing staged code is confirmed first
+
+- **WHEN** the operator stages a module that is already staged for some step of the chain
+- **THEN** the action names that module and stages nothing unless the exact phrase is typed
+
+#### Scenario: A signing-everything git configuration does not break staging
+
+- **WHEN** the operator's global git config sets `commit.gpgsign = true` with no usable key
+- **THEN** the stage commit still succeeds, because the step supplies its own signing and hook settings
+
+#### Scenario: A module absent from the source directory is refused
+
+- **WHEN** the operator names a module the source directory does not contain
+- **THEN** the action stops naming it, rather than planning a copy of a directory that is not there
+
 #### Scenario: A 13 → 15 chain stages each bump from the previous stage
 
 - **WHEN** staging module `client_sales` for a 13 → 15 chain
 - **THEN** the plan migrates the source copy 13→14 into `addons/odoo14/custom/client_sales`, then that output 14→15 into `addons/odoo15/custom/client_sales`, leaving the operator's source untouched
 
-### Requirement: The staging tool is a prepared host prerequisite
-
-`odoo-module-migrator` SHALL be installed into a dedicated uv-managed tool venv under the migration base
-directory via an opt-in previewed plan, SHALL be detected by the migration preflight when staging is
-requested, and MUST NOT become a runtime dependency of odoo_dwg itself.
-
-#### Scenario: Staging without the tool is caught by preflight
-
-- **WHEN** the staging action runs on a host where the tool venv does not exist
-- **THEN** the preflight reports it MISSING with the plan that installs it, and no staging command runs
-
-### Requirement: Breaking-reference detection from OpenUpgrade analysis files
-
-For each staged module and step, the system SHALL parse the step's OpenUpgrade analysis files
-(`openupgrade_scripts/scripts/<module>/<ver>/upgrade_analysis.txt` in the already-cloned OpenUpgrade
-checkout) into removed/renamed core field and model records, scan the staged module's source (Python and
-XML) for occurrences of those names, and report each match as a **candidate** finding with file and line.
-The report MUST state that matches are leads requiring developer confirmation, not proof.
-
-#### Scenario: A renamed core field used in a view is flagged
-
-- **WHEN** step 17.0's analysis lists a `res.partner` field rename and the staged module's XML references the old name
-- **THEN** the report lists the module, step, file, line, old and new name as a candidate finding
-
 ### Requirement: Generated migration scaffolds are additive
 
 For each module/step with candidate findings, the system SHALL write a
-`migrations/<target-version>/pre-migration.py` stub containing a generated-file header, the
+`migrations/<target-version>.1.0.0/pre-migration.py` stub containing a generated-file header, the
 openupgradelib import, and one commented TODO entry per finding. If the target file already exists the
 stub SHALL be written as a sibling `pre-migration.generated.py` instead — operator code is never
 overwritten.
 
 #### Scenario: Existing migration file is preserved
 
-- **WHEN** the staged module already ships `migrations/17.0.1.0/pre-migration.py`
+- **WHEN** the staged module already ships `migrations/17.0.1.0.0/pre-migration.py`
 - **THEN** the scaffold is written alongside as `pre-migration.generated.py` and the existing file is untouched
 
 ### Requirement: Staging report for developer review
@@ -67,3 +77,38 @@ migration — the system SHALL NOT mark a module as migrated.
 - **WHEN** `odoo-module-migrator` logs an ERROR (e.g. a dependency removed upstream) during a step
 - **THEN** the report shows that ERROR verbatim under that module and step
 
+### Requirement: The staging tool is installed on demand
+
+`odoo-module-migrator` SHALL live in its own virtualenv under the shared `.tools` directory beside the
+migration environments, pinned to a version this project has validated, installed through an opt-in
+previewed plan when the staging action needs it, and MUST NOT become a runtime dependency of odoo_dwg
+itself. It is shared because it is a host tool rather than part of any one environment: cleaning an
+environment SHALL leave it in place, and the next environment SHALL reuse it.
+
+#### Scenario: Staging without the tool offers to install it
+
+- **WHEN** the staging action runs on a host where the tool venv does not exist
+- **THEN** the flow warns, previews the plan that installs it, and stages nothing unless that plan is applied
+
+#### Scenario: Cleaning an environment keeps the staging tool
+
+- **WHEN** a migration environment that staged modules is cleaned
+- **THEN** the shared staging-tool venv is untouched, because it sits beside the environments, not inside one
+
+### Requirement: Removed-reference detection from OpenUpgrade analysis files
+
+For each staged module and step, the system SHALL parse that step's OpenUpgrade analysis files — under
+`openupgrade_scripts/scripts/<module>/<ver>/` from 14.0, and inside each add-on's `migrations/<ver>/` in a
+≤ 13 fork — into the core models and fields the step removes, scan the staged module's Python and XML for
+those names, and report each match as a **candidate** finding with file and line. The report MUST state that
+matches are leads requiring developer confirmation, not proof.
+
+#### Scenario: A removed core field used in a view is flagged
+
+- **WHEN** step 17.0's analysis lists a removed `res.partner` field and the staged module's XML references it
+- **THEN** the report lists the module, step, file, line and the field as a candidate finding
+
+#### Scenario: A module with no matches is reported clean
+
+- **WHEN** a staged module references nothing the step removes
+- **THEN** its report lists no candidate findings for that step, and no scaffold is written

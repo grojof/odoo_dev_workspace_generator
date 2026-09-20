@@ -3,7 +3,7 @@ type: how-to
 title: "Setting up a WSL Ubuntu 24.04 host"
 description: "Step-by-step: install Ubuntu 24.04 on WSL 2 and make it ready to run odoo_dwg."
 audience: [developer]
-updated: 2026-09-17
+updated: 2026-09-19
 ---
 
 # Setting up a WSL Ubuntu 24.04 host
@@ -163,15 +163,15 @@ python3 -m odoo_dwg provision       # menu → "Check host readiness"
 ```
 
 The table shows what is missing: build dependencies, PostgreSQL and its development role, wkhtmltopdf,
-and optionally Node and `uv`. Then run **Apply** from the same menu: it asks for `sudo`, shows the
-full plan, and only runs it after you confirm.
+and optionally `uv`, rtlcss, the outbound firewall and the mail capture. **Apply** needs root, so start it as
+`sudo python3 -m odoo_dwg provision`; it shows the full plan and only runs it after you confirm.
 
 ```
 +-------+-------------------------+------------------------------------------+
 | State | Capability              | Detail                                   |
 +-------+-------------------------+------------------------------------------+
 | OK    | Host release            | Ubuntu 24.04 LTS (noble)                 |
-| MISS  | PostgreSQL              | not installed                            |
+| MISSING | PostgreSQL            | not installed                            |
 +-------+-------------------------+------------------------------------------+
 ```
 
@@ -208,12 +208,18 @@ python -m pytest -q
 python -m ruff check .
 ```
 
+**Next:** with the host ready, create your first workspace — `python3 -m odoo_dwg workspace` → **New
+(quick)**. See [provisioning](provisioning.md#next-your-first-workspace) and
+[workspace-layout](workspace-layout.md).
+
 Conventions, checks, and the spec-first flow: [`../CONTRIBUTING.md`](../CONTRIBUTING.md).
 
 ## What this guide deliberately leaves out
 
-- **No firewall or `fail2ban`.** A WSL instance is not exposed to the network the way a server is; Windows
-  owns the perimeter. Hardening belongs to a production host guide, not to a development one.
+- **No inbound firewall or `fail2ban`.** A WSL instance is not exposed to the network the way a server is;
+  Windows owns the perimeter. Inbound hardening belongs to a production host guide, not to a development
+  one. *Outbound* control is a different matter and is offered by the tool — see
+  [`egress-control.md`](egress-control.md).
 - **No SSH server.** WSL is reached with `wsl -d <name>`. Install `openssh-server` only if you really need
   to reach it from another machine.
 - **No `.tar` rootfs download or manual import.** `wsl --install -d Ubuntu-24.04` is the supported path and

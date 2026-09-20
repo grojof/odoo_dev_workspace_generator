@@ -1,0 +1,8 @@
+# The sdist ships the test suite, so it has to ship what the suite reads:
+# `tools/verify_odools_config.py` (unit-tested for its parsing) and
+# `docs/support-matrix.md` (re-derived from the matrix declared in models.py).
+# Without these the shipped suite does not even collect.
+graft tools
+graft docs
+include CHANGELOG.md CONTRIBUTING.md SECURITY.md
+global-exclude __pycache__ *.py[co]

@@ -3,7 +3,7 @@ type: how-to
 title: "Migrating a database (OpenUpgrade 12 → 19)"
 description: "Generate an OpenUpgrade migration environment and run the checkpointing driver."
 audience: [developer]
-updated: 2026-07-18
+updated: 2026-09-20
 ---
 
 # Migrating a database (OpenUpgrade 12 → 19)
@@ -50,8 +50,9 @@ Both are generated for you in `requirements/`.
 
 Under `~/odoo-migrations/<src>-to-<tgt>/`:
 
-- Per-version clones of `odoo/odoo` and `OCA/OpenUpgrade` (matching branch, shallow) in the shared
-  `.repos/` cache.
+- Per-version clones of `OCA/OpenUpgrade` (matching branch, shallow) in the shared `.repos/` cache. From
+  14.0 there is also a clone of `odoo/odoo`. Up to 13.0 the OpenUpgrade branch is itself a full Odoo fork, so
+  no separate clone is made.
 - A `uv` virtualenv per native version (matched interpreter + `requirements.txt` + `psycopg2-binary` +
   `openupgradelib`). A per-version `requirements/overrides-<ver>.txt` is applied via
   `uv pip install --overrides` to repair pins that no longer install: the 16.0/17.0 branches pin
@@ -69,8 +70,8 @@ Under `~/odoo-migrations/<src>-to-<tgt>/`:
 ## Two OpenUpgrade layouts
 
 Up to 13, the OpenUpgrade checkout **is** a full Odoo fork and each add-on carries its own
-`migrations/<version>/` scripts; the step runs the fork's `odoo-bin` with an `--addons-path` that names the
-fork's `addons` directory, and there is no `--upgrade-path` or `openupgrade_framework`. From 14 the checkout
+`migrations/<version>/` scripts; the step runs the fork's `odoo-bin` with a config whose `addons_path` names
+the fork's `addons` directory, and there is no `--upgrade-path` or `openupgrade_framework`. From 14 the checkout
 is an add-on collection beside a separate Odoo clone, with scripts under `openupgrade_scripts/scripts`
 reached via `--upgrade-path`. The generated per-step `odoo.conf` states the path explicitly in both cases,
 because a defaulted or inherited path is exactly how the container version went wrong.
@@ -106,7 +107,7 @@ able to *find* every installed module, or it is left broken mid-chain:
   `addons/odoo<major>/custom/<module>`. Presence is necessary but *not sufficient*: the code must be
   adapted to each version's breaking changes (e.g. 17.0 removes view `attrs`/`states`; 18.0 renames
   `<tree>` to `<list>`) and may need its own `migrations/` scripts. The preflight flags every custom
-  module with this warning; the staging workflow (see the `add-custom-module-staging` change) prepares
+  module with this warning; the [staging workflow](#staging-custom-modules-menu--stage-custom-modules) prepares
   most of this mechanically.
 
 ## Staging custom modules (menu → Stage custom modules)
@@ -118,7 +119,7 @@ of OpenUpgrade, with migration scripts for every bump through 18.0→19.0):
 1. You point at the directory holding your custom modules **at the source version** (never modified) and
    pick the modules.
 2. Per chain step, the previous stage's code is copied into `addons/odoo<major>/custom/<module>` (a
-   throwaway git worktree — the tool requires one) and the tool applies exactly that bump. Observed on
+   throwaway git worktree the tool creates for it) and the tool applies exactly that bump. Observed on
    WSL with `odoo-module-migrator==0.5.0`: 18.0 converts `<tree>` → `<list>` and bumps the manifest
    version per step; some changes (e.g. the 17.0 view-`attrs` removal) are *not* auto-applied by this
    tool version and remain review work — which the candidate findings and the tool's own WARN/ERROR
@@ -139,7 +140,9 @@ previewed plan the first time you stage.
 ## Preflight: verify before you burn hours
 
 **Menu → Migration → Preflight check** runs a read-only verification, and the same checks run
-automatically when generating an environment (host scope) and inside the driver (both scopes):
+automatically when generating an environment (host scope) and inside the driver — its four host checks
+(everything in the Host row below except the addons layout, which only the menu and generate flows check)
+plus the whole database scope:
 
 | Scope | Checks |
 |-------|--------|
@@ -147,14 +150,25 @@ automatically when generating an environment (host scope) and inside the driver 
 | Database | actual source version from `ir_module_module` (`base`) vs. the declared source; installed-module list; **per-step coverage** — every installed module must resolve in every step's `addons_path`, and each miss names the exact directory to fill |
 
 The database scope needs a live database: name an already-restored one in the menu action, or let the
-driver verify right after its initial restore (it aborts before step 1 on any failure). Legacy-layout
-coverage (12/13) is reported as not verifiable — the official image provides core.
+driver verify right after its initial restore (it aborts before step 1 on any failure). For a ≤ 13 step,
+coverage looks in the OpenUpgrade fork itself: its `addons` and `odoo/addons`, and its renames in
+`odoo/addons/openupgrade_records/lib/apriori.py`.
 
 ## Running the migration
 
-The driver **works on a copy, never production**. Give it a custom-format dump of the source database:
+The driver **works on a copy, never production**. Take a custom-format dump of the source database (plain
+SQL dumps are rejected), copy its filestore, and hand the dump to the driver:
 
 ```bash
+# On the source host — custom format (-Fc) is required:
+pg_dump -Fc -h <source-host> -U <source-user> <source-db> -f source-13.0.dump
+
+# The attachments live outside the database. Copy the source filestore to this
+# host under the working database's name, or every ir_attachment row in the
+# migrated database will point at a file that is not there:
+rsync -a <source>/.local/share/Odoo/filestore/<source-db>/ \
+      ~/.local/share/Odoo/filestore/migration_13_to_18/
+
 cd ~/odoo-migrations/13-to-18
 bash run_migration.sh /path/to/source-13.0.dump
 ```
@@ -162,8 +176,54 @@ bash run_migration.sh /path/to/source-13.0.dump
 It preflights the host, restores the dump into a working database on the shared PostgreSQL, verifies the
 database (version match, addons coverage) before step 1, then runs each step with
 `--update all --stop-after-init` (Odoo ≥ 14: `--load=base,web,openupgrade_framework`), and **`pg_dump`s a
-checkpoint after each successful step** — so a failure resumes from the last good step, not from the source.
-Any preflight failure exits non-zero with a `[preflight-fail]` line naming the check.
+checkpoint after each successful step**. Any preflight failure exits non-zero with a `[preflight-fail]` line
+naming the check. A `[fail]` line is the driver's own abort: a checkpoint that cannot be written, a step
+whose `odoo-bin` failed (it names the step's log file), a step whose OpenUpgrade code is not on disk — Odoo
+would migrate nothing and say nothing in that case, so the driver checks before running it — or checkpoints
+that came from a different source dump.
+
+**The working database.** Each environment upgrades **its own** database on the shared PostgreSQL, named
+after its chain — `migration_13_to_18` for a 13 → 18 environment — which a fresh run drops and recreates
+from the dump. Two *different* chains can therefore run at once; two runs of the *same* chain cannot, and
+the second would drop the first's database. Nothing ever touches the source database.
+
+A checkpoint is a `pg_dump` of that database — a full copy of whatever you restored, production data
+included — and `logs/<version>.log` is Odoo's log for it. The driver keeps `checkpoints/` and `logs/`
+at `700` and writes into them at `600`, so a second account on the host cannot read them. An environment
+that predates that is narrowed the next time you generate over it: upgrading the tool alone changes
+nothing already on disk.
+
+Checkpoints that carry no record of which dump they came from stop the driver rather than let it resume
+against a dump that may not be theirs; it prints the one command that adopts them if it is.
+
+**When a step fails.** The driver names the step and its log (`[fail] step 16.0 failed — see
+logs/16.0.log`). Read that log: the cause is usually one of your own modules under
+`addons/odoo<major>/custom` that has not been adapted to that version. Fix it there, then run the same
+command again — it resumes from the last checkpoint rather than from the source. Re-running without fixing
+anything fails identically.
+
+**When it finishes.** `[done] migration complete` leaves the result in the `migration_13_to_18` database on the
+shared cluster. To look at it, start that step's Odoo by hand:
+
+```bash
+cd ~/odoo-migrations/13-to-18
+.venv/odoo18/bin/python .repos/odoo-18.0/odoo-bin -c conf/odoo18.conf -d migration_13_to_18
+```
+
+To take it away: `pg_dump -Fc -h 127.0.0.1 -U odoo migration_13_to_18 -f migrated-18.0.dump` (and the filestore
+directory alongside it).
+
+**Resuming.** Run the same command again after a failure.
+- **What it restores:** before the first step still missing, the driver restores the **newest checkpoint**
+  into the working database. A failed step can leave that database half-migrated, because OpenUpgrade commits
+  module by module, so it is never migrated again as it stands.
+- **One source dump per run:** the first run records the dump's SHA-256 in `checkpoints/source.sha256`. A
+  re-run with a different dump is refused, because the checkpoints belong to the first one. To start over
+  from another dump, remove the whole `checkpoints/` directory — removing only some of it is what the driver
+  is protecting you from.
+- **Checkpoints with no recorded hash** — a `checkpoints/` directory that has dumps but no
+  `source.sha256` — stop the driver, because it cannot tell whether they are this dump's. It prints the
+  one command that adopts them if they are; remove the directory if they are not.
 
 ### Keeping a migration from reaching the outside
 
@@ -181,7 +241,10 @@ The migration menu's **Clean a migration environment** action removes an environ
 (venvs, configs, checkpoints, logs, requirements, driver) after preview and an exact-phrase
 confirmation (`DELETE`) — use it to retest from scratch or clear leftovers. Removing the shared
 `.repos` clone cache is a separate opt-in (it serves *every* migration environment). The PostgreSQL
-migration database is never touched; drop it manually (`dropdb`) for a fully clean run.
+migration database is never touched; drop it manually (`dropdb -h 127.0.0.1 -U odoo migration_13_to_18`,
+named after the chain) for a fully
+clean run — the `-h`/`-U` are needed because the development role is trusted over loopback TCP, not over the
+Unix socket.
 
 ## Scope & caveats
 

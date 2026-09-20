@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import system
+from .i18n import tf
 from .models import DEFAULT_DB_ROLE, MigrationEnv, odoo_major
 
 Exists = Callable[[Path], bool]
@@ -33,7 +34,8 @@ class HostFacts:
     uv: bool = False
     postgres_running: bool = False
     dev_role: str = DEFAULT_DB_ROLE
-    dev_role_exists: bool = False
+    # None: it could not be told without a password prompt.
+    dev_role_exists: bool | None = False
     dump_path: str | None = None
     dump_readable: bool = False
     dump_listable: bool = False
@@ -62,13 +64,17 @@ class Coverage:
     warnings: dict[str, list[str]] = field(default_factory=dict)
     # Modules resolved from the operator's own per-version custom directory.
     customs: set[str] = field(default_factory=set)
+    # ``[version]`` — steps whose sources are not on disk at all. Classifying a
+    # module against nothing would report every one of them as missing, `base`
+    # among them, and send the operator looking for code that is not the problem.
+    ungenerated: list[str] = field(default_factory=list)
 
 
 def gather_host_facts(env: MigrationEnv, dump_path: str | None = None) -> HostFacts:
     """Probe the host for this chain's requirements (I/O)."""
     facts = HostFacts(
         uv=system.has_tool("uv"),
-        postgres_running=system.postgres_running(),
+        postgres_running=system.postgres_running(env.db_port),
         dev_role=env.db_user,
         dump_path=dump_path,
         addons_layout_present=all(
@@ -77,7 +83,7 @@ def gather_host_facts(env: MigrationEnv, dump_path: str | None = None) -> HostFa
         ),
     )
     if facts.postgres_running:
-        facts.dev_role_exists = system.db_role_exists(env.db_user)
+        facts.dev_role_exists = system.db_role_exists(env.db_user, env.db_port)
     if dump_path:
         facts.dump_readable = Path(dump_path).is_file()
         if facts.dump_readable:
@@ -145,8 +151,9 @@ def read_apriori(path: Path) -> dict[str, str]:
     mapping: dict[str, str] = {}
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"))
-    except (OSError, SyntaxError):
-        _APRIORI_CACHE[key] = mapping
+    # ValueError covers UnicodeDecodeError: a checkout may hold anything.
+    except (OSError, ValueError, SyntaxError):
+        # Not cached: the clone may appear later in the same session.
         return mapping
     for node in tree.body:
         if not isinstance(node, ast.Assign):
@@ -156,7 +163,8 @@ def read_apriori(path: Path) -> dict[str, str]:
             continue
         try:
             value = ast.literal_eval(node.value)
-        except ValueError:
+        # TypeError: `{[1]: 'b'}` is a literal ast can build but not evaluate.
+        except (ValueError, TypeError):
             continue
         if isinstance(value, dict):
             mapping.update(
@@ -168,19 +176,13 @@ def read_apriori(path: Path) -> dict[str, str]:
 
 def apriori_path(env: MigrationEnv, version: str) -> Path:
     """Where a step's OpenUpgrade checkout declares its module renames/merges."""
-    return env.openupgrade_clone_dir(version) / "openupgrade_scripts" / "apriori.py"
+    return env.apriori_file(version)
 
 
 def coverage_sources(env: MigrationEnv, version: str) -> list[Path]:
-    """The directories a step's addons_path resolves modules from, custom first."""
-    odoo = env.odoo_clone_dir(version)
-    return [
-        env.addons_custom_dir(version),
-        env.addons_oca_dir(version),
-        env.openupgrade_clone_dir(version),
-        odoo / "addons",
-        odoo / "odoo" / "addons",
-    ]
+    """The directories a step resolves modules from, custom first — the same ones
+    the generated driver checks, for either OpenUpgrade layout."""
+    return env.coverage_dirs(version)
 
 
 def gather_coverage(
@@ -202,9 +204,12 @@ def gather_coverage(
     coverage = Coverage()
     authors = authors or {}
     for version in env.chain():
-        if not env.is_native(version):
-            continue
         sources = coverage_sources(env, version)
+        if not any(exists(src) for src in sources):
+            # Nothing to resolve against: the environment was never generated, or
+            # its clones are gone. Say that instead of blaming every module.
+            coverage.ungenerated.append(version)
+            continue
         renames = read_apriori(apriori_path(env, version))
         blocking: list[str] = []
         warnings: list[str] = []
@@ -228,6 +233,15 @@ def gather_coverage(
     return coverage
 
 
+def _same_major(base_version: str, declared_source: str) -> bool:
+    """Whether a database's ``base`` version is the declared source's major. An
+    unparseable version (a non-Odoo database) is simply not a match."""
+    try:
+        return odoo_major(base_version) == odoo_major(declared_source)
+    except ValueError:
+        return False
+
+
 def preflight_rows(
     host: HostFacts,
     db: DbFacts | None = None,
@@ -241,59 +255,81 @@ def preflight_rows(
     rows: list[tuple[str, str, str]] = []
 
     rows.append(("OK" if host.uv else "MISSING", "uv",
-                 "present" if host.uv else "not installed (needed to build the native venvs)"))
+                 tf("present") if host.uv
+                 else tf("not installed (needed to build the native venvs)")))
 
     if not host.postgres_running:
-        rows.append(("MISSING", "PostgreSQL", "not reachable"))
+        rows.append(("MISSING", "PostgreSQL", tf("not reachable")))
     else:
-        rows.append(("OK", "PostgreSQL", "reachable"))
-        rows.append(("OK" if host.dev_role_exists else "MISSING",
-                     f"DB role ({host.dev_role})",
-                     "present" if host.dev_role_exists else "not found (see provision)"))
+        rows.append(("OK", "PostgreSQL", tf("reachable")))
+        # The same name as the provision check's row: one thing, one name.
+        role_label = tf("Development role ({})", host.dev_role)
+        if host.dev_role_exists is None:
+            rows.append(("WARN", role_label,
+                         tf("could not check without sudo — run it with sudo, or connect as the "
+                            "role once")))
+        else:
+            rows.append(("OK" if host.dev_role_exists else "MISSING", role_label,
+                         tf("present") if host.dev_role_exists
+                         else tf("not found (see provision)")))
 
+    dump_label = tf("Source dump")
     if host.dump_path is None:
-        rows.append(("INFO", "Source dump", "skipped (no dump given)"))
+        rows.append(("INFO", dump_label, tf("skipped (no dump given)")))
     elif not host.dump_readable:
-        rows.append(("MISSING", "Source dump", f"not readable: {host.dump_path}"))
+        rows.append(("MISSING", dump_label, tf("not readable: {}", host.dump_path)))
     elif not host.dump_listable:
-        rows.append(("MISSING", "Source dump",
-                     f"pg_restore cannot list it — a custom-format dump (pg_dump -Fc) is required. {host.dump_detail}".strip()))
+        rows.append(("MISSING", dump_label,
+                     tf("pg_restore cannot list it — a custom-format dump (pg_dump -Fc) is "
+                        "required. {}", host.dump_detail).strip()))
     else:
-        rows.append(("OK", "Source dump", host.dump_path))
+        rows.append(("OK", dump_label, host.dump_path))
 
-    rows.append(("OK" if host.addons_layout_present else "WARN", "Addons layout",
-                 "present" if host.addons_layout_present
-                 else "addons/odoo<major>/{custom,oca} dirs absent — regenerate the environment"))
+    rows.append(("OK" if host.addons_layout_present else "WARN", tf("Addons layout"),
+                 tf("present") if host.addons_layout_present
+                 else tf("addons/odoo<major>/{custom,oca} dirs absent — regenerate the "
+                         "environment")))
 
     if db is None:
-        rows.append(("INFO", "Database checks", "skipped (no database named)"))
+        rows.append(("INFO", tf("Database checks"), tf("skipped (no database named)")))
         return rows
 
+    db_label = tf("Database version")
     if db.base_version is None:
-        rows.append(("MISSING", "Database version", "cannot read ir_module_module (is it an Odoo database?)"))
-    elif odoo_major(db.base_version) == odoo_major(db.declared_source):
-        rows.append(("OK", "Database version", f"base {db.base_version} matches source {db.declared_source}"))
+        rows.append(("MISSING", db_label,
+                     tf("cannot read ir_module_module (is it an Odoo database?)")))
+    elif _same_major(db.base_version, db.declared_source):
+        rows.append(("OK", db_label,
+                     tf("base {} matches source {}", db.base_version, db.declared_source)))
     else:
-        rows.append(("MISSING", "Database version",
-                     f"base is {db.base_version} but the environment was generated for source {db.declared_source}"))
+        rows.append(("MISSING", db_label,
+                     tf("base is {} but the environment was generated for source {}",
+                        db.base_version, db.declared_source)))
 
-    rows.append(("OK", "Installed modules", f"{len(db.installed_modules)} installed"))
+    rows.append(("OK", tf("Installed modules"), tf("{} installed", len(db.installed_modules))))
+
+    for version in sorted(coverage.ungenerated if coverage else ()):
+        rows.append(("MISSING", tf("Coverage ({})", version),
+                     tf("that step's sources are not on disk — generate the environment before "
+                        "reading coverage")))
 
     for version, missing_modules in sorted((coverage.blocking if coverage else {}).items()):
         target = str(custom_dir_for(version)) if custom_dir_for else f"addons/odoo{odoo_major(version)}/custom"
         listing = ", ".join(missing_modules[:8]) + ("…" if len(missing_modules) > 8 else "")
-        rows.append(("MISSING", f"Coverage ({version})",
-                     f"{listing} — place each module's {version} branch in {target}"))
+        rows.append(("MISSING", tf("Coverage ({})", version),
+                     tf("{} — place each module's {} branch in {}", listing, version, target)))
 
     # Odoo's own modules, dropped upstream: named, but never a reason to refuse —
     # the upgrade uninstalls them and there is nothing for the operator to supply.
     for version, dropped in sorted((coverage.warnings if coverage else {}).items()):
         listing = ", ".join(dropped[:8]) + ("…" if len(dropped) > 8 else "")
-        rows.append(("WARN", f"Dropped by Odoo ({version})",
-                     f"{listing} — not in {version} and not renamed; OpenUpgrade removes them"))
+        rows.append(("WARN", tf("Dropped by Odoo ({})", version),
+                     tf("{} — not in {} and not renamed; OpenUpgrade removes them",
+                        listing, version)))
 
     for module in sorted(customs or ()):
-        rows.append(("WARN", f"Custom module {module}",
-                     "needs per-version adapted code (and migrations/ scripts when data changes) — presence is not sufficient; see the staging workflow"))
+        rows.append(("WARN", tf("Custom module {}", module),
+                     tf("needs per-version adapted code (and migrations/ scripts when data "
+                        "changes) — presence is not sufficient; see the staging workflow")))
 
     return rows

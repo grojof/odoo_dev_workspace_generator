@@ -3,7 +3,7 @@ type: reference
 title: "Support matrix"
 description: "What odoo_dwg supports — hosts, Python per Odoo version, PostgreSQL — with the source behind every bound and how to re-verify it."
 audience: [developer, contributor]
-updated: 2026-09-19
+updated: 2026-09-20
 ---
 
 # Support matrix
@@ -119,15 +119,15 @@ stays `untested`. Odoo 12 is never executed by a chain at all.
 ## Re-verifying this page
 
 ```bash
-python tools/verify_support_matrix.py            # every version and both hosts
+python tools/verify_support_matrix.py            # every version and the supported host
 python tools/verify_support_matrix.py 18.0 19.0  # only these versions
 ```
 
 The script re-derives every bound from the sources below and exits non-zero on drift, naming the version,
 the fact, both values and the source URL. It never edits the declared matrix: fixing drift means editing
 `odoo_dwg/models.py` **and** this page together. It is stdlib-only, lives outside the package
-(`odoo_dwg` never imports it) and outside the unit suite, and is the only file in the repository that reaches
-the network.
+(`odoo_dwg` never imports it) and outside the unit suite, like every `tools/verify_*.py`. What each of those
+needs is listed once, in [`CONTRIBUTING.md`](../CONTRIBUTING.md).
 
 ### Source precedence, per fact
 

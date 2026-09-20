@@ -20,7 +20,7 @@ module SHALL declare a competing bound for any of these facts.
 
 - **WHEN** the matrix is queried for each Odoo version the tool handles
 - **THEN** each version yields a minimum Python, a maximum Python, a recommended interpreter and a minimum
-  PostgreSQL, with no gaps
+  PostgreSQL — a bound for each, carrying the `untested` tier where no official source states one
 
 #### Scenario: A version outside the matrix is rejected, not guessed
 

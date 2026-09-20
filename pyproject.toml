@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "odoo-dev-workspace-generator"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Zero-dependency generator for Odoo Community development workspaces and OpenUpgrade migration environments on a Linux host."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -17,6 +17,8 @@ classifiers = [
   "Intended Audience :: Developers",
   "Operating System :: POSIX :: Linux",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3 :: Only",
+  "Development Status :: 4 - Beta",
   "Topic :: Software Development :: Build Tools",
 ]
 dependencies = []
@@ -34,7 +36,12 @@ Issues = "https://github.com/grojof/odoo_dev_workspace_generator/issues"
 
 [tool.setuptools]
 py-modules = ["odoo_dev_workspace_generator"]
-packages = ["odoo_dwg", "odoo_dwg.workflows"]
+
+[tool.setuptools.dynamic]
+version = { attr = "odoo_dwg.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["odoo_dwg*"]
 
 [tool.ruff]
 line-length = 100

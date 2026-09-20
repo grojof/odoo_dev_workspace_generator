@@ -19,21 +19,29 @@ from .models import (
     PKG_RESOURCES_LAST_MAJOR,
     SETUPTOOLS_PIN,
     UV_PYTHON,
+    Command,
     InterpreterChoice,
     MigrationEnv,
     WorkspaceConfig,
+    interpreter_from_pyvenv,
     odoo_major,
     setuptools_requirement,
 )
-from .system import Command
 
 Exists = Callable[[Path], bool]
 # Current text of a file, or None when it is absent (injected, like Exists).
 Read = Callable[[Path], str | None]
+#: A file's current permission bits, or None when it is absent.
+Mode = Callable[[Path], int | None]
 
 
 def _never(_path: Path) -> bool:
     return False
+
+
+def _unread(_path: Path) -> str | None:
+    """Default reader: nothing exists yet, so everything is written (create path)."""
+    return None
 
 
 def heredoc_delimiter(content: str, base: str = "EOF") -> str:
@@ -52,16 +60,48 @@ def heredoc_delimiter(content: str, base: str = "EOF") -> str:
 
 
 def write_text_file_command(path: Path | str, content: str, mode: str = "644") -> list[Command]:
-    """Emit a file via a quoted heredoc plus a ``chmod`` — mirrors the sibling app."""
+    """Emit a file via a quoted heredoc, then set its mode — as one command.
+
+    One command, not two: a plan interrupted between them left a script written
+    but not executable, and a refresh compares content only, so it reported the
+    workspace up to date and never repaired the mode."""
     target = str(path)
     end = heredoc_delimiter(content)
     # The heredoc body ends with a newline of its own, so content that already
     # ends in one must not get a second: the file then holds exactly ``content``.
     body = content if content.endswith("\n") else f"{content}\n"
+    # Written beside the target and renamed, never truncated in place: `cat >`
+    # rewrites the same inode, and bash reads a running script by byte offset, so
+    # regenerating `run_migration.sh` while it runs resumed it mid-token
+    # ("oint: command not found"). A rename is atomic, so a running process keeps
+    # the file it started with, and no reader ever sees a half-written one.
+    temp = f"{target}.odwg-tmp"
     return [
-        Command(tf("Write {}", target), f"cat > {shlex.quote(target)} <<'{end}'\n{body}{end}"),
-        Command(tf("Set mode {} on {}", mode, target), f"chmod {mode} {shlex.quote(target)}"),
+        Command(
+            tf("Write {} (mode {})", target, mode),
+            f"cat > {shlex.quote(temp)} <<'{end}'\n{body}{end}\n"
+            f"chmod {mode} {shlex.quote(temp)} && mv -f {shlex.quote(temp)} {shlex.quote(target)}",
+        ),
     ]
+
+
+def _clone_command(url: str, version: str, dest: Path) -> str:
+    """Clone into a sibling and rename, so the final path exists only when the
+    clone finished.
+
+    A clone is skipped on the directory being there, and git leaves a partial
+    working tree behind when it is interrupted after fetching objects — so an
+    interrupted clone poisoned the shared cache permanently: nothing re-cloned it,
+    the migration driver's advice ("regenerate the environment") was a no-op, and
+    the workspace side failed later at `pip install -r` on a requirements.txt that
+    was not there."""
+    staging = f"{dest}.partial"
+    return (
+        f"rm -rf {shlex.quote(staging)} && "
+        f"git clone --depth 1 --branch {shlex.quote(version)} --single-branch "
+        f"{shlex.quote(url)} {shlex.quote(staging)} && "
+        f"mv -T {shlex.quote(staging)} {shlex.quote(str(dest))}"
+    )
 
 
 def plan_repo_cache(cfg: WorkspaceConfig, exists: Exists = _never) -> list[Command]:
@@ -83,8 +123,7 @@ def plan_repo_cache(cfg: WorkspaceConfig, exists: Exists = _never) -> list[Comma
         commands.append(
             Command(
                 tf("Clone Odoo {} into the shared cache", version),
-                f"git clone --depth 1 --branch {shlex.quote(version)} --single-branch "
-                f"{shlex.quote(cfg.odoo_repo_url)} {shlex.quote(str(dest))}",
+                _clone_command(cfg.odoo_repo_url, version, dest),
             )
         )
     for repo in cfg.oca_repos:
@@ -96,8 +135,7 @@ def plan_repo_cache(cfg: WorkspaceConfig, exists: Exists = _never) -> list[Comma
             commands.append(
                 Command(
                     tf("Clone OCA {} ({}) into the shared cache", repo, version),
-                    f"git clone --depth 1 --branch {shlex.quote(version)} --single-branch "
-                    f"{shlex.quote(url)} {shlex.quote(str(dest))}",
+                    _clone_command(url, version, dest),
                 )
             )
     return commands
@@ -151,7 +189,9 @@ def plan_workspace_links(cfg: WorkspaceConfig) -> list[Command]:
                 Command(
                     tf("Link OCA {} for Odoo {}", repo, version),
                     f"mkdir -p {shlex.quote(str(link.parent))} && "
-                    f"ln -sfn {shlex.quote(str(target))} {shlex.quote(str(link))}",
+                    # -T: replace the link itself. Without it, an existing real
+                    # directory at that path would get the symlink nested inside.
+                    f"ln -sfnT {shlex.quote(str(target))} {shlex.quote(str(link))}",
                 )
             )
     return commands
@@ -165,7 +205,13 @@ def generated_files(
 
     One list for creating a workspace and for refreshing an existing one, so the
     two can never disagree about what a workspace contains."""
-    files: list[tuple[Path, str, str]] = []
+    # The profile marker goes first, not last: it is what makes a directory a
+    # *manageable* workspace. Written last, an interrupted generation left a tree
+    # that create refused to touch ("already exists") and manage refused to load
+    # ("no workspace.json") — a name the operator could only free with rm -rf.
+    # Written first, any interruption from here on is repaired by Manage →
+    # Refresh generated files, which writes every file that is missing.
+    files: list[tuple[Path, str, str]] = [(cfg.profile_file, cfg.to_json(), "644")]
     # Per-version odoo.conf and run scripts.
     for version in cfg.versions:
         major = odoo_major(version)
@@ -186,8 +232,6 @@ def generated_files(
     if templates.odools_versions(cfg):
         files.append((cfg.odools_file, templates.render_odools_toml(cfg), "644"))
     files.append((cfg.readme_file, templates.render_workspace_readme(cfg, interpreters), "644"))
-    # The profile marker, so the workspace can be re-loaded for management.
-    files.append((cfg.profile_file, cfg.to_json(), "644"))
     return files
 
 
@@ -196,11 +240,13 @@ def plan_refresh_files(
     cfg: WorkspaceConfig,
     interpreters: dict[str, InterpreterChoice] | None,
     read: Read,
+    stamp: str = "",
+    mode_of: Mode | None = None,
 ) -> list[Command]:
     """Bring an existing workspace's generated files up to date with the tool.
 
     Only files whose content would change are written. A file that exists and
-    changes is first copied to ``<file>.bak``, since it may carry hand edits (a
+    changes is first copied to ``<file>.bak-<stamp>``, since it may carry hand edits (a
     tuned ``odoo.conf``, an extra launch configuration). ``read`` returns a file's
     current text, or None when it is absent; the workflow passes a real reader.
     Nothing outside the generated files is touched: addons, venvs, clones and
@@ -211,9 +257,24 @@ def plan_refresh_files(
         # Files written before the heredoc stopped adding a trailing blank line
         # differ only in that; they are current, not worth a backup.
         if current is not None and current.rstrip("\n") == content.rstrip("\n"):
+            # The content is current; the mode may not be. A restore from an
+            # archive without `-p`, or a `chmod -R`, leaves a generated script
+            # unable to run, and comparing text alone reported the workspace up
+            # to date. Only the owner's execute bit is repaired, and only on a
+            # file meant to be executable: rewriting the whole mode would undo an
+            # operator who narrowed `odoo.conf`, which carries `admin_passwd`.
+            actual = mode_of(path) if mode_of else None
+            if int(mode, 8) & 0o100 and actual is not None and not actual & 0o100:
+                commands.append(
+                    Command(
+                        tf("Make {} executable again", str(path)),
+                        f"chmod u+x {shlex.quote(str(path))}",
+                    )
+                )
             continue
         if current is not None:
-            backup = Path(f"{path}.bak")
+            # ``stamp`` (the workflow's clock) keeps every earlier backup.
+            backup = Path(f"{path}.bak-{stamp}" if stamp else f"{path}.bak")
             commands.append(
                 Command(
                     tf("Back up {} to {}", str(path), backup.name),
@@ -235,6 +296,12 @@ def plan_refresh_files(
 
 # Odoo build/system dependencies (Debian/Ubuntu apt). This is the set validated
 # end-to-end during F1 acceptance on Ubuntu 24.04.
+# apt runs unattended: a debconf or conffile dialog would hang a plan with its
+# prompt hidden, since a step's output is captured unless --verbose is on.
+_APT = "DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::=--force-confold"
+APT_INSTALL = f"{_APT} install"
+APT_PURGE = f"{_APT} purge"
+
 BUILD_DEPS: tuple[str, ...] = (
     "build-essential", "pkg-config", "python3-dev", "python3-venv", "python3-pip", "git",
     "libpq-dev", "libldap2-dev", "libsasl2-dev", "libssl-dev", "libffi-dev",
@@ -275,7 +342,7 @@ def plan_build_deps() -> list[Command]:
     packages = " ".join(BUILD_DEPS)
     return [
         Command(tf("Update apt package lists"), "apt-get update"),
-        Command(tf("Install Odoo build dependencies"), f"apt-get -y install {packages}"),
+        Command(tf("Install Odoo build dependencies"), f"{APT_INSTALL} {packages}"),
     ]
 
 
@@ -289,20 +356,281 @@ def plan_postgresql(role: str) -> list[Command]:
         "END IF; END $$;"
     )
     return [
-        Command(tf("Install PostgreSQL"), "apt-get update && apt-get -y install postgresql"),
+        Command(tf("Install PostgreSQL"), f"apt-get update && {APT_INSTALL} postgresql"),
         Command(tf("Enable and start PostgreSQL"), "systemctl enable --now postgresql"),
         Command(
             tf("Create development role {} (if missing)", role),
-            f"sudo -u postgres psql -v ON_ERROR_STOP=1 -c {shlex.quote(role_sql)}",
+            f"sudo -u postgres psql -X -v ON_ERROR_STOP=1 -c {shlex.quote(role_sql)}",
         ),
+    ] + plan_pg_hba_trust(role)
+
+
+# A TCP rule for *every* role whose method is `trust`, whatever address it names.
+# Enumerating addresses was wrong twice over (`localhost`, then `all`/`0.0.0.0/0`):
+# an address can contain loopback without naming it, so the method is what this
+# tool reasons about. The address is one token, or an address and a netmask.
+# A TCP rule whose *role* field is the keyword `all` and whose method is `trust`,
+# on any database: the database bounds which database is exposed, never whether
+# one is. The role field is matched unquoted on purpose — `"all"` is a role named
+# `all`, which PostgreSQL does not match a connection against.
+#: The role field as PostgreSQL reads it: a comma list, where an unquoted `all`
+#: anywhere means every role. `host all all,bob … trust` is a live blanket trust.
+_ROLE_LIST_WITH_ALL = "([^[:space:],]+,)*all(,[^[:space:],]+)*"
+BLANKET_TRUST_RULE = (
+    "^([[:space:]]*host[a-z]*[[:space:]]+[^[:space:]]+[[:space:]]+"
+    f"{_ROLE_LIST_WITH_ALL}"
+    "[[:space:]]+[^[:space:]]+"
+    "([[:space:]]+[0-9a-fA-F.:]+)?[[:space:]]+)trust([[:space:]]|$)"
+)
+# Any host rule at all: the anchor the role's own line is inserted before, so it
+# is never shadowed by one of them.
+ANY_HOST_RULE = "^[[:space:]]*host[a-z]*[[:space:]]"
+
+
+def plan_pg_hba_trust(role: str) -> list[Command]:
+    """Give the development role a loopback trust line and take away any blanket
+    one. Separate from ``plan_postgresql`` so a host that already has PostgreSQL
+    and the role still gets its ``pg_hba.conf`` narrowed."""
+    v4 = f"host    all             {role}             127.0.0.1/32            trust"
+    v6 = f"host    all             {role}             ::1/128                 trust"
+    # "Is the role's trust line *reached*", not "is it present": pg_hba is
+    # first-match-wins, so a line below a rule for every role is never read, and
+    # inserting nothing would leave the role unable to connect. Mirrors
+    # ``system.pg_hba_loopback_state``. Interval expressions are avoided so this
+    # behaves the same under mawk (Ubuntu's awk) and gawk.
+    reached = (
+        "awk '"
+        "/^[[:space:]]*#/ { next } "
+        "$1 !~ /^host/ { next } "
+        "NF < 5 { next } "
+        "{ "
+        # `type database user address [netmask] method`: the netmask is there only
+        # when the address carries no prefix length. Same reading as pghba.Rule.
+        'm = 5; if ($4 !~ /\\// && NF > 5 && $5 ~ /^[0-9a-fA-F.:]+$/) m = 6; '
+        # Both fields are comma lists, and PostgreSQL matches the keyword `all`
+        # anywhere in one. Quoting a plain name changes nothing, but `"all"` is a
+        # role *named* all and not the keyword, so that test comes before the
+        # quotes are stripped.
+        'every = 0; mine = 0; every_db = 0; '
+        'n = split($3, part, ","); '
+        'for (k = 1; k <= n; k++) { e = part[k]; if (e == "all") every = 1; '
+        f'gsub(/^"|"$/, "", e); if (e == "{role}") mine = 1 }} '
+        'n = split($2, part, ","); '
+        'for (k = 1; k <= n; k++) if (part[k] == "all") every_db = 1; '
+        "if (!every && !mine) next; "
+        # The first rule matching this connection is the only one PostgreSQL
+        # reads, so the answer is given here — whatever that rule turns out to be.
+        # Plain `host` only, like the probe and the verification step: with TLS on
+        # a `hostnossl` rule is never consulted, and counting one as the role's
+        # trust line would insert nothing and then fail the step it cannot fix.
+        'found = ($1 == "host" && mine && every_db && $(m) == "trust"); '
+        "exit } "
+        "END { exit !found }' \"$PGHBA\""
+    )
+    # Only the development role, not every role: a blanket loopback trust would let
+    # any local user connect as the postgres superuser. Any earlier blanket trust
+    # this tool wrote is put back to scram-sha-256. The insertion tries the usual
+    # anchor first, then any host rule, then the end of the file — and the step
+    # fails loudly rather than reporting success while the role still cannot
+    # connect.
+    script = "\n".join([
+        'set -e',
+        'PGHBA=$(sudo -u postgres psql -X -tAc "SHOW hba_file;")',
+        '[ -f "$PGHBA" ] || { echo "pg_hba.conf not found: $PGHBA" >&2; exit 1; }',
+        # Rules this step cannot see, line by line: a record continued with a
+        # trailing backslash, or rules pulled in from another file. Narrowing
+        # what it can see would leave the rest and report success.
+        'grep -qE \'\\\\[[:space:]]*$\' "$PGHBA" && { echo "$PGHBA has line '
+        'continuations (a record split with a trailing backslash); join them and '
+        'run this again — this step reads one rule per line" >&2; exit 1; }',
+        r'grep -qiE "^[[:space:]]*include(_if_exists|_dir)?[[:space:]]" "$PGHBA" && '
+        r'{ echo "$PGHBA pulls in rules with an include directive; this step cannot '
+        r'see them — narrow that file by hand, or inline its rules" >&2; exit 1; }',
+        # A quoted database field may contain blanks, and every pattern below
+        # counts fields by whitespace. The check reads such a rule correctly
+        # through the server, so refusing here is the difference between saying
+        # so and silently skipping the one rule that matters.
+        'grep -qE \'^[[:space:]]*host[a-z]*[[:space:]]+"\' "$PGHBA" && '
+        '{ echo "$PGHBA has a rule whose database field is quoted; this step reads '
+        'fields by whitespace and cannot rewrite it — narrow that rule by hand" >&2; '
+        'exit 1; }',
+        # A list continued after a blank (`odoo, all`) is one list to the server
+        # and two fields to every pattern below.
+        'grep -qE \'^[[:space:]]*host[a-z]*[[:space:]]+[^#]*,[[:space:]]\' "$PGHBA" && '
+        '{ echo "$PGHBA has a rule whose list continues after a blank (as in \\`odoo, all\\`); '
+        'this step reads fields by whitespace and cannot rewrite it — join the list, or '
+        'narrow the rule by hand" >&2; exit 1; }',
+        # `@file` names its databases or roles from another file, which the server
+        # expands and this step cannot see. Leaving such a rule while reporting
+        # success is how a blanket trust survived a narrowing that said it worked.
+        'grep -qE \'^[[:space:]]*host[a-z]*[[:space:]]+([^#]*[[:space:],])?@\' "$PGHBA" && '
+        '{ echo "$PGHBA has a rule naming its databases or roles from a file (@…); '
+        'this step cannot read what that file holds — inline those names, or narrow '
+        'the rule by hand" >&2; exit 1; }',
+        # \1 is everything up to the method, \5 the whitespace or end of line
+        # after it — keep both in step with BLANKET_TRUST_RULE's groups, which
+        # the role list adds two of.
+        f'sed -ri "s#{BLANKET_TRUST_RULE}#\\1scram-sha-256\\5#" "$PGHBA"',
+        f"if ! {reached}; then",
+        # The insertion must be at least as permissive as the downgrade above, or
+        # the role's line lands *after* a rule that matches the same connection
+        # first — pg_hba is first-match-wins, and the line would never be read.
+        # Before the *first* host rule of any kind: anything later could be a rule
+        # that already matches this connection (a group role, a wider address).
+        f'  if grep -qE {shlex.quote(ANY_HOST_RULE)} "$PGHBA"; then',
+        f'    sed -ri "0,/{ANY_HOST_RULE}/s##{v4}\\n{v6}\\n&#" "$PGHBA"',
+        '  else',
+        # Leading newline: a file with no final one would otherwise have its last
+        # record fused with the first inserted line, which pg_hba cannot parse.
+        f'    printf "\\n%s\\n%s\\n" {shlex.quote(v4)} {shlex.quote(v6)} >> "$PGHBA"',
+        '  fi',
+        'fi',
+        f'{reached} || '
+        f'{{ echo "the loopback trust line for {role} in $PGHBA is missing or is shadowed by an '
+        f'earlier rule" >&2; exit 1; }}',
+    ])
+    # The grep proves the line exists, not that it is reached: an earlier rule
+    # matching the same connection wins, and pg_hba is first-match-wins. Only a
+    # connection proves the narrowing did what it says.
+    connect = (
+        f"psql -X -w -h 127.0.0.1 -U {shlex.quote(role)} -d postgres -tAc 'SELECT 1' >/dev/null 2>&1"
+    )
+    probe = "\n".join([
+        # The retry is on the connection itself — the reload is asynchronous, and
+        # retrying anything else proves nothing about it.
+        "tries=0",
+        'while [ "$tries" -lt 5 ]; do',
+        f"  {connect} && ok=1 && break",
+        "  tries=$((tries + 1)); sleep 1",
+        "done",
+        f'[ "${{ok:-}}" = 1 ] || {{ echo "{role} cannot connect over loopback after the reload — '
+        f"check that PostgreSQL is running, and the rules above the ones this step added in "
+        f'$(sudo -u postgres psql -X -tAc \"SHOW hba_file;\")" >&2; exit 1; }}',
+    ])
+    return [
         Command(
-            tf("Trust loopback connections for local development (pg_hba)"),
-            'PGHBA=$(sudo -u postgres psql -tAc "SHOW hba_file;") && '
-            'sed -ri "s#^(host\\s+all\\s+all\\s+127\\.0\\.0\\.1/32\\s+)\\S+#\\1trust#" "$PGHBA" && '
-            'sed -ri "s#^(host\\s+all\\s+all\\s+::1/128\\s+)\\S+#\\1trust#" "$PGHBA"',
+            tf("Trust loopback connections of {} for local development (pg_hba)", role),
+            script,
         ),
         Command(tf("Reload PostgreSQL"), "systemctl reload postgresql"),
+        Command(tf("Ask PostgreSQL to read back the rules for {}", role), _pg_hba_audit(role)),
+        Command(tf("Check that {} connects over loopback", role), probe),
     ]
+
+
+def _pg_hba_audit(role: str) -> str:
+    """Have the server parse what was just written, instead of trusting the text.
+
+    `pg_hba_file_rules` folds continuations, expands `include*` and names the file
+    each rule came from, so this sees rules the rewriter above cannot — a check
+    written against a different source of truth.
+
+    It reads the *file*, re-parsed at query time, not the rule set the postmaster
+    has loaded: PostgreSQL exposes no view of that. The `error` check is what ties
+    the two together — a file the server cannot parse is one it refused to load,
+    so the rules in force are still the previous ones — and the connection check
+    that follows is what proves the loaded set actually lets the role in."""
+    # `file_name` and `rule_number` exist from PostgreSQL 15; `include` directives
+    # (the only reason a rule can come from another file) from 16. Below 15 the
+    # configured file is the only one there is, so `hba_file` names it.
+    tcp_trust = "type LIKE 'host%' AND auth_method = 'trust'"
+    ask = "sudo -u postgres psql -X -w -tAc"
+    return "\n".join([
+        "set -e",
+        f"PGVER=$({ask} 'SHOW server_version_num')",
+        'if [ "${PGVER:-0}" -ge 150000 ]; then',
+        "  LOC=\"coalesce(file_name, '') || ':' || line_number\"; ORD=rule_number",
+        "else",
+        "  LOC=\"(SELECT setting FROM pg_settings WHERE name='hba_file') || ':' || line_number\"",
+        "  ORD=line_number",
+        "fi",
+        # Does the rule at `file:line` name every role, or a role *named* `all`?
+        # A file this cannot open leaves the view's answer standing: treating an
+        # unreadable line as narrow is the one mistake with a cost.
+        # Called only for a rule the *server* says trusts every role. The line is
+        # read for one bit the view lost — whether `all` was written "all" — and
+        # may say nothing else: it answers "not every role" only when it is a
+        # shape this reads exactly as `hba.c` does (plain or blank-free quoted
+        # names, no `@file`, no continuation, no `#` before the method) and that
+        # reading holds no bare `all`. Anything else keeps the server's answer.
+        # Four fixes each let this narrow the server's answer in one more shape,
+        # and each was a blanket trust reported as narrowed.
+        "names_every_role() {",
+        '  hba_file=${1%:*}; hba_line=${1##*:}',
+        '  [ -f "$hba_file" ] || return 0',
+        '  hba_text=$(sed -n "${hba_line}p" "$hba_file")',
+        '  printf "%s\\n" "$hba_text" | grep -qE "$EXACT" || return 0',
+        # 0 = "every role": a bare `all` among elements this read exactly.
+        '  printf "%s\\n" "$hba_text" | grep -qE "$ROLEALL"',
+        "}",
+        # A file the server cannot parse is a file it did not load: `pg_ctl reload`
+        # returns 0 whatever happens, so without this the steps below would read a
+        # narrowed file while the rules in force are still the old ones.
+        f'BAD=$({ask} "SELECT $LOC FROM pg_hba_file_rules WHERE error IS NOT NULL '
+        'ORDER BY line_number LIMIT 1")',
+        '[ -z "$BAD" ] || { echo "PostgreSQL cannot parse the rule at $BAD, so it refused to load '
+        'the file — the rules it is running are still the previous ones" >&2; exit 1; }',
+        # Roles named by pattern or group: the view reports the field verbatim and
+        # this step cannot tell whether it covers every role, so it says so.
+        f'WIDE=$({ask} "SELECT $LOC FROM pg_hba_file_rules WHERE {tcp_trust} '
+        "AND EXISTS (SELECT 1 FROM unnest(user_name) u WHERE u LIKE '/%' OR u LIKE '+%') "
+        f'ORDER BY $ORD LIMIT 1")',
+        '[ -z "$WIDE" ] || { echo "the trust rule at $WIDE names its roles by pattern or group, '
+        'which this step cannot rule out — narrow it by hand" >&2; exit 1; }',
+        # `"all"` in the file is a role *named* all, which PostgreSQL does not
+        # match a connection against, though the view reports it exactly like the
+        # keyword. Only the line tells them apart — and only in that field: the
+        # server reads `host all all "127.0.0.1/32" trust` as the blanket trust it
+        # is. Both walks below ask the same question of the same field.
+        # A field this reads exactly as the server does: elements that are plain
+        # words or quoted names with no blank, `#`, `@` or backslash inside, joined
+        # by commas with no blank around them. Then, a bare `all` among them.
+        "ELEM='(\"[^\"[:space:]#@\\\\]*\"|[^\"[:space:]#@\\\\,]+)'",
+        "EXACT=\"^[[:space:]]*host[a-z]*[[:space:]]+$ELEM(,$ELEM)*[[:space:]]+$ELEM(,$ELEM)*"
+        "[[:space:]]+[^[:space:]#]+([[:space:]]+[0-9a-fA-F.:]+)?[[:space:]]+[a-z0-9-]+"
+        "[[:space:]]*(#.*)?\\$\"",
+        "ROLEALL=\"^[[:space:]]*host[a-z]*[[:space:]]+$ELEM(,$ELEM)*"
+        "[[:space:]]+($ELEM,)*all(,$ELEM)*[[:space:]]\"",
+        # -f: a glob character in a path must not be expanded while splitting, and
+        # a location is `file:line`, so splitting is on newlines only.
+        "set -f",
+        'IFS="',
+        '"',
+        f'LEFT=$({ask} "SELECT $LOC FROM pg_hba_file_rules WHERE {tcp_trust} '
+        f'AND \'all\' = ANY(user_name) ORDER BY $ORD")',
+        "for loc in $LEFT; do",
+        '  [ -n "$loc" ] || continue',
+        '  names_every_role "$loc" || continue',
+        '  echo "a rule still trusts every role over TCP, at $loc — this step did not narrow it '
+        '(it may live in a file it cannot rewrite)" >&2',
+        "  exit 1",
+        "done",
+        # The rule PostgreSQL matches for the role: the first one covering it, by
+        # field — the same reading the rewriter's awk and `provision check` use, so
+        # none of the three can pass a file the others fail. Only a plain `host`
+        # rule reaches the role (with TLS on, `hostnossl` is never consulted), which
+        # is why the verdict is narrower than the rules walked.
+        f'ROWS=$({ask} "SELECT $LOC || \'|\' || '
+        f"CASE WHEN type = 'host' AND auth_method = 'trust' AND '{role}' = ANY(user_name) "
+        "AND 'all' = ANY(database) THEN 'ok' ELSE 'no' END || '|' || "
+        f"CASE WHEN '{role}' = ANY(user_name) THEN 'named' ELSE 'keyword' END "
+        f"FROM pg_hba_file_rules WHERE type LIKE 'host%' "
+        f"AND ('{role}' = ANY(user_name) OR 'all' = ANY(user_name)) "
+        f'ORDER BY $ORD")',
+        'FIRST=; WHERE=none',
+        "for row in $ROWS; do",
+        '  [ -n "$row" ] || continue',
+        '  loc=${row%%|*}; rest=${row#*|}; verdict=${rest%%|*}; how=${rest##*|}',
+        # Matched only through `all`: it covers the role only if that field really
+        # is the keyword.
+        '  if [ "$how" = keyword ]; then names_every_role "$loc" || continue; fi',
+        '  FIRST=$verdict; WHERE=$loc; break',
+        "done",
+        "set +f",
+        "unset IFS",
+        f'[ "$FIRST" = ok ] || {{ echo "the first rule PostgreSQL matches for {role} is at $WHERE, '
+        f'not the trust rule this step added" >&2; exit 1; }}',
+    ])
 
 
 def plan_wkhtmltopdf(major: int, codename: str) -> list[Command]:
@@ -315,16 +643,27 @@ def plan_wkhtmltopdf(major: int, codename: str) -> list[Command]:
     if asset is None:
         return []
     url, filename, sha256 = asset
-    tmp = f"/tmp/{filename}"
+    tmp = f"{_ROOT_WORK_DIR}/{filename}"
     return [
         Command(tf("Ensure curl is available"),
-                "command -v curl >/dev/null 2>&1 || (apt-get update && apt-get -y install curl)"),
+                f"command -v curl >/dev/null 2>&1 || (apt-get update && {APT_INSTALL} curl)"),
+        Command(tf("Create download directory {}", _ROOT_WORK_DIR),
+                f"mkdir -m 700 -p {shlex.quote(_ROOT_WORK_DIR)}"),
         Command(tf("Download patched wkhtmltopdf ({})", filename),
                 f"curl -fSL -o {shlex.quote(tmp)} {shlex.quote(url)}"),
         Command(tf("Verify wkhtmltopdf SHA-256 (abort on mismatch)"),
                 f"echo {shlex.quote(sha256 + '  ' + tmp)} | sha256sum -c -"),
         Command(tf("Install verified wkhtmltopdf .deb"),
-                f"apt-get -y install {shlex.quote(tmp)}"),
+                f"{APT_INSTALL} {shlex.quote(tmp)}"),
+        # The patched build is the whole reason for this step: an unpatched
+        # distribution one earlier on PATH would leave it reporting success with
+        # Odoo's PDF reports still degraded.
+        Command(
+            tf("Check that the patched wkhtmltopdf is the one on PATH"),
+            'wkhtmltopdf --version 2>/dev/null | grep -qi "with patched qt" || '
+            '{ echo "the wkhtmltopdf on PATH is not the patched build: '
+            '$(command -v wkhtmltopdf || echo none) — PDF reports will be degraded" >&2; exit 1; }',
+        ),
         Command(tf("Remove downloaded wkhtmltopdf .deb"), f"rm -f {shlex.quote(tmp)}"),
     ]
 
@@ -337,13 +676,16 @@ def plan_node_rtlcss() -> list[Command]:
         # Without recommends: they pulled in 455 packages on Ubuntu 24.04, a GUI
         # terminal among them, for what only needs node and npm.
         Command(tf("Install Node.js and npm"),
-                "apt-get update && apt-get -y install --no-install-recommends nodejs npm"),
+                f"apt-get update && {APT_INSTALL} --no-install-recommends nodejs npm"),
         Command(tf("Install rtlcss globally"), "npm install -g rtlcss"),
     ]
 
 
 # --- egress control and mail capture (optional) ----------------------------
 
+# Root downloads go here, never /tmp: a local user could pre-create a predictable
+# /tmp path they own and swap a verified file before it is installed.
+_ROOT_WORK_DIR = "/var/cache/odoo_dwg"
 _POLICY_RC = "/usr/sbin/policy-rc.d"
 _POLICY_MARK = "odoo_dwg: keep opensnitch stopped until it is configured"
 
@@ -358,12 +700,13 @@ def plan_opensnitch(resolvers: list[str], installed_version: str | None = None) 
     version is already installed, only the configuration, rules and restart run."""
     commands: list[Command] = []
     if not (installed_version or "").startswith(egress.OPENSNITCH_VERSION):
-        workdir = "/tmp/odwg-opensnitch"
+        workdir = f"{_ROOT_WORK_DIR}/opensnitch"
         debs = [f"{workdir}/{name}" for name, _sha in egress.OPENSNITCH_PACKAGES]
         commands += [
             Command(tf("Ensure curl is available"),
-                    "command -v curl >/dev/null 2>&1 || (apt-get update && apt-get -y install curl)"),
-            Command(tf("Create download directory {}", workdir), f"mkdir -p {shlex.quote(workdir)}"),
+                    f"command -v curl >/dev/null 2>&1 || (apt-get update && {APT_INSTALL} curl)"),
+            Command(tf("Create download directory {}", workdir),
+                    f"rm -rf {shlex.quote(workdir)} && mkdir -m 700 -p {shlex.quote(workdir)}"),
         ]
         for (name, sha512), deb in zip(egress.OPENSNITCH_PACKAGES, debs, strict=True):
             commands += [
@@ -377,12 +720,15 @@ def plan_opensnitch(resolvers: list[str], installed_version: str | None = None) 
         commands += [
             Command(
                 tf("Install OpenSnitch {} without starting it", egress.OPENSNITCH_VERSION),
-                # Refuse to replace an existing policy-rc.d; always remove ours,
-                # even when the install fails.
-                f"if [ -e {_POLICY_RC} ]; then echo '{_POLICY_RC} already exists' >&2; exit 1; fi; "
+                # Never replace someone else's policy-rc.d (one left by an
+                # interrupted earlier run carries our mark and is reused). Ours is
+                # removed on every exit, including Ctrl-C and a failed install.
+                f"if [ -e {_POLICY_RC} ] && ! grep -q '{_POLICY_MARK}' {_POLICY_RC}; then "
+                f"echo '{_POLICY_RC} already exists and is not ours' >&2; exit 1; fi; "
+                f"trap 'rm -f {_POLICY_RC}' EXIT INT TERM HUP; "
                 f"printf '#!/bin/sh\\n# {_POLICY_MARK}\\nexit 101\\n' > {_POLICY_RC} && "
-                f"chmod 755 {_POLICY_RC}; "
-                f"apt-get -y install {install}; status=$?; rm -f {_POLICY_RC}; exit $status",
+                f"chmod 755 {_POLICY_RC} && "
+                f"{APT_INSTALL} {install}",
             ),
             Command(tf("Remove downloaded packages"), f"rm -rf {shlex.quote(workdir)}"),
         ]
@@ -414,12 +760,13 @@ def plan_mailpit(installed_version: str | None = None) -> list[Command]:
     version is already installed."""
     commands: list[Command] = []
     if installed_version != egress.MAILPIT_VERSION:
-        workdir = "/tmp/odwg-mailpit"
+        workdir = f"{_ROOT_WORK_DIR}/mailpit"
         archive = f"{workdir}/mailpit-linux-amd64.tar.gz"
         commands += [
             Command(tf("Ensure curl is available"),
-                    "command -v curl >/dev/null 2>&1 || (apt-get update && apt-get -y install curl)"),
-            Command(tf("Create download directory {}", workdir), f"mkdir -p {shlex.quote(workdir)}"),
+                    f"command -v curl >/dev/null 2>&1 || (apt-get update && {APT_INSTALL} curl)"),
+            Command(tf("Create download directory {}", workdir),
+                    f"rm -rf {shlex.quote(workdir)} && mkdir -m 700 -p {shlex.quote(workdir)}"),
             Command(tf("Download Mailpit {}", egress.MAILPIT_VERSION),
                     f"curl -fSL -o {shlex.quote(archive)} {shlex.quote(egress.MAILPIT_URL)}"),
             Command(tf("Verify Mailpit SHA-256 (abort on mismatch)"),
@@ -460,7 +807,7 @@ def plan_opensnitch_uninstall() -> list[Command]:
         Command(tf("Remove the tool's own OpenSnitch rules ({}*)", egress.RULE_PREFIX),
                 f"rm -f {shlex.quote(egress.OPENSNITCH_RULES_DIR)}/{egress.RULE_PREFIX}*.json"),
         Command(tf("Purge OpenSnitch and the packages it pulled in"),
-                f"apt-get -y purge --autoremove {packages}"),
+                f"{APT_PURGE} --autoremove {packages}"),
         # The packet-queue modules it loaded stay in the kernel until reboot otherwise.
         Command(tf("Unload the kernel modules it used"),
                 "modprobe -r nft_queue nfnetlink_queue 2>/dev/null || true"),
@@ -487,7 +834,7 @@ def plan_mail_redirect(database: str, host: str, port: int, user: str) -> list[C
     return [
         Command(
             tf("Redirect the mail of database {} to Mailpit", database),
-            f"psql -h {shlex.quote(host)} -p {int(port)} -U {shlex.quote(user)} "
+            f"psql -X -h {shlex.quote(host)} -p {int(port)} -U {shlex.quote(user)} "
             f"-d {shlex.quote(database)} -v ON_ERROR_STOP=1 "
             f"-c {shlex.quote(egress.mail_redirect_sql())}",
         )
@@ -508,8 +855,7 @@ def plan_migration_clones(env: MigrationEnv, exists: Exists = _never) -> list[Co
             commands.append(
                 Command(
                     tf("Clone OpenUpgrade {}", version),
-                    f"git clone --depth 1 --branch {shlex.quote(version)} --single-branch "
-                    f"{shlex.quote(env.openupgrade_url)} {shlex.quote(str(ou_dest))}",
+                    _clone_command(env.openupgrade_url, version, ou_dest),
                 )
             )
         if not env.uses_legacy_layout(version):
@@ -518,8 +864,7 @@ def plan_migration_clones(env: MigrationEnv, exists: Exists = _never) -> list[Co
                 commands.append(
                     Command(
                         tf("Clone Odoo {}", version),
-                        f"git clone --depth 1 --branch {shlex.quote(version)} --single-branch "
-                        f"{shlex.quote(env.odoo_repo_url)} {shlex.quote(str(odoo_dest))}",
+                        _clone_command(env.odoo_repo_url, version, odoo_dest),
                     )
                 )
     return commands
@@ -531,19 +876,30 @@ def _setuptools_pin(version: str) -> str:
     return f" '{SETUPTOOLS_PIN}'" if odoo_major(version) <= PKG_RESOURCES_LAST_MAJOR else ""
 
 
-def plan_migration_venvs(env: MigrationEnv, exists: Exists = _never) -> list[Command]:
+def _never_read(_path: Path) -> str | None:
+    return None
+
+
+def plan_migration_venvs(
+    env: MigrationEnv, exists: Exists = _never, read: Read = _never_read
+) -> list[Command]:
     """For each natively-run version: write the overrides file, build a uv venv with
     the matched interpreter, and install requirements (with ``--overrides`` repairs)
     + psycopg2-binary + openupgradelib. Every step in the chain gets one.
 
     Skips on the ready *marker*, not the venv directory: a venv whose installs
-    failed midway has no marker and is rebuilt (``uv venv`` recreates in place)."""
+    failed midway has no marker and is rebuilt (``uv venv`` recreates in place).
+    A ready venv is also rebuilt when its ``pyvenv.cfg`` (read through ``read``)
+    names another interpreter than the step now resolves to — that is how a
+    newly pinned Python takes effect."""
     commands: list[Command] = []
     for version in env.chain():
         python, _method = env.interpreter(version)
         if python is None:  # pragma: no cover - every version declares one
             continue
-        if exists(env.venv_ready_marker(version)):
+        if exists(env.venv_ready_marker(version)) and _venv_python(env, version, read) in (
+            None, python
+        ):
             continue
         if not commands:
             commands.append(
@@ -597,33 +953,69 @@ def plan_migration_venvs(env: MigrationEnv, exists: Exists = _never) -> list[Com
     return commands
 
 
-def plan_migration_configs(env: MigrationEnv) -> list[Command]:
-    """Write the per-step odoo.conf and the run_migration.sh driver."""
+def plan_migration_configs(
+    env: MigrationEnv, read: Read = _unread, stamp: str = ""
+) -> list[Command]:
+    """Write the per-step odoo.conf and the run_migration.sh driver.
+
+    A step's `odoo.conf` is the natural place to add `limit_time_real = 0` or an
+    extra addons path while chasing a stuck step, and re-generating an environment
+    is routine — so an existing file that would change is kept as
+    ``<file>.bak-<stamp>`` first, exactly as the workspace surface does."""
     dirs: list[Path] = [env.conf_dir, env.checkpoints_dir, env.logs_dir, env.requirements_dir]
     for version in env.chain():
         dirs += [env.addons_custom_dir(version), env.addons_oca_dir(version)]
+    private = [env.checkpoints_dir, env.logs_dir]
     commands: list[Command] = [
         Command(
             tf("Create migration directories"),
-            "mkdir -p " + " ".join(shlex.quote(str(p)) for p in dirs),
+            "mkdir -p " + " ".join(shlex.quote(str(p)) for p in dirs)
+            # A checkpoint is a `pg_dump` of the restored copy of a customer's
+            # production database, and a log is Odoo's log for it. `chmod` rather
+            # than `mkdir -m`, so an environment generated before this is narrowed
+            # too — `mkdir -p` leaves an existing directory's mode alone.
+            + " && chmod 700 " + " ".join(shlex.quote(str(p)) for p in private),
         )
     ]
-    for version in env.chain():
-        commands += write_text_file_command(
-            env.config_file(version), templates.render_migration_conf(env, version)
-        )
-    commands += write_text_file_command(
-        env.root / "run_migration.sh", templates.render_run_migration_sh(env), "755"
-    )
+    files = [
+        (env.config_file(version), templates.render_migration_conf(env, version), "644")
+        for version in env.chain()
+    ]
+    files.append((env.root / "run_migration.sh", templates.render_run_migration_sh(env), "755"))
+    for path, content, mode in files:
+        current = read(path)
+        if current is not None and current.rstrip("\n") == content.rstrip("\n"):
+            continue
+        if current is not None:
+            backup = Path(f"{path}.bak-{stamp}" if stamp else f"{path}.bak")
+            commands.append(
+                Command(
+                    tf("Back up {} to {}", str(path), str(backup)),
+                    f"cp -p {shlex.quote(str(path))} {shlex.quote(str(backup))}",
+                )
+            )
+        commands += write_text_file_command(path, content, mode)
     return commands
 
 
-def plan_generate_migration(env: MigrationEnv, exists: Exists = _never) -> list[Command]:
+
+def _venv_python(env: MigrationEnv, version: str, read: Read) -> str | None:
+    """The ``3.N`` a step's venv was built with, from its ``pyvenv.cfg``; None when
+    it cannot be read (a ready venv is then kept, as before this check existed)."""
+    text = read(env.venv_dir(version) / "pyvenv.cfg")
+    choice = interpreter_from_pyvenv(version, text) if text else None
+    return choice.python if choice else None
+
+
+def plan_generate_migration(
+    env: MigrationEnv, exists: Exists = _never, read: Read = _never_read, stamp: str = ""
+) -> list[Command]:
     """Full migration-environment plan: clones + uv venvs + configs + driver."""
     return (
         plan_migration_clones(env, exists)
-        + plan_migration_venvs(env, exists)
-        + plan_migration_configs(env)
+        + plan_migration_venvs(env, exists, read)
+        # The same reader: a hand-tuned step config is kept as .bak-<stamp>.
+        + plan_migration_configs(env, read, stamp)
     )
 
 
@@ -685,8 +1077,14 @@ def plan_stage_module(env: MigrationEnv, module: str, source_dir: Path) -> list[
                 f"git -C {shlex.quote(str(target_parent))} init -q && "
                 f"git -C {shlex.quote(str(target_parent))} add -A && "
                 f"git -C {shlex.quote(str(target_parent))} "
+                # Independent of the operator's git config, all of it: a global
+                # `commit.gpgsign = true` fails this throwaway commit outright
+                # (git exits 128, since the interpolated identity has no key),
+                # and a global hook has no business running on it either.
                 f"-c user.name=odoo-dwg -c user.email=odoo-dwg@localhost "
-                f"commit -qm {shlex.quote(f'stage {module} {version} input')} || true",
+                f"-c core.hooksPath=/dev/null "
+                f"commit -qm {shlex.quote(f'stage {module} {version} input')} "
+                f"--allow-empty --no-gpg-sign --no-verify",
             ),
             Command(
                 tf("Migrate {} code {} -> {}", module, previous_version, version),
@@ -769,7 +1167,7 @@ def plan_generate_workspace(
     commands = plan_repo_cache(cfg, exists)
     commands += plan_workspace_tree(cfg, interpreters)
     for version in cfg.versions:
-        if not exists(cfg.venv_dir(version)):
+        if not exists(cfg.venv_ready_marker(version)):
             commands += plan_build_venv(
                 cfg, version, interpreter=(interpreters or {}).get(version)
             )
@@ -823,6 +1221,11 @@ def plan_build_venv(
             templates.requirements_install_command(
                 str(venv / "bin" / "pip"), str(odoo / "requirements.txt"), version
             ),
+        ),
+        # Last, so the marker means "every install above finished".
+        Command(
+            tf("Mark the venv {} ready", str(venv)),
+            f"touch {shlex.quote(str(cfg.venv_ready_marker(version)))}",
         ),
     ]
     return commands

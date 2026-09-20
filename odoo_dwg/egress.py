@@ -95,7 +95,8 @@ DEV_INFRASTRUCTURE_HOSTS: tuple[str, ...] = (
     r"pypi\.org",
     r"files\.pythonhosted\.org",
     r"([a-z0-9-]+\.)*astral\.sh",
-    r"archive\.ubuntu\.com",
+    # The archive and its country mirrors (es.archive.ubuntu.com, …).
+    r"([a-z]{2}\.)?archive\.ubuntu\.com",
     r"security\.ubuntu\.com",
     r"registry\.npmjs\.org",
 )
@@ -137,19 +138,30 @@ def baseline_rules(resolvers: list[str]) -> list[dict]:
     if resolvers:
         pattern = "^(" + "|".join(re.escape(ip) for ip in resolvers) + ")$"
         rules.append(
-            _rule("001-allow-dns-resolvers", "DNS servers from /etc/resolv.conf.", "allow",
-                  _op("dest.ip", pattern, "regexp"))
+            # A "list" operator ANDs its items: the resolver addresses *and* the
+            # DNS port. Without the port this would open every port of the
+            # resolver — on WSL, the Windows host — to every process, Odoo
+            # included.
+            _rule("001-allow-dns-resolvers", "DNS servers from /etc/resolv.conf, port 53 only.",
+                  "allow",
+                  {"operand": "list", "data": "", "type": "list", "sensitive": False,
+                   "list": [_op("dest.ip", pattern, "regexp"), _op("dest.port", "53")]})
         )
     rules += [
         _rule("002-allow-ntp", "System clock synchronisation.", "allow",
               _op("process.path", "/usr/lib/systemd/systemd-timesyncd")),
-        _rule("003-allow-vscode-server", "The VS Code server of any user (WSL / remote).", "allow",
-              _op("process.path", r"^/home/[^/]+/\.vscode-server/", "regexp")),
-        _rule("010-reject-odoo-external",
-              "Odoo (odoo-bin: workspaces, migrations, shell) may reach localhost only.",
+        # Ahead of every allow rule but loopback and DNS: rules are evaluated in
+        # file-name order and the first match wins, so an allow that matched
+        # odoo-bin first (the VS Code server's own processes, for instance) would
+        # open exactly the hole this rule exists to close.
+        _rule("003-reject-odoo-external",
+              "Odoo (odoo-bin: workspaces, migrations, shell) may reach localhost only — "
+              "DNS on port 53 is allowed by the rules above.",
               "reject", _op("process.command", "odoo-bin", "regexp")),
+        _rule("004-allow-vscode-server", "The VS Code server of any user (WSL / remote).", "allow",
+              _op("process.path", r"^/home/[^/]+/\.vscode-server/", "regexp")),
         _rule("020-allow-dev-infrastructure",
-              "Development infrastructure any tool may reach. Odoo is rejected by 010 first.",
+              "Development infrastructure any tool may reach. Odoo is rejected by 003 first.",
               "allow",
               _op("dest.host", "^(" + "|".join(DEV_INFRASTRUCTURE_HOSTS) + ")$", "regexp")),
     ]
@@ -192,7 +204,11 @@ def hardening_script() -> str:
         "    for parent in parents:\n"
         "        node = node.setdefault(parent, {})\n"
         "    node[key] = value\n"
-        "json.dump(config, open(path, 'w'), indent=4)\n"
+        "import os\n"
+        "tmp = path + '.odwg-tmp'\n"
+        "with open(tmp, 'w') as handle:\n"
+        "    json.dump(config, handle, indent=4)\n"
+        "os.replace(tmp, path)  # atomic: never a truncated config\n"
     )
 
 

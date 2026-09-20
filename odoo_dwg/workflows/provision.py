@@ -66,10 +66,25 @@ def _apply() -> None:
     commands: list = []
     if facts.build_deps_missing:
         commands += planners.plan_build_deps()
-    if not facts.postgres_installed or not facts.dev_role_exists:
+    # Every probe is a tri-state: False and None both mean "do the work". A
+    # stopped server hides the role and pg_hba behind None, and skipping on that
+    # would report a host as provisioned that has no role at all.
+    if (not facts.postgres_installed or not facts.postgres_running
+            or facts.dev_role_exists is not True):
         commands += planners.plan_postgresql(role)
+    elif facts.pg_hba_blanket_trust is not False or facts.pg_hba_role_trusted is not True:
+        # PostgreSQL and the role are already there, but the loopback rules are
+        # not the ones this tool wants (or could not be read): narrow them.
+        commands += planners.plan_pg_hba_trust(role)
     if not facts.wkhtmltopdf or "with patched qt" not in facts.wkhtmltopdf.lower():
-        commands += planners.plan_wkhtmltopdf(_DEV_WKHTMLTOPDF_MAJOR, facts.os_codename)
+        wkhtmltopdf = planners.plan_wkhtmltopdf(_DEV_WKHTMLTOPDF_MAJOR, facts.os_codename)
+        if not wkhtmltopdf:
+            print(level_text("WARN", tf(
+                "No verified patched wkhtmltopdf is pinned for {} — install it by hand "
+                "(github.com/wkhtmltopdf/packaging) or PDF reports will be degraded.",
+                facts.os_codename or "this host",
+            )))
+        commands += wkhtmltopdf
     if ask_bool(
         "Install rtlcss (with Node.js)? Only needed if users work in a right-to-left language (Arabic, Hebrew, Persian…)",
         False,
@@ -85,6 +100,30 @@ def _apply() -> None:
     if ask_bool("Apply this plan now?", False):
         apply_commands(commands)
         print(level_text("OK", t("Provisioning applied.")))
+        _report_services()
+
+
+def _report_services() -> None:
+    """What the services are actually doing, once the plan says it is done.
+
+    `systemctl restart` returns as soon as a `Type=simple` unit is forked, so a
+    daemon that dies a second later leaves every step reporting success. Both of
+    these are security-relevant when they are not running — the firewall most of
+    all — so the state is read back rather than assumed."""
+    opensnitch, firewall_on, mailpit, capture_on = _egress_status()
+    if not opensnitch and not mailpit:
+        return
+    rows = []
+    if opensnitch:
+        rows.append(["OpenSnitch", opensnitch, t("running") if firewall_on else t("NOT running")])
+    if mailpit:
+        rows.append(["Mailpit", mailpit, t("running") if capture_on else t("NOT running")])
+    print(render_table(["Component", "Version", "State"], rows))
+    if (opensnitch and not firewall_on) or (mailpit and not capture_on):
+        print(level_text("WARN", t(
+            "A service is installed but not running. Check `systemctl status` for it: a unit that "
+            "starts and then exits still leaves its install step reporting success."
+        )))
 
 
 def _optional_egress(facts: provisioning.ProvisionFacts) -> list:
@@ -95,8 +134,8 @@ def _optional_egress(facts: provisioning.ProvisionFacts) -> list:
             "INFO",
             t(
                 "OpenSnitch blocks every outbound connection without a rule, asking in its UI "
-                "when it is open. Odoo may reach only localhost; the development tools keep "
-                "their hosts. See docs/egress-control.md."
+                "when it is open. Odoo may reach only localhost, plus DNS on port 53; the "
+                "development tools keep their hosts. See docs/egress-control.md."
             ),
         )
     )
@@ -119,9 +158,7 @@ def _egress_status() -> tuple[str | None, bool, str | None, bool]:
 
 
 def _uninstall_opensnitch() -> None:
-    packages = " ".join(planners.OPENSNITCH_PACKAGE_NAMES)
-    simulated = system.run(f"apt-get -s purge --autoremove {packages}", check=False).stdout
-    removed = sorted({line.split()[1] for line in simulated.splitlines() if line.startswith("Purg ")})
+    removed = system.apt_purge_removals(planners.OPENSNITCH_PACKAGE_NAMES)
     print(level_text("INFO", tf("apt would remove {} package(s): {}", len(removed), ", ".join(removed))))
     print(level_text("INFO", tf("Your own rules in {} are kept.", egress.OPENSNITCH_RULES_DIR)))
     if not confirm_with_phrase(t("This removes the outbound firewall."), "UNINSTALL"):

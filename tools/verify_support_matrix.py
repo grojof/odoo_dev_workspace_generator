@@ -2,7 +2,7 @@
 """Re-derive the support matrix from its official sources and report any drift.
 
 Developer tooling, not part of the package: ``odoo_dwg`` never imports this, and
-this is the only file in the repository that reaches the network. Run it when an
+like the other tools/verify_*.py checks, it reaches the network. Run it when an
 Odoo branch may have changed what it targets, or before trusting a bound:
 
     python tools/verify_support_matrix.py            # every version

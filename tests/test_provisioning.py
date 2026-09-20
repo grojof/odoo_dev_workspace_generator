@@ -24,7 +24,7 @@ def test_bare_host_reports_missing():
     states = _states(provision_rows(facts))
     assert states["Odoo build dependencies"] == "MISSING"
     assert states["PostgreSQL"] == "MISSING"
-    assert states["Dev role (odoo)"] == "MISSING"
+    assert states["Development role (odoo)"] == "MISSING"
     assert states["wkhtmltopdf"] == "MISSING"
 
 
@@ -45,7 +45,7 @@ def test_ready_host_reports_ok():
     states = _states(provision_rows(facts))
     assert states["Odoo build dependencies"] == "OK"
     assert states["PostgreSQL"] == "OK"
-    assert states["Dev role (odoo)"] == "OK"
+    assert states["Development role (odoo)"] == "OK"
     assert states["wkhtmltopdf"] == "OK"
 
 
@@ -170,3 +170,76 @@ def test_apply_rejects_an_unsafe_role_before_probing_or_planning(monkeypatch, ca
     monkeypatch.setattr(provision.planners, "plan_postgresql", _unexpected)
     provision._apply()
     assert "Invalid PostgreSQL role" in capsys.readouterr().out
+
+
+def test_an_unknown_role_is_a_warning_not_missing():
+    facts = ProvisionFacts(os_id="ubuntu", os_version_id="24.04", postgres_installed=True,
+                           postgres_running=True, dev_role="odoo", dev_role_exists=None)
+    state = {check: (st, detail) for st, check, detail in provision_rows(facts)}["Development role (odoo)"]
+    assert state[0] == "WARN" and "without sudo" in state[1]
+
+
+def test_postgres_probes_never_prompt(monkeypatch):
+    """Every probe command either needs no authentication or uses `sudo -n`."""
+    from odoo_dwg import system
+
+    seen: list[str] = []
+
+    class _Done:
+        def __init__(self, code=1, out=""):
+            self.returncode, self.stdout, self.stderr = code, out, ""
+
+    monkeypatch.setattr(system, "run", lambda cmd, check=False: seen.append(cmd) or _Done())
+    monkeypatch.setattr(system, "command_ok", lambda cmd: seen.append(cmd) or False)
+    monkeypatch.setattr(system, "has_tool", lambda name: False)
+    system.postgres_running()
+    system.detect_postgres_version()
+    # The two that read as the server: both capture their output, so a password
+    # prompt would hang the flow with nothing on screen.
+    system.pg_hba_rules()
+    system.psql_scalar("SELECT 1", "acme")
+    assert system.db_role_exists("odoo") is None
+    assert system.db_role_exists("bad role; x") is False
+    for cmd in seen:
+        assert "sudo -u" not in cmd, cmd
+        if "sudo" in cmd:
+            assert "sudo -n " in cmd, cmd
+    assert any("pg_isready" in cmd for cmd in seen)
+    assert any("-U odoo" in cmd and "-w" in cmd for cmd in seen)
+    # Every psql here runs with -X: `~/.psqlrc` can hold a `\c otherdb` or a
+    # `\! command`, and a probe's output is captured, so neither would be seen.
+    for cmd in seen:
+        if "psql" in cmd:
+            assert "psql -X" in cmd, cmd
+
+
+def _hba_row(**kwargs) -> tuple[str, str]:
+    facts = ProvisionFacts(
+        os_id="ubuntu", os_version_id="24.04", postgres_installed=True, dev_role="odoo", **kwargs
+    )
+    for state, check, detail in provision_rows(facts):
+        if check == "PostgreSQL loopback auth":
+            return state, detail
+    raise AssertionError("no loopback auth row")
+
+
+def test_blanket_loopback_trust_is_reported_so_apply_narrows_it():
+    # The dangerous one: any local user may connect as postgres.
+    state, detail = _hba_row(pg_hba_blanket_trust=True, pg_hba_role_trusted=True)
+    assert state == "WARN"
+    assert "odoo" in detail
+
+    state, _ = _hba_row(pg_hba_blanket_trust=False, pg_hba_role_trusted=True)
+    assert state == "OK"
+
+
+def test_a_missing_role_trust_line_is_reported_without_alarm():
+    state, _ = _hba_row(pg_hba_blanket_trust=False, pg_hba_role_trusted=False)
+    assert state == "INFO"
+
+
+def test_a_state_that_could_not_be_had_is_never_read_as_narrow():
+    """Unreadable, or full of include directives: either way, not "narrow"."""
+    state, detail = _hba_row()  # both None
+    assert state == "WARN"
+    assert "sudo" in detail and "stopped" in detail

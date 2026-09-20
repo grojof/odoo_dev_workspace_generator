@@ -11,20 +11,41 @@ from __future__ import annotations
 
 import re
 import shlex
+from datetime import datetime
 from pathlib import Path
 
 from .. import analysis, planners, preflight, templates
 from ..i18n import t, tf
-from ..models import MigrationEnv
+from ..models import (
+    DB_NAME_RE,
+    MODULE_NAME_RE,
+    Command,
+    MigrationEnv,
+    interpreter_from_pyvenv,
+)
 from ..planners import write_text_file_command
 from ..prompts import ask_bool, ask_text, choose, confirm_with_phrase
-from ..system import Command, apply_commands, list_dirs, preview_commands
+from ..system import apply_commands, list_dirs, preview_commands
 from ..ui import level_text, render_table
-from .workspace import redirect_mail
+from .common import redirect_mail
 
 
 def _exists(path) -> bool:
     return path.exists()
+
+
+def _read_text(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+
+def _stamp() -> str:
+    """Suffix for this run's backups, so a later generation never overwrites one."""
+    # Microseconds: two runs inside the same second shared a name, and the
+    # second copy overwrote the first's backup.
+    return datetime.now().strftime("%Y%m%d-%H%M%S-%f")
 
 
 def _ask_env() -> MigrationEnv | None:
@@ -46,6 +67,14 @@ def _interpreter_rows(env: MigrationEnv) -> list[tuple[str, str, str]]:
     for version in env.chain():
         choice = env.interpreter_choice(version)
         detail = t("pinned by you") if version in env.interpreter_overrides else t("recommended")
+        # A pin is not persisted anywhere, so a later generation resolves the
+        # recommendation again and would rebuild a venv that was deliberately
+        # built on something else. Say what is on disk, before the preview.
+        built = interpreter_from_pyvenv(
+            version, _read_text(env.venv_dir(version) / "pyvenv.cfg") or ""
+        )
+        if built and built.python and built.python != choice.python:
+            detail = tf("{} — the venv on disk was built with {}", detail, built.python)
         rows.append((version, choice.describe(), detail))
     return rows
 
@@ -62,8 +91,8 @@ def _choose_step_interpreters(env: MigrationEnv) -> bool:
         )
         if not ask_bool("Pin a step to a specific Python version?", False):
             return True
-        version = choose(t("Which step"), list(env.chain()) + [t("Back")], default_index=None)
-        if version in ("", t("Back")):
+        version = choose("Which step", list(env.chain()) + ["Back"], default_index=None)
+        if version in ("", "Back"):
             return True
         support_default = env.interpreter_choice(version).python
         python = ask_text(tf("Python for Odoo {}", version), support_default, required=True)
@@ -115,7 +144,9 @@ def _generate_environment() -> None:
             print(level_text("INFO", t("Cancelled.")))
             return
 
-    commands = planners.plan_generate_migration(env, exists=_exists)
+    commands = planners.plan_generate_migration(
+        env, exists=_exists, read=_read_text, stamp=_stamp()
+    )
     preview_commands(commands)
     if ask_bool("Apply this plan now?", False):
         apply_commands(commands)
@@ -128,6 +159,9 @@ def _preflight_check() -> None:
         return
     dump = ask_text("Source dump file to verify (empty to skip)", "", required=False)
     db = ask_text("Existing database to verify (empty to skip)", "", required=False)
+    if db and not DB_NAME_RE.fullmatch(db):
+        print(level_text("ERROR", tf("Invalid database name: {}", db)))
+        return
 
     host = preflight.gather_host_facts(env, dump or None)
     db_facts = preflight.gather_db_facts(env, db) if db else None
@@ -165,12 +199,28 @@ def _clean_environment() -> None:
     )
     commands = planners.plan_clean_migration(root, base / ".repos" if include_repos else None)
     preview_commands(commands)
-    if not confirm_with_phrase(tf("This permanently deletes {}.", str(root)), "DELETE"):
+    # The environment holds the operator's per-version staged code, which may
+    # carry their own edits and exists nowhere else. `rm -rf <root>` takes it, so
+    # the phrase is asked for with those modules named.
+    staged = sorted({path.name for path in root.glob("addons/*/custom/*") if path.is_dir()})
+    question = (
+        tf("This permanently deletes {}, including the staged modules: {}.",
+           str(root), ", ".join(staged))
+        if staged
+        else tf("This permanently deletes {}.", str(root))
+    )
+    if not confirm_with_phrase(question, "DELETE"):
         print(level_text("INFO", t("Cancelled.")))
         return
     apply_commands(commands)
     print(level_text("OK", t("Migration environment removed.")))
-    print(level_text("INFO", t("The PostgreSQL migration database (if any) is untouched — drop it with dropdb when you want a fully clean run.")))
+    # The environment is known here by its directory (e.g. `13-to-18`), which is
+    # what its database is named after.
+    print(level_text("INFO", tf(
+        "The PostgreSQL migration database (if any) is untouched — drop it with "
+        "`dropdb -h 127.0.0.1 -U odoo {}` when you want a fully clean run.",
+        f"migration_{name.replace('-', '_')}",
+    )))
 
 
 def _step_analysis_records(env: MigrationEnv, version: str) -> list[analysis.AnalysisRecord]:
@@ -230,6 +280,10 @@ def _stage_modules() -> None:
     available = list_dirs(str(source_dir))
     raw = ask_text("Modules to stage (comma-separated, empty = all)", "", required=False)
     modules = [m.strip() for m in raw.split(",") if m.strip()] or available
+    malformed = [m for m in modules if not MODULE_NAME_RE.fullmatch(m)]
+    if malformed:
+        print(level_text("ERROR", tf("Not an Odoo module name: {}", ", ".join(malformed))))
+        return
     unknown = [m for m in modules if m not in available]
     if unknown:
         print(level_text("ERROR", tf("Not found in the source directory: {}", ", ".join(unknown))))
@@ -260,6 +314,10 @@ def _stage_modules() -> None:
     # Second phase: scan the staged output, then plan the additive scaffold and
     # report writes (previewed like everything else).
     write_commands = []
+    # The records belong to the step, not to the module: read once per version
+    # rather than once per (module, version), which re-globbed and re-parsed the
+    # whole OpenUpgrade checkout for every module of every step.
+    step_records = {version: _step_analysis_records(env, version) for version in env.chain()}
     for module in modules:
         steps: list[tuple[str, str, list, str | None]] = []
         for version in env.chain():
@@ -268,7 +326,7 @@ def _stage_modules() -> None:
             log_text = re.sub(r"\x1b\[[0-9;]*m", "", log_text)  # ANSI colors out of the report
             module_dir = env.addons_custom_dir(version) / module
             findings = analysis.scan_source(
-                _staged_module_files(module_dir), _step_analysis_records(env, version)
+                _staged_module_files(module_dir), step_records[version]
             )
             scaffold_path: str | None = None
             if findings:

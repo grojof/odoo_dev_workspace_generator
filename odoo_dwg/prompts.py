@@ -6,7 +6,6 @@ numbered menu with a consistent ``0)`` cancel entry. Standard-library only.
 
 from __future__ import annotations
 
-import getpass
 import os
 from pathlib import Path
 
@@ -15,6 +14,7 @@ from .models import (
     HOST_PYTHON,
     UV_PYTHON,
     InterpreterChoice,
+    python_version_error,
     resolve_interpreter,
     version_support,
 )
@@ -44,32 +44,10 @@ def ask_text(label: str, default: str | None = None, required: bool = False) -> 
         print(level_text("ERROR", "Value is required."))
 
 
-def ask_int(label: str, default: int, min_value: int = 1, max_value: int = 65535) -> int:
-    while True:
-        raw = ask_text(label, str(default), required=True)
-        try:
-            value = int(raw)
-        except ValueError:
-            print(level_text("ERROR", "Must be an integer."))
-            continue
-        if min_value <= value <= max_value:
-            return value
-        print(level_text("ERROR", tf("Value out of range ({}-{}).", min_value, max_value)))
 
 
-def ask_port(label: str, default: int) -> int:
-    return ask_int(label, default, min_value=1, max_value=65535)
 
 
-def ask_secret(label: str, required: bool = True) -> str:
-    """Prompt for a secret without echoing it to the screen (via getpass)."""
-    while True:
-        value = getpass.getpass(f"{prompt_label(label)}: ").strip()
-        if value:
-            return value
-        if not required:
-            return ""
-        print(level_text("ERROR", "Value is required."))
 
 
 def ask_bool(label: str, default: bool = True) -> bool:
@@ -176,7 +154,18 @@ def select_file_path(
         if requested_label:
             print(f"\n{title('Select required file')}: {requested_label}")
         print(f"{title('Current directory')}: {current}")
-        entries = sorted(current.iterdir(), key=lambda item: (item.is_file(), item.name.lower()))
+        try:
+            entries = sorted(
+                current.iterdir(), key=lambda item: (item.is_file(), item.name.lower())
+            )
+        except OSError as error:
+            # A directory the operator cannot read is a wrong turn in a browser,
+            # not the end of the flow: say so and step back out of it.
+            print(level_text("WARN", tf("Cannot read {}: {}", str(current), error)))
+            if current.parent == current:
+                return ""
+            current = current.parent
+            continue
         print(t("  0) Choose a manual path"))
         print(t("  ..) Up one level"))
         print(t("  q) Cancel"))
@@ -185,7 +174,8 @@ def select_file_path(
             print(f"  {index}) {entry.name}{marker}")
 
         raw = input(f"{prompt_label('Choose a number, ..,  q, or a manual path')}: ").strip()
-        if raw.lower() in {"q", "cancel"}:
+        # Both languages' words, since the prompt shows the translated one.
+        if raw.lower() in {"q", "cancel", "cancelar", "salir"}:
             return ""
         if raw == "0":
             manual = input(f"{prompt_label('Full file path')}: ").strip()
@@ -287,15 +277,27 @@ def choose_interpreter(
 
     keep_host = tf("Keep the host python3 ({})", host_python or "?")
     options = [tf("Build with uv Python {} (recommended)", recommended)] if uv_ready else []
-    options += [keep_host, t("Choose another Python version"), t("Cancel")]
+    # Offering the host interpreter when there is none would read as a choice and
+    # then cancel.
+    # English literals: `choose` shows them translated and returns the original,
+    # and it finds its own zero-entry by that literal. Passing a translated
+    # "Cancelar" gave the Spanish menu two cancel entries.
+    options += ([keep_host] if host_python else []) + [
+        "Choose another Python version", "Cancel"
+    ]
     answer = choose(tf("Interpreter for Odoo {}", version), options, default_index=None)
 
-    if answer in ("", t("Cancel")):
+    if answer in ("", "Cancel"):
         return None
     if answer == keep_host:
         return _confirmed_choice(version, host_python, host_python, HOST_PYTHON)
-    if answer == t("Choose another Python version"):
-        chosen = ask_text(t("Python version (e.g. 3.10)"), recommended or None, required=True)
+    if answer == "Choose another Python version":
+        while True:
+            chosen = ask_text(t("Python version (e.g. 3.10)"), recommended or None, required=True)
+            error = python_version_error(chosen)
+            if error is None:
+                break
+            print(level_text("ERROR", error))
         source = HOST_PYTHON if chosen == host_python else UV_PYTHON
         return _confirmed_choice(version, host_python, chosen, source)
     return resolved

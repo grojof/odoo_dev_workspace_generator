@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 from odoo_dwg import templates
-from odoo_dwg.models import WorkspaceConfig
+from odoo_dwg.models import MigrationEnv, WorkspaceConfig
 
 
 def test_odoo_conf_has_composed_addons_path_and_derived_port():
@@ -102,7 +102,7 @@ def test_setup_venv_script_uses_the_same_interpreter_as_the_plan():
         version: resolve_interpreter(version, host_python="3.12") for version in cfg.versions
     }
     script = templates.render_setup_venv_sh(cfg, interpreters)
-    assert 'uv venv --seed --no-project --python 3.8 "' in script
+    assert "uv venv --seed --no-project --python 3.8 /" in script
     # Only the in-range version falls back to the host interpreter.
     assert script.count("python3 -m venv") == 1
     assert "odoo18" in script.split("python3 -m venv")[1]
@@ -122,9 +122,9 @@ def test_setup_venv_script_pins_setuptools_like_the_plan():
     cfg = WorkspaceConfig(name="acme", versions=["13.0", "15.0", "18.0"])
     cfg.normalize_defaults()
     script = templates.render_setup_venv_sh(cfg)
-    assert "/.venv/odoo13/bin/pip\" install --upgrade pip wheel 'setuptools<58'" in script
-    assert "/.venv/odoo15/bin/pip\" install --upgrade pip wheel 'setuptools<81'" in script
-    assert "/.venv/odoo18/bin/pip\" install --upgrade pip wheel 'setuptools'" in script
+    assert "/.venv/odoo13/bin/pip install --upgrade pip wheel 'setuptools<58'" in script
+    assert "/.venv/odoo15/bin/pip install --upgrade pip wheel 'setuptools<81'" in script
+    assert "/.venv/odoo18/bin/pip install --upgrade pip wheel setuptools" in script
 
 
 def test_setup_venv_script_applies_the_same_requirement_substitute():
@@ -145,3 +145,67 @@ def test_readme_states_what_each_venv_installs():
     assert "| 12.0 | 3.8 (`uv`) | `setuptools<58` | `python-ldap==3.1.0` instead of `pyldap` |" in readme
     assert "| 15.0 | 3.12 (host) | `setuptools<81` | — |" in readme
     assert "| 18.0 | 3.12 (host) | `setuptools` | — |" in readme
+
+
+
+def test_generated_scripts_quote_paths_so_they_can_never_run(monkeypatch):
+    """Validation refuses unsafe names, and the scripts still quote every path:
+    a base directory with shell syntax stays inert text."""
+    import shlex as _shlex
+
+    monkeypatch.setattr(WorkspaceConfig, "base_dir", "/tmp/ws $(touch pwned)")
+    cfg = WorkspaceConfig(name="acme", versions=["14.0", "18.0"])
+    cfg.normalize_defaults()
+    from odoo_dwg.models import resolve_interpreter
+    choices = {v: resolve_interpreter(v, host_python="3.12") for v in cfg.versions}
+    checked = 0
+    for script in (templates.render_setup_venv_sh(cfg, choices), templates.render_run_sh(cfg, "18.0")):
+        for line in script.splitlines():
+            if "$(touch pwned)" in line:
+                checked += 1
+                # Every occurrence sits inside single quotes, where bash expands nothing.
+                words = _shlex.split(line, comments=True)
+                assert any("$(touch pwned)" in word for word in words), line
+                assert '"' + "/tmp/ws $(touch pwned)" not in line, line
+    # Without this the whole test passes vacuously the day a renderer stops
+    # writing the path at all, which is exactly how it would stop guarding.
+    assert checked, "the path never appeared — this test asserted nothing"
+
+
+def test_the_generated_config_never_asks_odoo_to_reload_itself():
+    """`reload` re-executes the process on a file change, detaching the debugger
+    every launch configuration attaches (docs/editor-integration.md)."""
+    cfg = WorkspaceConfig(name="acme", versions=["18.0"])
+    conf = templates.render_odoo_conf(cfg, "18.0")
+    assert "dev_mode = qweb,xml" in conf
+    assert "reload" not in conf
+    # Development posture: loopback only, threaded so a debugger can attach.
+    assert "http_interface = 127.0.0.1" in conf
+    assert "workers = 0" in conf
+    assert "max_cron_threads = 1" in conf
+
+
+def test_the_driver_keeps_its_checkpoints_and_logs_to_itself():
+    """A checkpoint is a `pg_dump` of a restored copy of production, and the log
+    is Odoo's log for it. Removing either line left the suite and both offline
+    verifiers green."""
+    script = templates.render_run_migration_sh(MigrationEnv(source="16.0", target="18.0"))
+    header = script.split("fail()", 1)[0]
+    assert header.index("umask 077") < header.index('mkdir -p "$CK" "$LOGS"')
+    assert 'chmod 700 "$CK" "$LOGS"' in header
+    # Without `-e` an unchecked restore inside a function would run on. Asserted
+    # on the header rather than on a line number, which a correct edit moves.
+    assert "set -euo pipefail" in header
+
+
+def test_the_generated_setup_script_writes_each_ready_marker_last():
+    """Neither `uv venv --seed` nor `python3 -m venv` clears the marker, so a run
+    that dies mid-build would leave a half-built venv wearing the mark that tells
+    every later flow to skip it."""
+    cfg = WorkspaceConfig(name="acme", versions=["18.0"])
+    cfg.normalize_defaults()
+    script = templates.render_setup_venv_sh(cfg)
+    marker = str(cfg.venv_ready_marker("18.0"))
+    assert (script.index(f"rm -f {marker}")
+            < script.index("pip install -r")
+            < script.index(f"touch {marker}"))

@@ -20,7 +20,7 @@ project status — look that up in the files below.
 | Editor integration (official Odoo extension) and its update procedure | [`docs/editor-integration.md`](docs/editor-integration.md) — re-verified by `tools/verify_odools_config.py` |
 | Workspace profile / layout, per-version venv rules | [`docs/configuration-reference.md`](docs/configuration-reference.md), [`docs/workspace-layout.md`](docs/workspace-layout.md) — re-verified by `tools/verify_workspace_versions.py` |
 | Outbound firewall + mail capture, and their update procedure | [`docs/egress-control.md`](docs/egress-control.md) — pins in `odoo_dwg/egress.py`, re-verified by `tools/verify_egress_pins.py` |
-| Provisioning / migration guides | [`docs/provisioning.md`](docs/provisioning.md), [`docs/migration.md`](docs/migration.md) |
+| Provisioning / migration guides | [`docs/provisioning.md`](docs/provisioning.md), [`docs/migration.md`](docs/migration.md) — the generated driver is re-verified by `tools/verify_migration_driver.py` |
 | Contribution rules, checks, commits | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 | User-facing change log & version | [`CHANGELOG.md`](CHANGELOG.md) (`[Unreleased]`), `version` in [`pyproject.toml`](pyproject.toml) |
 
@@ -51,7 +51,12 @@ unless they are `system.py`.
 - **Plan → preview → confirm → apply is inviolable.** No code path mutates the host without a previewed
   plan; destructive/data actions require `confirm_with_phrase`. Planners stay pure.
 - **English is canonical** for code, docs, specs, and all generated artifacts. Spanish is only an optional
-  UI language: every operator-facing string goes through `t`/`tf` with the English text as key.
+  UI language: every operator-facing string goes through `t`/`tf` with the English text as key, and
+  `odoo_dwg/i18n.py` is authored in that direction (English → Spanish), never inverted.
+  **Technical terms stay in English** in the Spanish UI — `workspace`, `host`, `dump`, `venv`, `commit`,
+  `log`, `loopback`, `staging`, `worktree`, `addons`, `custom`, `pg_hba` — because that is what a
+  Spanish-speaking Odoo developer says; translating them reads worse than leaving them. Translate the
+  sentence around them.
 - **Anchor Odoo/OpenUpgrade facts to official sources**, cited bound by bound in
   `docs/support-matrix.md` and declared once in `models.py`; never assume them, and never restate a
   bound elsewhere. Each bound carries its evidence tier (`official`/`derived`/`untested`).
@@ -70,6 +75,14 @@ unless they are `system.py`.
 - Conventional Commits, imperative mood, one logical change per commit, **no AI-attribution trailers**.
 - Pause and confirm before irreversible or sensitive actions (force-push, history rewrite, deleting a
   workspace/DB, secret access).
+- **Edit files one edit at a time, with a tool that fails per edit.** A script doing several substitutions
+  must report each one (applied / not found) instead of asserting, because an abort halfway leaves the rest
+  silently unapplied. Before committing, grep for the new text of every change the commit message claims:
+  twice in this repo a commit described edits that were never in the diff.
+- **Text that is executed is verified by executing it**, not by reading it: rendered shell through
+  `tools/verify_*.py`, a regex against the real inputs it must and must not match. Two bugs here (a `sed`
+  backreference left dangling by a changed capture group, a `grep` pattern eaten by shell quoting) were
+  invisible in review and immediate on the first run.
 
 ## Checks
 
@@ -82,11 +95,17 @@ openspec validate --specs           # specs well-formed
 python -m odoo_dwg --help           # CLI smoke test
 ```
 
+These are not in the suite. **What each one covers and needs is stated once**, in
+[`CONTRIBUTING.md`](CONTRIBUTING.md) — restating it here is how it drifted four audit rounds running:
+
 ```bash
-python tools/verify_support_matrix.py   # re-derive the support matrix from its sources (network; not in the suite)
-python tools/verify_odools_config.py    # editor config vs the latest official OdooLS release (network)
-python tools/verify_workspace_versions.py  # build + start Odoo 12-19 in a throwaway workspace (host)
-python tools/verify_egress_pins.py      # OpenSnitch/Mailpit pins vs their signed/published sources (network)
+python tools/verify_support_matrix.py      # the support matrix, re-derived from its official sources
+python tools/verify_odools_config.py       # the editor config vs the latest official OdooLS release
+python tools/verify_workspace_versions.py  # build + start Odoo 12-19 in a throwaway workspace
+python tools/verify_egress_pins.py         # OpenSnitch/Mailpit pins vs their signed/published sources
+python tools/verify_migration_driver.py    # the generated migration driver, against stub binaries
+python tools/verify_generated_shell.py     # ShellCheck over every generated script
+python tools/verify_pg_hba_trust.py        # the pg_hba rewriter, against a throwaway PostgreSQL
 ```
 
 End-to-end validation (cloning Odoo, building venvs, running `odoo-bin`, migrations) happens on a real

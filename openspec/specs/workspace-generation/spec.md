@@ -46,15 +46,22 @@ The system SHALL generate, under `<base>/<name>/`:
 - a `scripts/` directory with `setup_venv.sh` and one `run-odoo<major>.sh` per version;
 - a `<name>.code-workspace` file;
 - a `.vscode/` directory (`tasks.json`, `launch.json`, `settings.json`, `extensions.json`);
-- a per-workspace `README.md`.
+- an `odools.toml` when at least one version is supported by the language server;
+- a per-workspace `README.md`;
+- a `workspace.json` holding the resolved profile, so the workspace can be managed later. It SHALL be
+  written **first**: it is what makes a directory a manageable workspace, and a generation interrupted
+  before it left a tree that create refused to touch and manage refused to load.
 
-All generated files SHALL be English text and SHALL hold exactly the rendered content.
+All generated files SHALL be English text and SHALL hold exactly the rendered content. Writing a file and
+setting its mode SHALL be one step, so an interruption cannot leave a script that exists but is not
+executable — which a refresh, comparing content only, would report as up to date.
 
 #### Scenario: Full tree is planned
 
 - **WHEN** a workspace `acme` with version `18.0` is generated
 - **THEN** the plan creates `addons-custom/`, `addons-oca/`, `config/odoo18.conf`, `scripts/setup_venv.sh`,
-  `scripts/run-odoo18.sh`, `acme.code-workspace`, `.vscode/*`, and `README.md`
+  `scripts/run-odoo18.sh`, `acme.code-workspace`, `.vscode/*`, `odools.toml`, `README.md` and
+  `workspace.json`
 
 #### Scenario: Rendered odoo.conf carries the composed addons_path and derived port
 
@@ -255,6 +262,18 @@ requirements as the generation plan.
 - **WHEN** a workspace with `18.0` is generated
 - **THEN** its venv installs an unpinned `setuptools`
 
+### Requirement: Editor tasks for the two things a workspace does
+
+The generated `.vscode/tasks.json` SHALL offer one task that builds every venv and one task per
+configured version that starts it, each running the generated script rather than repeating its command,
+so the editor and the terminal do the same thing.
+
+#### Scenario: A task exists for each version
+
+- **WHEN** a workspace is generated for 16.0 and 18.0
+- **THEN** `tasks.json` has a venv-building task and one run task per version, each invoking that
+  version's generated script
+
 ### Requirement: Debug launch configurations for everyday development
 
 The generated `.vscode/launch.json` SHALL contain four debugpy configurations for each configured version.
@@ -286,6 +305,39 @@ The database, the modules and the test module SHALL be asked when a configuratio
 
 - **WHEN** the Odoo 18 test module configuration is started and `sale` is entered as the module
 - **THEN** it upgrades `sale`, runs only the tests tagged `/sale` and stops
+
+### Requirement: A venv is skipped only once its build finished
+
+A per-version virtualenv SHALL be stamped with a ready marker once every install in it has finished, and
+generation — including **Add a version** — SHALL skip a venv on that marker, never on the presence of its
+directory. A build interrupted after the venv was created but before its requirements installed SHALL
+therefore be redone, rather than leaving a workspace that lists a version whose venv has no Odoo in it.
+
+#### Scenario: A half-built venv is rebuilt
+
+- **WHEN** a previous build created the venv directory but its requirements install failed, and the operator
+  adds that version again
+- **THEN** the venv is built again instead of being skipped as present
+
+### Requirement: Development posture in the generated odoo.conf
+
+Each generated workspace `odoo.conf` SHALL be a development configuration:
+- `http_interface = 127.0.0.1`, so an instance is reachable from the host only;
+- `workers = 0` and `max_cron_threads = 1`, so Odoo runs threaded and a debugger can attach;
+- `dev_mode = qweb,xml`, and never `reload`: reload re-executes the process on a file change, which detaches
+  the debugger every generated launch configuration attaches;
+- `admin_passwd = admin`, Odoo's database-manager password — a development default, documented as such.
+
+#### Scenario: The debugger is never detached by a reload
+
+- **WHEN** `config/odoo18.conf` is rendered
+- **THEN** its `dev_mode` is `qweb,xml` and contains no `reload`, so installing `watchdog` cannot start
+  re-executing the process
+
+#### Scenario: Instances listen on loopback only
+
+- **WHEN** any version's config is rendered
+- **THEN** it sets `http_interface = 127.0.0.1`, `workers = 0` and `max_cron_threads = 1`
 
 ### Requirement: Workspace mail goes to the local capture
 

@@ -1,17 +1,63 @@
 ---
 type: explanation
-title: "Roadmap (F0–F4) and backlog"
+title: "Roadmap and backlog"
 description: "Phased delivery plan and the parked backlog for the Odoo dev/migration workspace generator."
 audience: [contributor]
-updated: 2026-09-19
+updated: 2026-09-20
 ---
 
 # Roadmap
 
-**Released: v0.1.0 (2026-09-19).** F0–F3 are complete; see [`CHANGELOG.md`](../CHANGELOG.md).
+**Released: v0.2.0 (2026-09-20).** F0–F3 are complete; see [`CHANGELOG.md`](../CHANGELOG.md).
+
+**What 0.2.0 brought:** the outbound firewall and mail capture (change `add-egress-control`);
+`harden-for-0-2-0`, which closed what repeated pre-release audit rounds found (each round one docs review and
+one code review, both verified by hand before anything was changed); and `read-pg-hba-from-the-server`, which
+ended the longest-running of them by asking PostgreSQL for its own rules instead of re-implementing its
+parser. What the audits found:
+- injection through versions and profiles, now validated at every entry point;
+- a migration driver that skipped its coverage check entirely and trusted checkpoints from another attempt;
+- coverage and `apriori.py` looked up in the wrong place for the ≤ 13 steps;
+- probes that could ask for a password, and host changes that were wider than they needed to be
+  (loopback `trust` for every role, the firewall's DNS rule on every port, root downloads in `/tmp`);
+- plans that printed every line: one line per step now, with `--verbose` to see everything;
+- a checkpoint that reported success after `pg_dump` failed, so a whole chain could run with no recovery
+  point; plan steps that inherited the operator's stdin (and `apt` dialogs that could hang behind captured
+  output); `pg_hba.conf` never narrowed on a host that was already provisioned; and the firewall's
+  `odoo-bin` rejection sorting after two allow rules;
+- a host with PostgreSQL stopped reported as fully provisioned, because a probe that could not answer was
+  read as "nothing to do"; a blanket loopback `trust` spelled `localhost` surviving the narrowing while the
+  check called it narrowed; and Odoo 12's requirements installing only the `python-ldap` substitute while
+  reporting success, because a pipeline hid `grep`'s failure;
+- a migration step that ran with no OpenUpgrade code on disk and still reported `[done]`, a failing step
+  that died without naming itself, and blanket `trust` lines that survived when indented, written
+  `hostnossl` or in `address netmask` form — and then the realisation that the address was never the right
+  test at all: `all`, `0.0.0.0/0` and `127.0.0.0/8` contain loopback without naming it, a role line below a
+  rule for every role is never read, and an `include` directive hides rules from the file itself;
+- and finally `hostssl` — the rule a loopback connection is matched against on a host with `ssl = on`, which
+  the supported one has. Four rounds had each fixed the narrowing correctly and each left it blind somewhere
+  else, so the approach changed rather than the pattern: the check reads `pg_hba_file_rules`, apply asks the
+  server whether its own rewrite worked, and the verifier asserts against a real cluster. The same round
+  also fixed a file with no trailing newline having its last record fused with the inserted rule.
+
+Three verifiers came out of those rounds, all outside the unit suite because it may not shell out:
+`tools/verify_migration_driver.py` executes the generated migration driver against stub binaries,
+`tools/verify_generated_shell.py` runs ShellCheck over every generated script, and
+`tools/verify_pg_hba_trust.py` runs the `pg_hba.conf` rewriter over every shape of that file it must handle
+and checks the result against a throwaway PostgreSQL cluster. What each one covers is listed once, in
+[`CONTRIBUTING.md`](../CONTRIBUTING.md) — this page stopped repeating the count after it drifted four rounds
+running.
 
 Delivery is phased so each phase is independently useful and verifiable. Non-trivial work is proposed and
 tracked through OpenSpec (`/opsx:*`); every phase below was accepted end-to-end on WSL Ubuntu 24.04.
+
+**Where the hardening ended up (2026-09-20).** After the move to reading `pg_hba` from the server, four
+more rounds each found the same class of hole one layer in: a trust for one database, a quoted address,
+a role list (`all,bob`), a list named from a file (`@admins`), a list continued after a blank. The fix that
+closed the class (change `agree-on-what-a-trust-rule-covers`, then commits on `harden-for-0-2-0`) is a
+rule, not a shape: the rule's own line may *confirm* the server's reading — that `all` was quoted — and
+may never narrow it. Alongside: the test suite was mutation-audited (37 unnoticed mutations, all guarded
+now), the sdist ships what its tests read, and the operator surface has a spec.
 
 ## F0 — Foundation ✅
 
@@ -50,6 +96,16 @@ items are host-dependent.
 
 ## Features (OpenSpec)
 
+- ~~The operator surface has a spec~~ — **done** (2026-09-20, change `name-the-operator-surface`).
+  The twelve capabilities all described what the tool does to the *host*; nothing described what the
+  operator touches, and "previewed and confirmed" was restated in six of them with no one place
+  defining it. Two capabilities were added: `command-plan` (plan → preview → confirm → apply, what a
+  step reports, stopping at the first failure, input closed, and that nothing a plan writes is visible
+  before it is complete) and `operator-interface` (entry points, the English source language and the
+  optional Spanish UI, that generated artifacts are never translated, menus, failure handling, colour).
+  Remaining tidy-up, deliberately not done in that change: the six "previewed and confirmed"
+  restatements, the three copies of the ready-marker rule and the three of `smtp 127.0.0.1:1025`
+  should become references.
 - ~~Support matrix~~ — **done** (2026-09-17, change `add-support-matrix`): one authoritative,
   evidence-tiered matrix in `models.py` + [`docs/support-matrix.md`](support-matrix.md), with
   `tools/verify_support_matrix.py` to re-derive every bound from its official source. Hosts narrowed to

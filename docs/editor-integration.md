@@ -3,7 +3,7 @@ type: how-to
 title: "Editor integration (official Odoo extension)"
 description: "What a generated workspace gives the official Odoo language server, why so little, and the procedure to review its updates and adopt new features."
 audience: [developer, contributor]
-updated: 2026-09-19
+updated: 2026-09-20
 ---
 
 # Editor integration
@@ -54,8 +54,9 @@ generated file, with the prompts answered, on every version:
 having run nothing. From 13 on, tests run either way.
 
 Deliberately not included:
-- **An auto-reload configuration:** Odoo's `reload` re-executes the process, which detaches the debugger. It
-  also needs `watchdog`, which Odoo's requirements do not include.
+- **Auto-reload:** Odoo's `reload` re-executes the process, which detaches the debugger. The generated
+  `odoo.conf` therefore sets `dev_mode = qweb,xml` and never `reload`, so installing `watchdog` (which Odoo's
+  requirements do not include) cannot silently start detaching it.
 - **Attach, `scaffold` and the other subcommands:** they are rarely debugged, and each would add one more
   entry per version to the picker.
 
@@ -129,8 +130,8 @@ For each entry in the changelog, ask:
 | Nothing to adopt | Bump `ODOOLS_REVIEWED_VERSION` (in `odoo_dwg/templates.py`) to the stable release you reviewed, in a small direct commit, so the next review starts from there |
 | A feature exists only in a prerelease | Nothing yet. Note it in `docs/roadmap.md` if it matters, and revisit when a stable schema carries it |
 
-Existing workspaces pick up a changed `odools.toml` the next time their tree is regenerated (for example by
-adding a version from **Manage an existing workspace**).
+Existing workspaces pick up a changed `odools.toml` with **Manage an existing workspace → Refresh generated
+files**, which rewrites only the files that changed and keeps a dated backup of each.
 
 ### Where the facts live, and the traps
 

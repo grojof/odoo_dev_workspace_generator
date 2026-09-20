@@ -31,7 +31,7 @@ def test_owned_rules_sort_ahead_of_every_other_rule():
 
 def test_odoo_is_rejected_before_the_infrastructure_allowance():
     names = sorted(_names(egress.baseline_rules(RESOLVERS)))
-    odoo = names.index("00-odwg-010-reject-odoo-external.json")
+    odoo = names.index("00-odwg-003-reject-odoo-external.json")
     infra = names.index("00-odwg-020-allow-dev-infrastructure.json")
     localhost = names.index("00-odwg-000-allow-localhost.json")
     assert localhost < odoo < infra
@@ -39,7 +39,7 @@ def test_odoo_is_rejected_before_the_infrastructure_allowance():
 
 def test_rule_shapes():
     rules = {rule["name"]: rule for rule in egress.baseline_rules(RESOLVERS)}
-    odoo = rules["00-odwg-010-reject-odoo-external"]
+    odoo = rules["00-odwg-003-reject-odoo-external"]
     assert odoo["action"] == "reject"
     assert odoo["operator"] == {"operand": "process.command", "data": "odoo-bin",
                                 "type": "regexp", "list": [], "sensitive": False}
@@ -53,10 +53,11 @@ def test_infrastructure_hosts_match_what_they_should_and_nothing_else():
     pattern = re.compile(rules["00-odwg-020-allow-dev-infrastructure"]["operator"]["data"])
     for host in ("github.com", "cli.github.com", "objects.githubusercontent.com", "pypi.org",
                  "files.pythonhosted.org", "releases.astral.sh", "archive.ubuntu.com",
+                 "es.archive.ubuntu.com", "de.archive.ubuntu.com",
                  "registry.npmjs.org"):
         assert pattern.fullmatch(host), host
     for host in ("evilgithub.com", "github.com.evil.io", "smtp.gmail.com", "api.stripe.com",
-                 "example.com"):
+                 "example.com", "evil.es.archive.ubuntu.com", "archive.ubuntu.com.evil.io"):
         assert not pattern.fullmatch(host), host
 
 
@@ -65,7 +66,9 @@ def test_resolvers_come_from_resolv_conf_without_loopback():
            "nameserver 10.255.255.254\nsearch lan\nnameserver 1.1.1.1\n"
     assert egress.parse_resolvers(text) == ["10.255.255.254", "1.1.1.1"]
     rules = {rule["name"]: rule for rule in egress.baseline_rules(["10.255.255.254", "1.1.1.1"])}
-    dns = re.compile(rules["00-odwg-001-allow-dns-resolvers"]["operator"]["data"])
+    addresses = next(item for item in rules["00-odwg-001-allow-dns-resolvers"]["operator"]["list"]
+                     if item["operand"] == "dest.ip")
+    dns = re.compile(addresses["data"])
     assert dns.fullmatch("1.1.1.1") and not dns.fullmatch("1.1.1.12")
     # With no non-loopback resolver there is no resolver rule at all.
     assert "00-odwg-001-allow-dns-resolvers" not in {r["name"] for r in egress.baseline_rules([])}
@@ -106,16 +109,17 @@ def test_opensnitch_plan_verifies_then_installs_stopped_then_configures():
     cmds = [c.command for c in planners.plan_opensnitch(RESOLVERS)]
     joined = "\n".join(cmds)
     for name, sha512 in egress.OPENSNITCH_PACKAGES:
-        assert f"echo '{sha512}  /tmp/odwg-opensnitch/{name}' | sha512sum -c -" in joined
-    install = next(i for i, c in enumerate(cmds) if "apt-get -y install /tmp/" in c)
+        assert f"echo '{sha512}  /var/cache/odoo_dwg/opensnitch/{name}' | sha512sum -c -" in joined
+    install = next(i for i, c in enumerate(cmds) if f"{planners.APT_INSTALL} /var/cache/" in c)
     verifies = [i for i, c in enumerate(cmds) if "sha512sum -c" in c]
     harden = next(i for i, c in enumerate(cmds) if c.startswith("python3 - <<'PYEOF'"))
     start = next(i for i, c in enumerate(cmds) if "systemctl restart opensnitch" in c)
     assert max(verifies) < install < harden < start
     # policy-rc.d keeps the service stopped, refuses to clobber an existing one,
     # and is removed even when the install fails.
-    assert "if [ -e /usr/sbin/policy-rc.d ]; then" in cmds[install]
-    assert cmds[install].endswith("status=$?; rm -f /usr/sbin/policy-rc.d; exit $status")
+    assert "if [ -e /usr/sbin/policy-rc.d ] && ! grep -q 'odoo_dwg:" in cmds[install]
+    assert "trap 'rm -f /usr/sbin/policy-rc.d' EXIT INT TERM HUP;" in cmds[install]
+    assert cmds[install].index("trap ") < cmds[install].index("printf ")
     # Only the tool's own rules are replaced.
     assert f"rm -f /etc/opensnitchd/rules/{egress.RULE_PREFIX}*.json" in cmds
     rule_writes = [c for c in cmds if c.startswith("cat > /etc/opensnitchd/rules/")]
@@ -131,7 +135,7 @@ def test_opensnitch_plan_skips_the_install_when_the_pinned_version_is_present():
 def test_mailpit_plan_verifies_and_runs_on_loopback():
     cmds = [c.command for c in planners.plan_mailpit()]
     joined = "\n".join(cmds)
-    assert f"echo '{egress.MAILPIT_SHA256}  /tmp/odwg-mailpit/mailpit-linux-amd64.tar.gz'" in joined
+    assert f"echo '{egress.MAILPIT_SHA256}  /var/cache/odoo_dwg/mailpit/mailpit-linux-amd64.tar.gz'" in joined
     assert "sha256sum -c -" in joined
     unit = egress.render_mailpit_unit()
     assert "--smtp 127.0.0.1:1025 --listen 127.0.0.1:8025" in unit
@@ -148,7 +152,10 @@ def test_mail_redirect_is_column_aware_and_quoted():
     assert "column_name = 'smtp_authentication'" in sql  # absent before Odoo 15
     assert "to_regclass('fetchmail_server')" in sql  # absent without its module
     cmd = planners.plan_mail_redirect("acme-copy.2026", "127.0.0.1", 5432, "odoo")[0].command
-    assert cmd.startswith("psql -h 127.0.0.1 -p 5432 -U odoo -d acme-copy.2026 -v ON_ERROR_STOP=1 -c '")
+    # -X, like every psql this tool runs: `~/.psqlrc` can hold a `\c otherdb`.
+    assert cmd.startswith(
+        "psql -X -h 127.0.0.1 -p 5432 -U odoo -d acme-copy.2026 -v ON_ERROR_STOP=1 -c '"
+    )
 
 
 def test_database_names_follow_odoo():
@@ -181,16 +188,16 @@ def _row(facts: ProvisionFacts, label_start: str) -> tuple[str, str]:
 
 
 def test_readiness_rows_for_egress_and_mail():
-    assert _row(_facts(), "Egress firewall")[0] == "INFO"
+    assert _row(_facts(), "Outbound firewall")[0] == "INFO"
     assert _row(_facts(), "Mail capture")[0] == "INFO"
     hardened = _facts(opensnitch_version="1.8.0-1", opensnitch_active=True)
-    assert _row(hardened, "Egress firewall") == ("OK", "1.8.0-1 running, hardened (default deny)")
+    assert _row(hardened, "Outbound firewall") == ("OK", "1.8.0-1 running, hardened (default deny)")
     softened = _facts(opensnitch_version="1.8.0-1", opensnitch_active=True,
                       opensnitch_deviations=["DefaultAction: 'allow'"])
-    state, detail = _row(softened, "Egress firewall")
+    state, detail = _row(softened, "Outbound firewall")
     assert state == "WARN" and "DefaultAction: 'allow'" in detail
     stopped = _facts(opensnitch_version="1.8.0-1", opensnitch_active=False)
-    assert _row(stopped, "Egress firewall")[0] == "WARN"
+    assert _row(stopped, "Outbound firewall")[0] == "WARN"
     assert _row(_facts(mailpit_version="1.31.2", mailpit_active=True), "Mail capture")[0] == "OK"
 
 
@@ -208,7 +215,7 @@ def test_opensnitch_uninstall_keeps_the_operators_rules():
     cmds = [c.command for c in planners.plan_opensnitch_uninstall()]
     assert cmds[0] == "systemctl disable --now opensnitch"
     assert cmds[1] == f"rm -f /etc/opensnitchd/rules/{egress.RULE_PREFIX}*.json"
-    assert cmds[2] == "apt-get -y purge --autoremove opensnitch python3-opensnitch-ui"
+    assert cmds[2] == f"{planners.APT_PURGE} --autoremove opensnitch python3-opensnitch-ui"
     assert cmds[3] == "modprobe -r nft_queue nfnetlink_queue 2>/dev/null || true"
     assert not any("rm -rf /etc/opensnitchd" in c for c in cmds)
 
@@ -219,3 +226,111 @@ def test_mailpit_uninstall_removes_unit_binary_and_mail():
     assert "rm -f /etc/systemd/system/mailpit.service && systemctl daemon-reload" in joined
     assert "rm -f /usr/local/bin/mailpit" in joined
     assert "rm -rf /var/lib/mailpit /var/lib/private/mailpit" in joined
+
+
+def test_root_downloads_land_in_a_root_owned_directory():
+    """Never a predictable /tmp path: a local user could own it and swap a file
+    between its checksum and its install."""
+    for cmds in ([c.command for c in planners.plan_opensnitch(RESOLVERS)],
+                 [c.command for c in planners.plan_mailpit()],
+                 [c.command for c in planners.plan_wkhtmltopdf(18, "noble")]):
+        downloads = [c for c in cmds if "curl -fSL -o " in c]
+        assert downloads and all("/var/cache/odoo_dwg/" in c for c in downloads), cmds
+        assert not any("/tmp/" in c for c in cmds), cmds
+        assert any("mkdir -m 700 -p /var/cache/odoo_dwg" in c for c in cmds), cmds
+
+
+def test_the_dns_rule_is_limited_to_the_dns_port():
+    rule = {r["name"]: r for r in egress.baseline_rules(["10.255.255.254"])}[
+        "00-odwg-001-allow-dns-resolvers"]
+    assert rule["operator"]["type"] == "list"  # every item must match
+    operands = {item["operand"]: item["data"] for item in rule["operator"]["list"]}
+    assert operands["dest.port"] == "53"
+    assert "10\\.255\\.255\\.254" in operands["dest.ip"]
+
+
+def test_loopback_trust_covers_only_the_development_role():
+    """A blanket loopback trust would let any local user connect as postgres."""
+    hba = next(c.command for c in planners.plan_postgresql("odoo") if "PGHBA=" in c.command)
+    assert "host    all             odoo" in hba and "trust" in hba
+    # Any blanket trust this tool wrote before is put back to a password method.
+    # Anchored on the method, not on a list of addresses: `all`, `0.0.0.0/0` and
+    # `127.0.0.0/8` all contain loopback without naming it.
+    assert planners.BLANKET_TRUST_RULE in hba
+    # …and on every connection type pg_hba has, not only host/hostnossl: the
+    # supported host runs with ssl = on, so `hostssl` is the record consulted.
+    assert "host[a-z]*" in planners.BLANKET_TRUST_RULE
+    # …on any database, and the role field read as the comma list it may be:
+    # PostgreSQL matches the keyword anywhere in `all,bob`. It stays unquoted,
+    # since `"all"` is a role of that name and does not match a connection.
+    assert planners._ROLE_LIST_WITH_ALL in planners.BLANKET_TRUST_RULE
+    # The backreference has to follow the pattern's own groups: \1 is everything up
+    # to the method, and the trailing group is the last one the pattern opens.
+    groups = re.compile(planners.BLANKET_TRUST_RULE.replace("[[:space:]]", r"\s")).groups
+    assert groups == 5
+    assert f"scram-sha-256\\{groups}" in hba
+    # A rule this step cannot read field by field is refused, not skipped: the
+    # check sees such a rule through the server and would keep reporting it.
+    assert "database field is quoted" in hba
+    refusals = [line for line in hba.splitlines() if "grep -q" in line]
+    assert any('host[a-z]*[[:space:]]+"' in line for line in refusals), refusals
+    # `@file` names roles from a file the server expands and this step cannot see.
+    assert any("[[:space:],])?@" in line for line in refusals), refusals
+    assert "from a file (@…)" in hba
+    # A list continued after a blank is one list to the server, two fields here.
+    assert any("[^#]*,[[:space:]]" in line for line in refusals), refusals
+
+    assert "line continuations" in hba and "include directive" in hba
+    # The role's line is inserted before the first host rule of any kind, never
+    # after one that would match the same connection first.
+    assert planners.ANY_HOST_RULE in hba
+    # The line is added when it is not *reached* — present but shadowed by an
+    # earlier rule for every role is not good enough (first match wins).
+    assert "if ! awk " in hba
+    assert "is missing or is shadowed by an earlier rule" in hba
+    # Whatever the file looks like, the step either ends with the role's trust line
+    # in place or fails: a silent no-op would leave the role unable to connect.
+    assert hba.rstrip().endswith('exit 1; }')
+
+    # Two insertion points: before the first host rule, or at the end of the file
+    # — on its own line, since the file may not end with a newline.
+    assert hba.count('sed -ri "0,/^[[:space:]]*host') == 1
+    assert 'printf "\\n%s\\n%s\\n"' in hba
+    # A file whose rules it cannot see line by line is refused, not narrowed.
+    assert "continuations" in hba and "include directive" in hba
+
+
+def _operands(operator: dict) -> list[dict]:
+    return operator["list"] if operator["type"] == "list" else [operator]
+
+
+def test_no_rule_that_could_match_odoo_precedes_its_rejection():
+    """First match wins: an allow sorting earlier must be unable to match odoo-bin,
+    either because it names a destination only Odoo may reach anyway (loopback) or
+    because it names one specific system binary."""
+    rules = sorted(egress.baseline_rules(RESOLVERS), key=lambda r: r["name"])
+    reject = next(i for i, r in enumerate(rules) if r["action"] == "reject")
+    assert reject > 0
+    for rule in rules[:reject]:
+        for operand in _operands(rule["operator"]):
+            if operand["operand"] == "process.path":
+                # A literal system path, never a pattern matching a user's binaries.
+                assert operand["type"] == "simple", rule["name"]
+                assert operand["data"].startswith("/usr/lib/systemd/"), rule["name"]
+            else:
+                assert operand["operand"] in ("dest.network", "dest.ip", "dest.port"), rule["name"]
+
+
+def test_the_audit_lets_a_line_speak_only_when_it_reads_it_exactly():
+    """The verification step consults a rule's line for one bit — was `all`
+    quoted — and must keep the server's answer for any line it cannot read
+    exactly as `hba.c` does. The gate comes before the question."""
+    audit = next(c.command for c in planners.plan_pg_hba_trust("odoo")
+                 if "pg_hba_file_rules" in c.command)
+    function = audit[audit.index("names_every_role() {"):audit.index("\n}", audit.index("names_every_role() {"))]
+    assert 'grep -qE "$EXACT" || return 0' in function
+    assert function.index('"$EXACT"') < function.index('"$ROLEALL"')
+    # And the exact shape excludes what the server reads differently.
+    elem = next(line for line in audit.splitlines() if line.startswith("ELEM="))
+    for excluded in ("#", "@", "\\\\", "[:space:]"):
+        assert excluded in elem, excluded

@@ -12,11 +12,17 @@ def _cfg(**kw) -> WorkspaceConfig:
     return cfg
 
 
-def test_write_text_file_command_is_heredoc_plus_chmod():
+def test_a_file_is_written_beside_its_target_and_renamed_into_place():
+    """One command, so a plan cannot be interrupted between write and chmod and
+    leave a script that is not executable — which a refresh, comparing content
+    only, would report as up to date. And a rename, not a truncating rewrite: bash
+    reads a running script by byte offset, so rewriting one in place resumed it
+    mid-token."""
     cmds = planners.write_text_file_command("/tmp/x.conf", "hello\n", "640")
-    assert len(cmds) == 2
-    assert "cat > " in cmds[0].command and "<<'EOF'" in cmds[0].command
-    assert cmds[1].command.startswith("chmod 640 ")
+    assert len(cmds) == 1
+    command = cmds[0].command
+    assert command.startswith("cat > /tmp/x.conf.odwg-tmp <<'EOF'")
+    assert command.rstrip().endswith("chmod 640 /tmp/x.conf.odwg-tmp && mv -f /tmp/x.conf.odwg-tmp /tmp/x.conf")
 
 
 def test_heredoc_delimiter_never_matches_a_content_line():
@@ -35,10 +41,11 @@ def test_write_text_file_command_contains_hostile_content():
     header, _, rest = command.partition("\n")
     delimiter = header.split("<<")[1].strip("'")
     body_lines = rest.split("\n")
-    # The heredoc ends only at its final line, so every content line is data.
-    assert body_lines[-1] == delimiter
-    assert delimiter not in body_lines[:-1]
-    assert "\n".join(body_lines[:-1]) + "\n" == content  # exactly the content, no extra line
+    # The chmod follows the heredoc's closing line.
+    assert body_lines[-1].startswith("chmod ")
+    assert body_lines[-2] == delimiter
+    assert delimiter not in body_lines[:-2]
+    assert "\n".join(body_lines[:-2]) + "\n" == content  # exactly the content, no extra line
 
 
 def test_repo_cache_clones_each_version_and_oca():
@@ -142,12 +149,25 @@ def test_generate_workspace_composes_clone_tree_and_venvs():
     assert len(_venv_builds(cmds)) == 2  # a venv build for each version
 
 
-def test_generate_workspace_skips_present_venv():
+def test_generate_workspace_skips_a_venv_whose_build_finished():
     cfg = _cfg(versions=["17.0", "18.0"])
-    present_venv = cfg.venv_dir("18.0")
-    cmds = planners.plan_generate_workspace(cfg, exists=lambda p: p == present_venv)
-    # 18.0 venv already present → only the 17.0 venv is built.
+    ready = cfg.venv_ready_marker("18.0")
+    cmds = planners.plan_generate_workspace(cfg, exists=lambda p: p == ready)
+    # 18.0 finished a build before → only the 17.0 venv is built.
     assert len(_venv_builds(cmds)) == 1
+
+
+def test_a_half_built_venv_is_rebuilt_not_skipped():
+    """The directory exists because `uv venv` ran; the installs after it failed.
+    Skipping on the directory would leave a workspace advertising a version whose
+    venv has no Odoo dependencies."""
+    cfg = _cfg(versions=["18.0"])
+    half_built = cfg.venv_dir("18.0")
+    cmds = planners.plan_generate_workspace(cfg, exists=lambda p: p == half_built)
+    assert len(_venv_builds(cmds)) == 1
+    # And the marker is written last, so it can only mean "every install finished".
+    build = [c for c in cmds if "venv" in c.description.lower() or "requirements" in c.description]
+    assert ".odwg-ready" in build[-1].command
 
 
 def test_refresh_repos_pulls_present_clones_only():
@@ -172,7 +192,9 @@ def test_build_deps_plan_installs_key_packages():
 def test_postgresql_plan_installs_role_and_trust():
     cmds = planners.plan_postgresql("odoo")
     joined = "\n".join(c.command for c in cmds)
-    assert "apt-get -y install postgresql" in joined
+    assert f"{planners.APT_INSTALL} postgresql" in joined
+    # Unattended: a debconf dialog would hang the plan with its prompt hidden.
+    assert "DEBIAN_FRONTEND=noninteractive" in joined
     assert "systemctl enable --now postgresql" in joined
     assert "CREATE ROLE odoo WITH LOGIN CREATEDB" in joined
     assert "IF NOT EXISTS" in joined  # idempotent
@@ -199,7 +221,7 @@ def test_wkhtmltopdf_plan_verifies_checksum_for_odoo18():
     joined = "\n".join(c.command for c in cmds)
     assert "curl -fSL" in joined
     assert "sha256sum -c -" in joined  # abort on mismatch
-    assert "apt-get -y install" in joined
+    assert planners.APT_INSTALL in joined
 
 
 def test_wkhtmltopdf_plan_empty_for_legacy_and_unmapped():
@@ -210,7 +232,7 @@ def test_wkhtmltopdf_plan_empty_for_legacy_and_unmapped():
 def test_node_rtlcss_plan():
     joined = "\n".join(c.command for c in planners.plan_node_rtlcss())
     assert "nodejs" in joined and "npm install -g rtlcss" in joined
-    assert "apt-get -y install --no-install-recommends nodejs npm" in joined
+    assert f"{planners.APT_INSTALL} --no-install-recommends nodejs npm" in joined
 
 
 def test_build_venv_pins_setuptools_per_era():
@@ -232,7 +254,8 @@ def test_build_venv_pins_setuptools_per_era():
 
 def test_odoo_12_installs_python_ldap_instead_of_the_deprecated_pyldap():
     install = planners.plan_build_venv(_cfg(versions=["12.0"]), "12.0")[2].command
-    assert install.startswith("grep -v -i -E '^pyldap([=<>!~; ]|$)' ")
+    # pipefail, or an unreadable requirements file installs the substitute alone.
+    assert install.startswith("set -o pipefail && grep -v -i -E '^pyldap([=<>!~; ]|$)' ")
     assert install.endswith("install -r /dev/stdin python-ldap==3.1.0")
     # Other versions install their requirements untouched.
     other = planners.plan_build_venv(_cfg(versions=["13.0"]), "13.0")[2].command
@@ -265,9 +288,9 @@ def test_refresh_backs_up_and_rewrites_only_what_changed():
     current[launch] = '{"configurations": []}\n'  # an older generator's file
     cmds = [c.command for c in planners.plan_refresh_files(cfg, None, current.get)]
     assert cmds[0] == f"cp -p {launch} {launch}.bak"
-    assert cmds[1].startswith(f"cat > {launch} <<")
-    assert cmds[2].startswith("chmod 644 ")
-    assert len(cmds) == 3  # nothing else is touched
+    assert cmds[1].startswith(f"cat > {launch}.odwg-tmp <<")
+    assert cmds[1].rstrip().endswith(f"mv -f {launch}.odwg-tmp {launch}")  # atomic
+    assert len(cmds) == 2  # nothing else is touched
 
 
 def test_refresh_creates_a_missing_file_without_a_backup():
@@ -291,3 +314,76 @@ def test_refresh_ignores_a_trailing_blank_line_from_older_writes():
     cfg = _cfg(versions=["18.0"])
     current = {path: text + "\n" for path, text in _generated(cfg).items()}
     assert planners.plan_refresh_files(cfg, None, current.get) == []
+
+
+def test_refresh_backups_are_stamped_so_none_is_overwritten():
+    cfg = _cfg(versions=["18.0"])
+    current = _generated(cfg)
+    launch = cfg.vscode_dir / "launch.json"
+    current[launch] = "{}\n"
+    cmds = [c.command for c in planners.plan_refresh_files(cfg, None, current.get, "20260919-221500")]
+    assert cmds[0] == f"cp -p {launch} {launch}.bak-20260919-221500"
+
+
+def test_staging_commit_no_longer_hides_git_failures():
+    from pathlib import Path
+
+    from odoo_dwg.models import MigrationEnv
+
+    cmds = planners.plan_stage_module(MigrationEnv(source="16.0", target="17.0"), "m", Path("/src"))
+    worktree = [c.command for c in cmds if " init -q && " in c.command]
+    assert worktree, "the stage still prepares a git worktree"
+    for command in worktree:
+        # A failure must surface, never be swallowed…
+        assert "|| true" not in command
+        # …and the operator's own git config must not decide whether this
+        # throwaway commit works: a global `commit.gpgsign = true` exits 128.
+        for flag in ("--allow-empty", "--no-gpg-sign", "--no-verify",
+                     "-c core.hooksPath=/dev/null"):
+            assert flag in command, flag
+
+
+def test_the_tree_plan_writes_the_profile_before_anything_else():
+    """A workspace without `workspace.json` is one create refuses to touch and
+    manage refuses to load — a name the operator can only free with `rm -rf`.
+
+    Asserted on the plan's first written path, not on the string appearing
+    somewhere: the README draws a directory tree that names the file, so a
+    substring check passed with the profile removed from the plan entirely.
+    """
+    cfg = WorkspaceConfig(name="acme", versions=["18.0"])
+    cfg.normalize_defaults()
+    written = [c.command for c in planners.plan_workspace_tree(cfg) if c.command.startswith("cat > ")]
+    assert str(cfg.profile_file) in written[0]
+
+
+def test_a_clone_reaches_its_final_path_only_when_it_finished():
+    cfg = WorkspaceConfig(name="acme", versions=["18.0"])
+    cfg.normalize_defaults()
+    dest = str(cfg.odoo_clone_dir("18.0"))
+    command = planners.plan_repo_cache(cfg)[0].command
+    # git clones into a sibling; only a rename puts it where a later run looks.
+    assert "git clone" in command and f"{dest}.partial" in command
+    assert command.endswith(f"mv -T {dest}.partial {dest}")
+    assert f" {dest} " not in command.split("mv -T")[0]
+
+
+def test_a_generated_script_that_lost_its_execute_bit_is_repaired():
+    """Refresh compares content, so a `chmod -R` or an archive restored without
+    `-p` left a script unable to run and the workspace reported up to date."""
+    cfg = WorkspaceConfig(name="acme", versions=["18.0"])
+    cfg.normalize_defaults()
+    files = {path: content for path, content, _mode in planners.generated_files(cfg, None)}
+    modes = {path: int(mode, 8) for path, _content, mode in planners.generated_files(cfg, None)}
+    read = files.get
+
+    assert planners.plan_refresh_files(cfg, None, read, "s", mode_of=modes.get) == []
+
+    script = cfg.scripts_dir / "run-odoo18.sh"
+    lost = {**modes, script: 0o644}
+    commands = planners.plan_refresh_files(cfg, None, read, "s", mode_of=lost.get)
+    assert [c.command for c in commands] == [f"chmod u+x {script}"]
+
+    # But a config the operator narrowed stays narrowed: it carries admin_passwd.
+    narrowed = {**modes, cfg.config_dir / "odoo18.conf": 0o600}
+    assert planners.plan_refresh_files(cfg, None, read, "s", mode_of=narrowed.get) == []
