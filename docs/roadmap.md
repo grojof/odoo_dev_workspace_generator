@@ -95,9 +95,19 @@ seeded from Odoo's own demo data, with a module set drawn from what this chain a
 disk — one absorbed, one renamed, one that carries on. Module fates are read with renamed and absorbed kept
 apart, and joined the tester's probe classes.
 
-**Next:** run that demo rehearsal end to end on the reference host — the first thing it will establish is
-whether Odoo 12 installs the chosen OCA modules, which cannot be verified from this repository. Then the
-real 12 client.
+**Accepted (2026-09-20):** a 12.0 → 14.0 demo rehearsal ran end to end on the reference host. Odoo 12's
+demo data plus four OCA modules chosen for their different fates were seeded, dumped, and migrated through
+both layouts (the ≤ 13 fork at 12 → 13, the upgrade-path at 13 → 14), checkpointed at each step. Every fate
+happened as the sources declared: `account_coa_menu` and `website_sale_product_style_badge` absorbed into
+`account_menu` and `website_sale`, `website_sale_attribute_filter_category` renamed,
+`partner_firstname` carried on with its own columns intact. The live watch, the cumulative report and the
+read-only checks were exercised against the running chain.
+
+It cost six fixes, all in shipped code and none visible to the suite (see `CHANGELOG.md`) — the reason for
+running it.
+
+**Next:** a second pass with the rehearsal tester installed, so the fates above are reported as probe
+verdicts rather than checked by hand; then the real 12 client.
 
 ## F0 — Foundation ✅
 
