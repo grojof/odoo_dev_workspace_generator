@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- **A probe that looked at nothing no longer reads as a pass.** Each probe now records what the sources
+  say its subject becomes, and the check asks about that too: a subject *and* its successor both missing
+  means the subject was never installed in that database, reported as **`not observed`** — neither a
+  finding nor a pass, and last in the report. Seen on a real run, where two module probes said `gone as
+  predicted` about modules that had never been installed. The generated tester's manifest also declares
+  its author, because Odoo attributes a manifest without one to "Odoo S.A.", which is false and made
+  coverage treat this project's own module as Odoo's dropped code.
+
 ### Fixed
 
 *Six defects, all in shipped code, all found by the first real rehearsal — a 12 → 14 demo migration on the

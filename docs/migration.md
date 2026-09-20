@@ -461,8 +461,16 @@ The two findings come first, and they are the two the run's logs never mention:
   loss: the module loaded, the step passed, and a column is empty.
 - **still there** — the sources said it would go and it did not, so a migration script did not run.
 
-The others (`intact`, `gone as predicted`) are printed too, one line each, so you can see the question was
-asked. If the module never installed, every probe reports `absent` rather than a reassuring `intact`.
+The others are printed too, one line each, so you can see the question was asked:
+
+- **`intact`** — the subject is still there and nothing said it would go.
+- **`gone as predicted`** — it went, and what it became is there instead.
+- **`not observed`** — neither the subject nor its successor is in the database, so this probe measured
+  nothing: the subject was never installed here. It sorts **last**, after everything that was actually
+  measured, and is not counted as a pass. A real run reported two module probes as `gone as predicted`
+  about modules that had never been installed — absent proves nothing on its own.
+
+If the module never installed, every probe reports `absent` rather than a reassuring `intact`.
 
 The tester is a rehearsal instrument. Its manifest says so, it depends on `base` alone, and it declares no
 menu, no group, no `auto_install` and read-only access to its own table.
