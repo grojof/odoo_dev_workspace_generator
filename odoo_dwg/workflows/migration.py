@@ -224,15 +224,25 @@ def _clean_environment() -> None:
 
 
 def _step_analysis_records(env: MigrationEnv, version: str) -> list[analysis.AnalysisRecord]:
-    """Aggregate every ``upgrade_analysis.txt`` of the step's OpenUpgrade clone.
-    Layout differs by era: ``openupgrade_scripts/scripts/<module>/<ver>/`` on
-    ≥ 14, module-embedded ``migrations`` dirs on the ≤ 13 fork."""
+    """Aggregate every analysis file of the step's OpenUpgrade clone.
+
+    Both the layout and the *name* differ by era: from 14.0 the files sit under
+    ``openupgrade_scripts/scripts/<module>/<ver>/upgrade_analysis.txt``, while the
+    ≤ 13 fork embeds them in each add-on's ``migrations/<ver>/`` and calls them
+    ``openupgrade_analysis.txt``. Looking only for the newer name found nothing
+    at all in the 12 → 13 step — the one hop where a module that has not moved
+    since 12 has the most to answer for — and staging then reported no candidate
+    findings, which reads exactly like having none. The work file the tool writes
+    beside it (``…_work.txt``) is deliberately not read.
+    """
     clone = env.openupgrade_clone_dir(version)
     records: list[analysis.AnalysisRecord] = []
     patterns = (
         "openupgrade_scripts/scripts/*/*/upgrade_analysis.txt",
         "addons/*/migrations/*/upgrade_analysis.txt",
         "odoo/addons/*/migrations/*/upgrade_analysis.txt",
+        "addons/*/migrations/*/openupgrade_analysis.txt",
+        "odoo/addons/*/migrations/*/openupgrade_analysis.txt",
     )
     for pattern in patterns:
         for path in clone.glob(pattern):

@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+- **The 12 → 13 step found no OpenUpgrade analysis at all.** Up to 13.0 the analysis lives in each
+  add-on's `migrations/<ver>/` directory and is called `openupgrade_analysis.txt`; from 14.0 it sits
+  under `openupgrade_scripts/` as `upgrade_analysis.txt`. Only the newer name was looked for, so
+  staging reported no candidate findings for that step — which reads exactly like having none. Against
+  a real clone the step goes from 0 records to 512 (45 removed models, 467 removed fields), and it is
+  the one hop where a module untouched since 12 has the most to answer for.
+
 ## [0.2.0] - 2026-09-20
 
 ### Added

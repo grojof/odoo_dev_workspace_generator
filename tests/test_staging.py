@@ -137,3 +137,35 @@ def test_the_scan_still_reads_names_the_way_the_regexes_did():
     assert ("res.partner", 1) not in hits    # not inside a longer one
     assert ("partner.bank", 2) in hits       # a dotted field, still bounded
     assert ("token", 3) not in hits          # `tokens` is another word
+
+
+def test_the_legacy_fork_names_its_analysis_files_differently(tmp_path, monkeypatch):
+    """Up to 13.0 OpenUpgrade embeds the analysis in each add-on's `migrations/`
+    directory and calls it `openupgrade_analysis.txt`; from 14.0 it lives under
+    `openupgrade_scripts/` as `upgrade_analysis.txt`.
+
+    Reading only the newer name found nothing in the 12 → 13 step — against a
+    real clone, 0 records where there are 512 — and staging then reported no
+    candidate findings, which reads exactly like having none.
+    """
+    from odoo_dwg.workflows import migration
+
+    monkeypatch.setattr(MigrationEnv, "base_dir", str(tmp_path))
+    env = MigrationEnv(source="12.0", target="14.0")
+
+    legacy = env.openupgrade_clone_dir("13.0") / "addons" / "sale" / "migrations" / "13.0.1.0"
+    legacy.mkdir(parents=True)
+    (legacy / "openupgrade_analysis.txt").write_text(ANALYSIS_FIXTURE, encoding="utf-8")
+    # The work file the tool writes beside it is not a source of record.
+    (legacy / "openupgrade_analysis_work.txt").write_text(
+        "---Models in module 'sale'---\nobsolete model never.read\n", encoding="utf-8"
+    )
+
+    modern = env.openupgrade_clone_dir("14.0") / "openupgrade_scripts" / "scripts" / "sale" / "14.0.1.0"
+    modern.mkdir(parents=True)
+    (modern / "upgrade_analysis.txt").write_text(ANALYSIS_FIXTURE, encoding="utf-8")
+
+    for version in ("13.0", "14.0"):
+        names = {record.name for record in migration._step_analysis_records(env, version)}
+        assert "ir.property" in names and "doall" in names, version
+        assert "never.read" not in names, version
