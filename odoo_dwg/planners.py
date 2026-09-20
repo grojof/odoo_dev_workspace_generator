@@ -31,6 +31,8 @@ from .models import (
 Exists = Callable[[Path], bool]
 # Current text of a file, or None when it is absent (injected, like Exists).
 Read = Callable[[Path], str | None]
+#: A file's current permission bits, or None when it is absent.
+Mode = Callable[[Path], int | None]
 
 
 def _never(_path: Path) -> bool:
@@ -239,6 +241,7 @@ def plan_refresh_files(
     interpreters: dict[str, InterpreterChoice] | None,
     read: Read,
     stamp: str = "",
+    mode_of: Mode | None = None,
 ) -> list[Command]:
     """Bring an existing workspace's generated files up to date with the tool.
 
@@ -254,6 +257,20 @@ def plan_refresh_files(
         # Files written before the heredoc stopped adding a trailing blank line
         # differ only in that; they are current, not worth a backup.
         if current is not None and current.rstrip("\n") == content.rstrip("\n"):
+            # The content is current; the mode may not be. A restore from an
+            # archive without `-p`, or a `chmod -R`, leaves a generated script
+            # unable to run, and comparing text alone reported the workspace up
+            # to date. Only the owner's execute bit is repaired, and only on a
+            # file meant to be executable: rewriting the whole mode would undo an
+            # operator who narrowed `odoo.conf`, which carries `admin_passwd`.
+            actual = mode_of(path) if mode_of else None
+            if int(mode, 8) & 0o100 and actual is not None and not actual & 0o100:
+                commands.append(
+                    Command(
+                        tf("Make {} executable again", str(path)),
+                        f"chmod u+x {shlex.quote(str(path))}",
+                    )
+                )
             continue
         if current is not None:
             # ``stamp`` (the workflow's clock) keeps every earlier backup.
@@ -764,7 +781,7 @@ def plan_mail_redirect(database: str, host: str, port: int, user: str) -> list[C
     return [
         Command(
             tf("Redirect the mail of database {} to Mailpit", database),
-            f"psql -h {shlex.quote(host)} -p {int(port)} -U {shlex.quote(user)} "
+            f"psql -X -h {shlex.quote(host)} -p {int(port)} -U {shlex.quote(user)} "
             f"-d {shlex.quote(database)} -v ON_ERROR_STOP=1 "
             f"-c {shlex.quote(egress.mail_redirect_sql())}",
         )

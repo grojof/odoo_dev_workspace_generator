@@ -374,7 +374,10 @@ def render_code_workspace(cfg: WorkspaceConfig) -> str:
 def _readme_python(choice: InterpreterChoice | None) -> str:
     if choice is None or not choice.python:
         return "host `python3`"
-    return f"{choice.python} (`uv`)" if choice.source == UV_PYTHON else f"{choice.python} (host)"
+    label = f"{choice.python} (`uv`)" if choice.source == UV_PYTHON else f"{choice.python} (host)"
+    # Said in English, like the rest of this file: `InterpreterChoice.describe`
+    # is for the UI and is translated, and a generated artifact never is.
+    return f"{label} — **outside the supported range**" if choice.out_of_range else label
 
 
 def _readme_requirement_changes(version: str) -> str:
@@ -911,7 +914,17 @@ if ! have_ck 00_source; then
   echo "$SRC_SHA" > "$CK/source.sha256.tmp" && mv "$CK/source.sha256.tmp" "$CK/source.sha256"
   checkpoint 00_source
 else
-  if [ "$(cat "$CK/source.sha256" 2>/dev/null)" != "$SRC_SHA" ]; then
+  # Three states, not two: recorded and equal, recorded and different, or not
+  # recorded at all — which is what an environment generated before 0.2.0 leaves
+  # behind. Calling the third one "another source dump" was false, and the
+  # remedy it named threw away every completed step of the chain.
+  CK_SHA=$(cat "$CK/source.sha256" 2>/dev/null || true)
+  if [ -z "$CK_SHA" ]; then
+    die "the checkpoints in $CK do not record which dump they came from (an older version wrote them).
+  If they came from $SRC_DUMP, adopt them with:
+    sha256sum $SRC_DUMP | cut -d' ' -f1 > $CK/source.sha256
+  If they came from another dump, remove $CK to start over."
+  elif [ "$CK_SHA" != "$SRC_SHA" ]; then
     die "checkpoints in $CK came from another source dump — remove that whole directory to start over"
   fi
   # A failed step leaves the working DB half-migrated: resume from the newest

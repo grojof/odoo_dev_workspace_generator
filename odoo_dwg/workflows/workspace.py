@@ -100,6 +100,9 @@ def _load_valid(path: Path) -> WorkspaceConfig | None:
     # the menu loop would catch it, but without naming the profile that caused it.
     except (OSError, ValueError, TypeError, RecursionError) as error:
         print(level_text("ERROR", tf("Cannot use the profile {}: {}", str(path), error)))
+        # Every action for this workspace goes through here, including the one
+        # that would repair it, so the way out has to be said rather than found.
+        print(level_text("INFO", tf("Edit {} and run this again.", str(path))))
         return None
     return cfg
 
@@ -169,6 +172,14 @@ def _stamp() -> str:
     return datetime.now().strftime("%Y%m%d-%H%M%S-%f")
 
 
+def _mode(path: Path) -> int | None:
+    """The file's permission bits, or None when it is absent."""
+    try:
+        return path.stat().st_mode & 0o777
+    except OSError:
+        return None
+
+
 def _read(path: Path) -> str | None:
     """Current text of a generated file, or None when there is none to compare.
     Undecodable bytes are replaced, so such a file counts as changed."""
@@ -187,12 +198,38 @@ def _existing_interpreters(cfg: WorkspaceConfig) -> dict[str, InterpreterChoice]
     for version in cfg.versions:
         pyvenv = _read(cfg.venv_dir(version) / "pyvenv.cfg")
         choice = interpreter_from_pyvenv(version, pyvenv) if pyvenv else None
+        if choice is not None and choice.out_of_range:
+            # Describing the venv on disk is right, but rebuilding it from these
+            # files would bake an unsupported interpreter back in — say so here,
+            # since this is the only moment the operator sees it.
+            print(level_text("WARN", tf(
+                "The venv for Odoo {} on disk was built with Python {}, outside the supported range "
+                "({}). The refreshed files describe and rebuild it as it is.",
+                version,
+                choice.python,
+                choice.crossed.describe() if choice.crossed else "",
+            )))
         resolved[version] = choice or resolve_interpreter(version, host_python=host_python)
     return resolved
 
 
 def _refresh_files(cfg: WorkspaceConfig) -> None:
-    commands = planners.plan_refresh_files(cfg, _existing_interpreters(cfg), _read, _stamp())
+    # A profile is the documented way to add an OCA repo, and there is no menu
+    # action for it — but this refresh writes the repo into every addons_path
+    # without cloning or linking it, which would leave Odoo pointed at nothing.
+    unlinked = sorted(
+        {repo for repo in cfg.oca_repos for version in cfg.versions
+         if not cfg.oca_symlink_dir(repo, version).exists()}
+    )
+    if unlinked:
+        print(level_text("WARN", tf(
+            "These OCA repos are in the profile but not on disk: {}. The refreshed files name them "
+            "in addons_path; run Refresh shared repos to clone and link them.",
+            ", ".join(unlinked),
+        )))
+    commands = planners.plan_refresh_files(
+        cfg, _existing_interpreters(cfg), _read, _stamp(), mode_of=_mode
+    )
     if not commands:
         print(level_text("OK", t("Every generated file is already up to date.")))
         return
@@ -252,6 +289,22 @@ def _add_version(cfg: WorkspaceConfig) -> None:
     except ValueError as error:
         print(level_text("ERROR", str(error)))
         return
+    # Ports are derived from a version's rank among the configured ones, so
+    # adding an older major renumbers every version above it. That is only
+    # visible in the heredoc bodies of the preview, and a running instance keeps
+    # the port its config no longer names.
+    moved = [
+        (existing, cfg.http_port_for(existing), candidate.http_port_for(existing))
+        for existing in cfg.versions
+        if cfg.http_port_for(existing) != candidate.http_port_for(existing)
+    ]
+    if moved:
+        print(level_text("WARN", tf(
+            "Adding {} moves the port of every later version: {}. Stop any instance you have "
+            "running before applying, and use the new port afterwards.",
+            version,
+            ", ".join(f"{existing} {before} -> {after}" for existing, before, after in moved),
+        )))
     if _plan_added_version(candidate, version):
         cfg.versions = candidate.versions
 

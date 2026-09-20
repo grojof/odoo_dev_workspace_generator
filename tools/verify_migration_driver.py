@@ -16,6 +16,7 @@ directory. Exits non-zero on the first case that does not behave as documented.
 
 from __future__ import annotations
 
+import hashlib
 import shutil
 import subprocess
 import sys
@@ -150,6 +151,27 @@ def main() -> int:
         check("checkpoints from another dump are refused",
               other.returncode != 0 and "another source dump" in other.stderr,
               other.stderr)
+
+        # Checkpoints written before 0.2.0 carry no recorded dump. That is not
+        # "another dump", and saying so told the operator to delete a chain that
+        # may be seven completed steps of a customer's database.
+        (env.checkpoints_dir / "source.sha256").unlink()
+        legacy = _run(root, script)
+        check("checkpoints with no recorded dump are not called another dump's",
+              legacy.returncode != 0
+              and "do not record which dump they came from" in legacy.stderr
+              and "another source dump" not in legacy.stderr,
+              legacy.stderr)
+        check("and the operator is told how to adopt them",
+              "sha256sum" in legacy.stderr and "source.sha256" in legacy.stderr,
+              legacy.stderr)
+        # Following that instruction must actually resume the chain.
+        digest = hashlib.sha256((root / "source.dump").read_bytes()).hexdigest()
+        (env.checkpoints_dir / "source.sha256").write_text(digest, encoding="utf-8")
+        adopted = _run(root, script)
+        check("adopting them resumes instead of restoring from scratch",
+              adopted.returncode == 0 and "[init] restoring source dump" not in adopted.stdout,
+              adopted.stdout + adopted.stderr)
 
     with tempfile.TemporaryDirectory(prefix="odwg-driver-") as tmp:
         root = Path(tmp)

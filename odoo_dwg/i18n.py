@@ -463,6 +463,24 @@ _ES: dict[str, str] = {
     'No verified patched wkhtmltopdf is pinned for {} — install it by hand (github.com/wkhtmltopdf/packaging) or PDF reports will be degraded.':
         'No hay ningún wkhtmltopdf parcheado y verificado fijado para {} — instálalo a mano (github.com/wkhtmltopdf/packaging) o los informes PDF saldrán degradados.',
     'Cannot read {}: {}': 'No se puede leer {}: {}',
+    "Edit {} and run this again.": "Edita {} y vuelve a ejecutarlo.",
+    "Make {} executable again": "Volver a hacer ejecutable {}",
+    "An environment generated before 0.2.0 used a single database named `migration`; drop that "
+    "one too if no other environment is still using it.":
+        "Un entorno generado antes de 0.2.0 usaba una única base de datos llamada `migration`; "
+        "bórrala también si ningún otro entorno la sigue usando.",
+    "These OCA repos are in the profile but not on disk: {}. The refreshed files name them "
+    "in addons_path; run Refresh shared repos to clone and link them.":
+        "Estos repos de OCA están en el perfil pero no en disco: {}. Los ficheros regenerados los "
+        "nombran en addons_path; ejecuta «Refrescar repos compartidos» para clonarlos y enlazarlos.",
+    "Adding {} moves the port of every later version: {}. Stop any instance you have "
+    "running before applying, and use the new port afterwards.":
+        "Añadir {} mueve el puerto de todas las versiones posteriores: {}. Para cualquier instancia "
+        "que tengas en marcha antes de aplicar, y usa el puerto nuevo después.",
+    "The venv for Odoo {} on disk was built with Python {}, outside the supported range "
+    "({}). The refreshed files describe and rebuild it as it is.":
+        "El venv de Odoo {} en disco se construyó con Python {}, fuera del rango soportado ({}). "
+        "Los ficheros regenerados lo describen y lo reconstruyen tal cual.",
     'Cannot use the profile {}: {}': 'No se puede usar el perfil {}: {}',
     '{} names another workspace ({}).': '{} corresponde a otro workspace ({}).',
     "Not an Odoo module name: {}": "No es un nombre de módulo de Odoo: {}",

@@ -31,6 +31,14 @@ All notable changes to this project are documented here. The format is based on
   - `tools/verify_egress_pins.py` re-checks the pins, the signature and the signing key against upstream.
 
 ### Changed
+- **The tests now guard the contract the tool is built on.** An audit of the suite itself mutated the source
+  ~55 ways and found 37 mutations that no test noticed: the preview and the "Apply this plan now?" gate could
+  both be deleted, `confirm_with_phrase` could accept anything, four of the five destructive phrase gates
+  could be removed, `choose` could return the first option where it had returned "cancelled", and an
+  unrecognised answer to a yes/no question could become a yes. Every one of those is now caught, along with
+  the `pg_hba` probe's three unknown-state guards, the driver's `umask`/`set -euo pipefail`, the clone's
+  staging path, the ready marker's write order, and `--lang`/`ODWG_LANG`/`--verbose`. One test asserted
+  nothing at all unless a sentinel appeared in the output, and now fails if it does not.
 - **The migration guide covers what the operator actually has to do**: the `pg_dump -Fc` to take (it was
   described but never shown), the **filestore** to copy alongside it (mentioned nowhere before — every
   `ir_attachment` in the migrated database would have pointed at a file that was never there), what to do
@@ -83,13 +91,19 @@ All notable changes to this project are documented here. The format is based on
   generates but did not name.
 - `tools/verify_generated_shell.py` runs ShellCheck over every generated script (it found two defects on its
   first run: dead variables in `setup_venv.sh`, and a failure path written as `a && b || c`).
-
-### Changed
 - **The operator surface has a specification** (change `name-the-operator-surface`). The twelve capabilities
   all described what the tool does to the *host*: nothing described the CLI, the language, the menus, the
   file browser or the error handling, and "previewed and confirmed" was restated in six capabilities with no
   one place defining what a preview shows or what applying reports. Two capabilities now do —
   `command-plan` and `operator-interface` — and `openspec validate --specs` covers 14.
+- **Each migration environment upgrades its own database.** Every environment used to share one database
+  called `migration`, so a second driver could drop the first one's database between its steps and the first
+  would then upgrade — and checkpoint — the second's data as its own. The name is derived from the chain
+  (`migration_13_to_18`). An environment generated before this left a database called `migration` behind:
+  **Clean a migration environment** now says so, and you can drop it once no environment still uses it.
+- **Adding a version to a workspace says which ports move.** Ports are derived from a version's rank, so
+  adding an older major renumbers every version above it — visible before only by reading the heredoc bodies
+  in the preview, while a running instance kept a port its config no longer named.
 - **Cleaning a migration environment names the staged modules it is about to delete**, before asking for the
   phrase. `rm -rf <root>` takes `addons/odoo<major>/custom`, which is where the operator's own migrated code
   lives, and the confirmation named only the directory.
@@ -98,6 +112,23 @@ All notable changes to this project are documented here. The format is based on
   made, holding their code.
 
 ### Fixed
+- **`~/.psqlrc` could still change what five `psql` commands did.** An earlier round added `-X` to the
+  probes it found; the version probe, the role-login probe, the role-existence probe, `psql_scalar` and the
+  mail redirect did not have it. A test now asserts it for every `psql` the probes run.
+- **A migration started before 0.2.0 refused to resume, and said to delete every checkpoint.** The driver
+  binds a run to its source dump by a SHA it records beside the checkpoints; an environment generated before
+  that has checkpoints and no recorded SHA, which read as *"came from another source dump — remove that whole
+  directory to start over"*. It was not another dump, it was an unknown one, and the remedy threw away every
+  completed step of a chain. The three states are now told apart, and the unknown one prints the command that
+  adopts those checkpoints for the dump you have.
+- **A venv built with an unsupported interpreter is now called out** when a workspace's files are refreshed.
+  The interpreter on disk is what the regenerated files describe and rebuild, so an out-of-range one was
+  quietly baked back in; the README says so too.
+- **Refreshing a workspace warns about OCA repos that are in the profile but not on disk.** The profile is
+  the documented way to add one, there is no menu action for it, and the refresh wrote the repo into every
+  `addons_path` while cloning and linking nothing.
+- **A profile the tool cannot use now says what to do about it.** Every action for that workspace goes
+  through the same load, including the one that would repair it.
 - **A file name in a staged module could write code into the generated
   `pre-migration.py`.** The scaffold put each finding's path into a `#` comment unescaped, and that path
   comes from the operator's copy of a client's module — a tree this tool did not write, where a file name
@@ -106,7 +137,9 @@ All notable changes to this project are documented here. The format is based on
   any run of backticks in the tool log it quotes.
 - **Migration checkpoints and logs were world-readable.** A checkpoint is a `pg_dump` of the restored copy
   of a customer's production database. The driver now runs under `umask 077` and both directories are
-  `700`, on new environments and on existing ones — it relied entirely on the home directory's mode before.
+  `700` — it relied entirely on the home directory's mode before. An environment that already exists is
+  narrowed the next time you generate over it, or the next time its regenerated driver runs; upgrading the
+  tool alone changes nothing on disk, and files already inside those directories keep the mode they have.
 - **A restored database could repaint the terminal.** Module names and authors are read from the database
   under migration and printed in the preflight table; only colour was ever stripped, so `\x1b[2J` or an OSC
   sequence reached the terminal and was counted in the column width. Table cells now carry colour and

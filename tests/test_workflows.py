@@ -3,14 +3,16 @@ outside tmp_path is touched."""
 
 from __future__ import annotations
 
+import io
 import json
+import subprocess
 
 import pytest
 
-from odoo_dwg import cli
-from odoo_dwg.models import HOST_PYTHON, UV_PYTHON, WorkspaceConfig
+from odoo_dwg import cli, prompts, system
+from odoo_dwg.models import HOST_PYTHON, UV_PYTHON, Command, WorkspaceConfig
 from odoo_dwg.ui import strip_ansi
-from odoo_dwg.workflows import common, workspace
+from odoo_dwg.workflows import common, migration, workspace
 
 
 @pytest.fixture()
@@ -275,3 +277,200 @@ def test_a_sane_migration_environment_validates():
     from odoo_dwg.models import MigrationEnv
 
     MigrationEnv(source="16.0", target="18.0", interpreter_overrides={"17.0": "3.10"}).validate()
+
+
+# --- the plan contract --------------------------------------------------------
+#
+# CLAUDE.md's first inviolable principle, and until round 13 nothing asserted it:
+# every mutation that removed the preview or the confirmation left the suite green.
+
+
+def test_a_plan_is_previewed_and_applied_only_when_the_operator_agrees(monkeypatch):
+    seen = {"preview": 0, "apply": 0}
+    monkeypatch.setattr(common, "preview_commands", lambda _c: seen.__setitem__("preview", seen["preview"] + 1))
+    monkeypatch.setattr(common, "apply_commands", lambda _c: seen.__setitem__("apply", seen["apply"] + 1))
+    plan = [Command("Do something", "true")]
+
+    monkeypatch.setattr(common, "ask_bool", lambda *_a, **_k: False)
+    assert common.apply_if_confirmed(plan) is False
+    assert seen == {"preview": 1, "apply": 0}, "declining must still have shown the plan"
+
+    monkeypatch.setattr(common, "ask_bool", lambda *_a, **_k: True)
+    assert common.apply_if_confirmed(plan) is True
+    assert seen == {"preview": 2, "apply": 1}
+
+
+def test_an_empty_plan_is_neither_previewed_nor_applied(monkeypatch):
+    monkeypatch.setattr(common, "preview_commands", lambda _c: pytest.fail("previewed nothing"))
+    monkeypatch.setattr(common, "apply_commands", lambda _c: pytest.fail("applied nothing"))
+    monkeypatch.setattr(common, "ask_bool", lambda *_a, **_k: True)
+    assert common.apply_if_confirmed([]) is False
+
+
+def test_a_streamed_step_never_reads_the_operators_terminal(monkeypatch):
+    """The quiet path is asserted elsewhere; verbose is the one that runs the long
+    commands (a clone, a pip install) most likely to prompt."""
+    seen = {}
+
+    class _Process:
+        args = ["bash"]
+        stdout = io.StringIO("")
+
+        def wait(self):
+            return 0
+
+    def fake_popen(_argv, **kwargs):
+        seen.update(kwargs)
+        return _Process()
+
+    monkeypatch.setattr(system.subprocess, "Popen", fake_popen)
+    system.run_streaming("echo hi")
+    assert seen["stdin"] is subprocess.DEVNULL
+
+
+# --- the exact-phrase gates -------------------------------------------------
+#
+# Five actions in the tool destroy something the operator cannot get back. Only
+# the mail redirect had a test; removing any of the other four phrase gates left
+# the suite green.
+
+
+@pytest.mark.parametrize("typed,accepted", [
+    ("DELETE", True),
+    ("DELETE ", True),      # a trailing space is a typing artefact, not an answer
+    ("delete", False),      # the phrase is exact, and shouting it is the point
+    ("DELETEX", False),
+    ("y", False),
+    ("", False),
+])
+def test_only_the_exact_phrase_confirms(monkeypatch, typed, accepted):
+    monkeypatch.setattr("builtins.input", lambda _prompt="": typed)
+    assert prompts.confirm_with_phrase("This deletes it.", "DELETE") is accepted
+
+
+def test_cleaning_a_migration_environment_needs_the_phrase(base, monkeypatch, capsys):
+    from odoo_dwg.models import MigrationEnv
+    monkeypatch.setattr(MigrationEnv, "base_dir", str(base))
+    (base / "13-to-18" / "addons" / "odoo14" / "custom" / "client_sales").mkdir(parents=True)
+    monkeypatch.setattr(migration, "choose", lambda *a, **k: "13-to-18")
+    monkeypatch.setattr(migration, "ask_bool", lambda *a, **k: False)
+    monkeypatch.setattr(migration, "preview_commands", lambda _c: None)
+    monkeypatch.setattr(migration, "apply_commands", lambda _c: pytest.fail("deleted without the phrase"))
+    monkeypatch.setattr(migration, "confirm_with_phrase", lambda *a: False)
+    migration._clean_environment()
+
+    # And the question names the staged code, which exists nowhere else.
+    asked = []
+    monkeypatch.setattr(migration, "confirm_with_phrase",
+                        lambda question, _phrase: asked.append(question) or False)
+    migration._clean_environment()
+    assert "client_sales" in asked[0]
+
+
+def test_rebuilding_a_venv_needs_the_phrase(base, monkeypatch):
+    _write_profile(base, "acme", versions=["18.0"])
+    cfg = workspace._load_existing("acme")
+    monkeypatch.setattr(workspace, "choose", lambda *a, **k: "18.0")
+    monkeypatch.setattr(workspace, "confirm_with_phrase", lambda *a: False)
+    monkeypatch.setattr(workspace, "_apply_if_confirmed",
+                        lambda _c: pytest.fail("rebuilt without the phrase"))
+    workspace._regenerate_venv(cfg)
+
+
+# --- the migration surface's own guards -------------------------------------
+#
+# The workspace surface's equivalents are covered; these had the same shape and
+# no test, so every one of them could be deleted with the suite still green.
+
+
+def test_the_preflight_refuses_a_database_name_it_cannot_trust(monkeypatch, capsys):
+    from odoo_dwg.models import MigrationEnv
+    monkeypatch.setattr(migration, "_ask_env", lambda: MigrationEnv(source="16.0", target="18.0"))
+    answers = iter(["", 'acme"; DROP DATABASE x --'])   # no dump, then the database
+    monkeypatch.setattr(migration, "ask_text", lambda *a, **k: next(answers))
+    monkeypatch.setattr(migration.preflight, "gather_host_facts",
+                        lambda *a, **k: pytest.fail("a name like this must stop before any probe"))
+    migration._preflight_check()
+    assert "Invalid database name" in strip_ansi(capsys.readouterr().out)
+
+
+def test_cleaning_does_not_touch_the_shared_cache_unless_asked(base, monkeypatch):
+    from odoo_dwg.models import MigrationEnv
+    monkeypatch.setattr(MigrationEnv, "base_dir", str(base))
+    (base / "13-to-18").mkdir(parents=True)
+    planned = []
+    monkeypatch.setattr(migration, "choose", lambda *a, **k: "13-to-18")
+    monkeypatch.setattr(migration, "preview_commands", lambda commands: planned.append(commands))
+    monkeypatch.setattr(migration, "confirm_with_phrase", lambda *a: False)
+    monkeypatch.setattr(migration, "ask_bool", lambda *a, **k: False)
+    migration._clean_environment()
+    assert not any(".repos" in c.command for c in planned[0])
+
+    monkeypatch.setattr(migration, "ask_bool", lambda *a, **k: True)
+    migration._clean_environment()
+    assert any(".repos" in c.command for c in planned[1])
+
+
+# --- how the tool is started ------------------------------------------------
+
+
+@pytest.mark.parametrize("argv,env,expected", [
+    (["--lang", "es"], {}, "es"),
+    (["--lang=es"], {}, "es"),                      # the `=` form, which read as English
+    (["workspace", "--lang", "es"], {}, "es"),      # after the subcommand
+    ([], {"ODWG_LANG": "es"}, "es"),
+    ([], {"ODWG_LANG": "en"}, "en"),
+    (["--lang", "en"], {"ODWG_LANG": "es"}, "en"),  # the flag wins over the environment
+])
+def test_the_language_is_settled_before_the_parser_is_built(monkeypatch, argv, env, expected):
+    """`--help` is printed by the parser, so a language read any later could
+    never translate it."""
+    for key in ("ODWG_LANG",):
+        monkeypatch.delenv(key, raising=False)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    early = cli._language_from(argv)
+    assert (early or "en").lower().startswith(expected)
+
+
+def test_verbose_comes_from_either_the_flag_or_the_environment(monkeypatch):
+    monkeypatch.delenv("ODWG_VERBOSE", raising=False)
+    monkeypatch.setattr(cli, "_select_language", lambda *_a: None)
+    monkeypatch.setattr(cli, "workspace_menu", lambda: None)
+    seen = []
+    monkeypatch.setattr(cli, "set_verbose", lambda value: seen.append(value))
+
+    cli.main(["workspace"])
+    cli.main(["workspace", "--verbose"])
+    monkeypatch.setenv("ODWG_VERBOSE", "1")
+    cli.main(["workspace"])
+    assert seen == [False, True, True]
+
+
+def test_an_interrupt_inside_an_action_returns_to_the_menu(monkeypatch, capsys):
+    """Ctrl-C abandons what is running, not the session. At the menu prompt it
+    does end the session — there is nothing to abandon there."""
+    answers = iter(["Workspaces (create / manage)", "Exit"])
+    monkeypatch.setattr(cli, "choose", lambda *_a, **_k: next(answers))
+    monkeypatch.setattr(cli, "_print_banner", lambda: None)
+    monkeypatch.setattr(cli, "workspace_menu", lambda: (_ for _ in ()).throw(KeyboardInterrupt()))
+    assert cli.interactive_menu() == 0
+    assert "Returning to the menu" in strip_ansi(capsys.readouterr().out)
+
+
+def test_a_closed_stdin_ends_the_session_cleanly(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "choose", lambda *_a, **_k: (_ for _ in ()).throw(EOFError()))
+    monkeypatch.setattr(cli, "_print_banner", lambda: None)
+    assert cli.interactive_menu() == 0
+    assert "Exiting" in strip_ansi(capsys.readouterr().out)
+
+
+def test_a_failed_action_is_reported_and_the_menu_comes_back(monkeypatch, capsys):
+    answers = iter(["Migration (OpenUpgrade 12→19)", "Exit"])
+    monkeypatch.setattr(cli, "choose", lambda *_a, **_k: next(answers))
+    monkeypatch.setattr(cli, "_print_banner", lambda: None)
+    monkeypatch.setattr(cli, "migration_menu",
+                        lambda: (_ for _ in ()).throw(RuntimeError("Failed running: false")))
+    assert cli.interactive_menu() == 0
+    out = strip_ansi(capsys.readouterr().out)
+    assert "did not complete" in out and "Traceback" not in out

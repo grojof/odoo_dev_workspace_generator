@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 from odoo_dwg import templates
-from odoo_dwg.models import WorkspaceConfig
+from odoo_dwg.models import MigrationEnv, WorkspaceConfig
 
 
 def test_odoo_conf_has_composed_addons_path_and_derived_port():
@@ -158,13 +158,18 @@ def test_generated_scripts_quote_paths_so_they_can_never_run(monkeypatch):
     cfg.normalize_defaults()
     from odoo_dwg.models import resolve_interpreter
     choices = {v: resolve_interpreter(v, host_python="3.12") for v in cfg.versions}
+    checked = 0
     for script in (templates.render_setup_venv_sh(cfg, choices), templates.render_run_sh(cfg, "18.0")):
         for line in script.splitlines():
             if "$(touch pwned)" in line:
+                checked += 1
                 # Every occurrence sits inside single quotes, where bash expands nothing.
                 words = _shlex.split(line, comments=True)
                 assert any("$(touch pwned)" in word for word in words), line
                 assert '"' + "/tmp/ws $(touch pwned)" not in line, line
+    # Without this the whole test passes vacuously the day a renderer stops
+    # writing the path at all, which is exactly how it would stop guarding.
+    assert checked, "the path never appeared — this test asserted nothing"
 
 
 def test_the_generated_config_never_asks_odoo_to_reload_itself():
@@ -178,3 +183,28 @@ def test_the_generated_config_never_asks_odoo_to_reload_itself():
     assert "http_interface = 127.0.0.1" in conf
     assert "workers = 0" in conf
     assert "max_cron_threads = 1" in conf
+
+
+def test_the_driver_keeps_its_checkpoints_and_logs_to_itself():
+    """A checkpoint is a `pg_dump` of a restored copy of production, and the log
+    is Odoo's log for it. Removing either line left the suite and both offline
+    verifiers green."""
+    script = templates.render_run_migration_sh(MigrationEnv(source="16.0", target="18.0"))
+    header = script.split("fail()", 1)[0]
+    assert header.index("umask 077") < header.index('mkdir -p "$CK" "$LOGS"')
+    assert 'chmod 700 "$CK" "$LOGS"' in header
+    # Without `-e` an unchecked restore inside a function would run on.
+    assert script.splitlines()[2] == "set -euo pipefail"
+
+
+def test_the_generated_setup_script_writes_each_ready_marker_last():
+    """Neither `uv venv --seed` nor `python3 -m venv` clears the marker, so a run
+    that dies mid-build would leave a half-built venv wearing the mark that tells
+    every later flow to skip it."""
+    cfg = WorkspaceConfig(name="acme", versions=["18.0"])
+    cfg.normalize_defaults()
+    script = templates.render_setup_venv_sh(cfg)
+    marker = str(cfg.venv_ready_marker("18.0"))
+    assert (script.index(f"rm -f {marker}")
+            < script.index("pip install -r")
+            < script.index(f"touch {marker}"))

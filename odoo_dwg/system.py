@@ -186,7 +186,7 @@ def detect_postgres_version(port: int = 5432) -> int | None:
         if cluster_port == port:
             return major
     result = run(
-        f'sudo -n -u postgres psql -p {int(port)} -tAc "SHOW server_version" 2>/dev/null',
+        f'sudo -n -u postgres psql -X -p {int(port)} -tAc "SHOW server_version" 2>/dev/null',
         check=False,
     )
     match = re.search(r"(\d+)", result.stdout.strip())
@@ -314,13 +314,13 @@ def db_role_exists(role: str, port: int = 5432) -> bool | None:
     if not DB_ROLE_RE.fullmatch(role):
         return False
     login = (
-        f"psql -h 127.0.0.1 -p {int(port)} -U {shlex.quote(role)} -d postgres "
+        f"psql -X -h 127.0.0.1 -p {int(port)} -U {shlex.quote(role)} -d postgres "
         "-w -tAc 'SELECT 1' >/dev/null 2>&1"
     )
     if command_ok(login):
         return True
     query = shlex.quote(f"SELECT 1 FROM pg_roles WHERE rolname='{role}'")
-    result = run(f"sudo -n -u postgres psql -p {int(port)} -tAc {query} 2>/dev/null", check=False)
+    result = run(f"sudo -n -u postgres psql -X -p {int(port)} -tAc {query} 2>/dev/null", check=False)
     if result.returncode != 0:
         return None
     return "1" in result.stdout
@@ -438,7 +438,7 @@ def psql_scalar(
     shaped values (db/host/user and the query itself) are shell-quoted here."""
     command = (
         # -w: fail instead of prompting when the host is not on trust auth.
-        f"psql -w -h {shlex.quote(host)} -p {int(port)} -U {shlex.quote(user)} "
+        f"psql -X -w -h {shlex.quote(host)} -p {int(port)} -U {shlex.quote(user)} "
         f"-d {shlex.quote(db)} -tAc {shlex.quote(query)} 2>/dev/null"
     )
     result = run(command, check=False)

@@ -194,6 +194,10 @@ def test_postgres_probes_never_prompt(monkeypatch):
     monkeypatch.setattr(system, "has_tool", lambda name: False)
     system.postgres_running()
     system.detect_postgres_version()
+    # The two that read as the server: both capture their output, so a password
+    # prompt would hang the flow with nothing on screen.
+    system.pg_hba_rules()
+    system.psql_scalar("SELECT 1", "acme")
     assert system.db_role_exists("odoo") is None
     assert system.db_role_exists("bad role; x") is False
     for cmd in seen:
@@ -202,6 +206,11 @@ def test_postgres_probes_never_prompt(monkeypatch):
             assert "sudo -n " in cmd, cmd
     assert any("pg_isready" in cmd for cmd in seen)
     assert any("-U odoo" in cmd and "-w" in cmd for cmd in seen)
+    # Every psql here runs with -X: `~/.psqlrc` can hold a `\c otherdb` or a
+    # `\! command`, and a probe's output is captured, so neither would be seen.
+    for cmd in seen:
+        if "psql" in cmd:
+            assert "psql -X" in cmd, cmd
 
 
 def _hba_row(**kwargs) -> tuple[str, str]:

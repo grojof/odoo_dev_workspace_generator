@@ -73,12 +73,16 @@ whose OpenUpgrade code is not on disk, a step that fails — which must name its
 upgrade-path ones. The unit suite may not shell out, so this is where the *behaviour* of the generated shell is checked — run it
 whenever `render_run_migration_sh` changes.
 
-`verify_pg_hba_trust.py` runs the `pg_hba.conf` rewriter over sixteen shapes of that file (the Ubuntu
-default; a blanket trust written as CIDR, as `localhost`/`samehost`, indented, in `address netmask` form, as
-`hostnossl`, on `all`, on `0.0.0.0/0` and on `127.0.0.0/8`; a file with no `host` rules; one this tool
-already narrowed; a role line shadowed by an earlier rule; a `hostssl` and a `hostgssenc` trust; a file with
-no trailing newline; and — the only negative case — a password rule whose comment merely mentions trust,
-which it must leave alone), asserting each result.
+`verify_pg_hba_trust.py` runs the `pg_hba.conf` rewriter over every shape of that file this project has been
+caught by, and the server's verification step over ten more. The shapes it must narrow: a blanket trust
+written as CIDR, as `localhost`/`samehost`, indented, in `address netmask` form, as `hostnossl`, `hostssl` or
+`hostgssenc`, on `all`, on `0.0.0.0/0`, on `127.0.0.0/8`, on one database, and with a quoted address. The
+shapes it must leave alone: the Ubuntu default, a file with no `host` rules, one this tool already narrowed,
+a password rule whose comment merely mentions trust, and a role literally named `all`. And the shapes where
+it must insert the role's line rather than read one as reached: a role line shadowed by an earlier rule, the
+role's own trust rule on `hostssl`, its own password rule above its trust rule, a shadowing rule that is not
+`host all all`, and a file with no trailing newline. The count is deliberately not repeated here — `CASES`
+and `AUDIT_CASES` in that file are the list.
 
 It asserts twice over. Once against a reading of the file written independently of the code under test: the
 first version of that tool asserted with a copy of `system.py`'s own regex, so every shape both missed

@@ -221,6 +221,12 @@ def _clean_environment() -> None:
         "`dropdb -h 127.0.0.1 -U odoo {}` when you want a fully clean run.",
         f"migration_{name.replace('-', '_')}",
     )))
+    # Before 0.2.0 every environment shared one database called `migration`, so
+    # an environment generated then left that one behind under its own name.
+    print(level_text("INFO", t(
+        "An environment generated before 0.2.0 used a single database named `migration`; drop that "
+        "one too if no other environment is still using it."
+    )))
 
 
 def _step_analysis_records(env: MigrationEnv, version: str) -> list[analysis.AnalysisRecord]:

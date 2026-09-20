@@ -341,3 +341,49 @@ def test_staging_commit_no_longer_hides_git_failures():
         for flag in ("--allow-empty", "--no-gpg-sign", "--no-verify",
                      "-c core.hooksPath=/dev/null"):
             assert flag in command, flag
+
+
+def test_the_tree_plan_writes_the_profile_before_anything_else():
+    """A workspace without `workspace.json` is one create refuses to touch and
+    manage refuses to load — a name the operator can only free with `rm -rf`.
+
+    Asserted on the plan's first written path, not on the string appearing
+    somewhere: the README draws a directory tree that names the file, so a
+    substring check passed with the profile removed from the plan entirely.
+    """
+    cfg = WorkspaceConfig(name="acme", versions=["18.0"])
+    cfg.normalize_defaults()
+    written = [c.command for c in planners.plan_workspace_tree(cfg) if c.command.startswith("cat > ")]
+    assert str(cfg.profile_file) in written[0]
+
+
+def test_a_clone_reaches_its_final_path_only_when_it_finished():
+    cfg = WorkspaceConfig(name="acme", versions=["18.0"])
+    cfg.normalize_defaults()
+    dest = str(cfg.odoo_clone_dir("18.0"))
+    command = planners.plan_repo_cache(cfg)[0].command
+    # git clones into a sibling; only a rename puts it where a later run looks.
+    assert "git clone" in command and f"{dest}.partial" in command
+    assert command.endswith(f"mv -T {dest}.partial {dest}")
+    assert f" {dest} " not in command.split("mv -T")[0]
+
+
+def test_a_generated_script_that_lost_its_execute_bit_is_repaired():
+    """Refresh compares content, so a `chmod -R` or an archive restored without
+    `-p` left a script unable to run and the workspace reported up to date."""
+    cfg = WorkspaceConfig(name="acme", versions=["18.0"])
+    cfg.normalize_defaults()
+    files = {path: content for path, content, _mode in planners.generated_files(cfg, None)}
+    modes = {path: int(mode, 8) for path, _content, mode in planners.generated_files(cfg, None)}
+    read = files.get
+
+    assert planners.plan_refresh_files(cfg, None, read, "s", mode_of=modes.get) == []
+
+    script = cfg.scripts_dir / "run-odoo18.sh"
+    lost = {**modes, script: 0o644}
+    commands = planners.plan_refresh_files(cfg, None, read, "s", mode_of=lost.get)
+    assert [c.command for c in commands] == [f"chmod u+x {script}"]
+
+    # But a config the operator narrowed stays narrowed: it carries admin_passwd.
+    narrowed = {**modes, cfg.config_dir / "odoo18.conf": 0o600}
+    assert planners.plan_refresh_files(cfg, None, read, "s", mode_of=narrowed.get) == []

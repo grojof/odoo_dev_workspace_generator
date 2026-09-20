@@ -152,7 +152,10 @@ def test_mail_redirect_is_column_aware_and_quoted():
     assert "column_name = 'smtp_authentication'" in sql  # absent before Odoo 15
     assert "to_regclass('fetchmail_server')" in sql  # absent without its module
     cmd = planners.plan_mail_redirect("acme-copy.2026", "127.0.0.1", 5432, "odoo")[0].command
-    assert cmd.startswith("psql -h 127.0.0.1 -p 5432 -U odoo -d acme-copy.2026 -v ON_ERROR_STOP=1 -c '")
+    # -X, like every psql this tool runs: `~/.psqlrc` can hold a `\c otherdb`.
+    assert cmd.startswith(
+        "psql -X -h 127.0.0.1 -p 5432 -U odoo -d acme-copy.2026 -v ON_ERROR_STOP=1 -c '"
+    )
 
 
 def test_database_names_follow_odoo():

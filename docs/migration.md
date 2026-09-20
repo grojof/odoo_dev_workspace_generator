@@ -187,6 +187,16 @@ after its chain — `migration_13_to_18` for a 13 → 18 environment — which a
 from the dump. Two *different* chains can therefore run at once; two runs of the *same* chain cannot, and
 the second would drop the first's database. Nothing ever touches the source database.
 
+A checkpoint is a `pg_dump` of that database — a full copy of whatever you restored, production data
+included — and `logs/<version>.log` is Odoo's log for it. The driver keeps `checkpoints/` and `logs/`
+at `700` and writes into them at `600`, so a second account on the host cannot read them. An environment
+generated before 0.2.0 is narrowed the next time you generate over it; upgrading the tool alone changes
+nothing on disk.
+
+An environment generated before 0.2.0 used one database called `migration` for every chain. Its
+checkpoints also carry no record of which dump they came from, so the current driver stops rather than
+resume against a dump that may not be theirs — it prints the one command that adopts them if it is.
+
 **When a step fails.** The driver names the step and its log (`[fail] step 16.0 failed — see
 logs/16.0.log`). Read that log: the cause is usually one of your own modules under
 `addons/odoo<major>/custom` that has not been adapted to that version. Fix it there, then run the same
