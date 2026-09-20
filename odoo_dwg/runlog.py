@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 
 #: One appended line of the driver's step log: when, run, step, event, detail.
 STEP_COLUMNS = 5
@@ -209,17 +209,56 @@ class LogEntry:
     first: str
 
 
-def summarise_log(text: str, levels: tuple[str, ...] = NOTEWORTHY_LEVELS) -> list[LogEntry]:
+def _utc_window(window: tuple[str, str]) -> tuple[datetime | None, datetime | None]:
+    """A step's window as naive UTC, to compare with what Odoo writes.
+
+    Odoo forces ``TZ=UTC`` on its own process — ``odoo/__init__.py`` up to 17.0,
+    ``odoo/_monkeypatches/__init__.py`` in 18.0 and 19.0 — so every log line is
+    UTC, while the driver stamps its events in local time with an offset.
+    """
+    bounds: list[datetime | None] = []
+    for value in window:
+        try:
+            moment = datetime.fromisoformat(value)
+        except (TypeError, ValueError):
+            bounds.append(None)
+            continue
+        bounds.append(
+            moment.astimezone(UTC).replace(tzinfo=None)
+            if moment.tzinfo
+            else moment
+        )
+    return bounds[0], bounds[1]
+
+
+def summarise_log(
+    text: str,
+    levels: tuple[str, ...] = NOTEWORTHY_LEVELS,
+    window: tuple[str, str] = ("", ""),
+) -> list[LogEntry]:
     """A step's log, deduplicated by (level, logger, message), worst level first.
 
     Deduplicated because one broken field can emit the same warning per record,
     and a report that repeats it ten thousand times hides the other nine.
+
+    ``window`` keeps only the lines this step wrote *this* run. A step's log is
+    appended to, never rotated, so a step re-run after a failure has every
+    earlier attempt in the same file — and the report led with "Failed to
+    initialize database" about a run that had already been superseded.
     """
+    since, until = _utc_window(window)
     seen: dict[tuple[str, str, str], int] = {}
     for line in text.splitlines():
         match = _ODOO_LINE.match(line)
         if not match or match["level"] not in levels:
             continue
+        if since or until:
+            try:
+                when = datetime.strptime(match["when"], "%Y-%m-%d %H:%M:%S,%f")
+            except ValueError:
+                continue
+            if (since and when < since) or (until and when > until):
+                continue
         key = (match["level"], match["logger"], match["message"].strip())
         seen[key] = seen.get(key, 0) + 1
     order = {level: index for index, level in enumerate(levels)}

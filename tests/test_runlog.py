@@ -117,3 +117,27 @@ def test_the_live_view_has_no_clock_of_its_own():
     # An unparseable instant is not worth a guess.
     history = runlog.runs(runlog.parse_steps("whenever\ta1\t13.0\tstart\t"))
     assert runlog.live_view(history[-1], ["13.0"], "2026-09-20T11:00:00+02:00")[0].elapsed == ""
+
+
+def test_a_step_log_is_read_for_the_run_that_wrote_it():
+    """A step's log is appended to, never rotated. A 12 -> 19 chain re-run after
+    a failure had three attempts in one file, and the report led with "Failed to
+    initialize database" about an attempt already superseded.
+    """
+    text = (
+        "2026-09-20 17:58:46,024 1 ERROR db odoo.modules.registry: Failed to load registry\n"
+        "2026-09-20 18:02:15,614 2 ERROR db odoo.modules.loading: inconsistent states\n"
+    )
+    # The window is local time with an offset; Odoo writes UTC, because it forces
+    # TZ=UTC on its own process.
+    window = ("2026-09-20T20:01:28+02:00", "2026-09-20T20:02:41+02:00")
+    inside = runlog.summarise_log(text, window=window)
+    assert [entry.first for entry in inside] == ["inconsistent states"]
+    # With no window, the whole file — which is what produced the wrong lead.
+    assert len(runlog.summarise_log(text)) == 2
+
+
+def test_a_window_that_cannot_be_read_keeps_every_line():
+    text = "2026-09-20 18:02:15,614 2 ERROR db odoo.x: boom\n"
+    assert len(runlog.summarise_log(text, window=("", ""))) == 1
+    assert len(runlog.summarise_log(text, window=("not a time", ""))) == 1

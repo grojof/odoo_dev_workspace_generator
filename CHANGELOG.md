@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **A step's log is read for the run that wrote it.** Step logs are appended to, never rotated, so a step
+  re-run after a failure carries every earlier attempt in the same file. The report counted them all and
+  led with `Failed to initialize database` about an attempt already superseded. Each step's summary is now
+  windowed by that step's own start and end, as the firewall's answers already were. Odoo forces `TZ=UTC`
+  on its own process (`odoo/__init__.py` to 17.0, `odoo/_monkeypatches/__init__.py` in 18.0 and 19.0), so
+  the window is converted before comparing; an unreadable window keeps every line.
 - **Coverage checks that a module's dependencies resolve, not only the module.** A module can resolve —
   its OCA repository is cloned — while its manifest names a dependency living in a *different* repository
   nobody cloned. Odoo refuses to upgrade such a module at load time, so a chain ran fifteen minutes and

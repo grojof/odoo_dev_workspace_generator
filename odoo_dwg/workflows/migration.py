@@ -337,9 +337,11 @@ def build_report(env: MigrationEnv, text: str) -> tuple[str, list]:
     """
     history = runlog.runs(runlog.parse_steps(text))
     latest = history[-1]
+    # Windowed to the step's own run: the log file is appended to across runs,
+    # so a step re-run after a failure carries every earlier attempt with it.
     logs = {
         step.version: runlog.summarise_log(
-            _read_text(env.logs_dir / f"{step.version}.log") or ""
+            _read_text(env.logs_dir / f"{step.version}.log") or "", window=step.window
         )
         for step in latest.steps
     }
