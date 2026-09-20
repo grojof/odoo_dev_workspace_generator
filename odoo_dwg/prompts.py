@@ -154,7 +154,18 @@ def select_file_path(
         if requested_label:
             print(f"\n{title('Select required file')}: {requested_label}")
         print(f"{title('Current directory')}: {current}")
-        entries = sorted(current.iterdir(), key=lambda item: (item.is_file(), item.name.lower()))
+        try:
+            entries = sorted(
+                current.iterdir(), key=lambda item: (item.is_file(), item.name.lower())
+            )
+        except OSError as error:
+            # A directory the operator cannot read is a wrong turn in a browser,
+            # not the end of the flow: say so and step back out of it.
+            print(level_text("WARN", tf("Cannot read {}: {}", str(current), error)))
+            if current.parent == current:
+                return ""
+            current = current.parent
+            continue
         print(t("  0) Choose a manual path"))
         print(t("  ..) Up one level"))
         print(t("  q) Cancel"))

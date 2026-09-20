@@ -151,7 +151,8 @@ def read_apriori(path: Path) -> dict[str, str]:
     mapping: dict[str, str] = {}
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"))
-    except (OSError, SyntaxError):
+    # ValueError covers UnicodeDecodeError: a checkout may hold anything.
+    except (OSError, ValueError, SyntaxError):
         # Not cached: the clone may appear later in the same session.
         return mapping
     for node in tree.body:
@@ -162,7 +163,8 @@ def read_apriori(path: Path) -> dict[str, str]:
             continue
         try:
             value = ast.literal_eval(node.value)
-        except ValueError:
+        # TypeError: `{[1]: 'b'}` is a literal ast can build but not evaluate.
+        except (ValueError, TypeError):
             continue
         if isinstance(value, dict):
             mapping.update(

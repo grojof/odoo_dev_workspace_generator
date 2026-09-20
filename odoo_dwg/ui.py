@@ -83,9 +83,34 @@ def title(text: str) -> str:
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
+# Terminal control that is not colour. A table cell can carry text this tool did
+# not write — a module name or author read from a restored database, `pg_restore`
+# on its stderr — and `\x1b[2J` clears the screen, an OSC sequence retitles the
+# window, a lone `\r` overwrites the line. Colour (SGR, the sequences ending in
+# `m`) is what this tool itself emits, so it is first and is the only group:
+# whatever it matches is kept and everything after it is dropped — including a
+# bare ESC, which the last class catches once the sequences have had their turn.
+_TERMINAL_CONTROL_RE = re.compile(
+    r"(\x1b\[[0-9;]*m)"                    # SGR — this tool's own colour
+    r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"  # OSC …BEL / …ST
+    r"|\x1b\[[0-9;?]*[A-Za-z]"             # any other CSI
+    r"|\x1b[@-Z\\-_]"                      # two-character escapes
+    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]"   # C0 controls, keeping \t and \n
+)
+
 
 def strip_ansi(text: str) -> str:
     return _ANSI_RE.sub("", text)
+
+
+def sanitize_cell(text: str) -> str:
+    """Text safe to print inside a table: colour, but no other terminal control.
+
+    A newline is left alone — the table renders a cell over several lines and the
+    borders still hold — but a tab would shift the columns it lands in.
+    """
+    kept = _TERMINAL_CONTROL_RE.sub(lambda match: match.group(1) or "", text)
+    return kept.replace("\t", " ")
 
 
 def _visible_len(text: str) -> int:
@@ -146,8 +171,8 @@ def _wrap_cell(cell: str, cap: int) -> list[str]:
 def render_table(
     headers: list[str], rows: list[list[str]], max_width: int | None = None
 ) -> str:
-    safe_headers = [t(str(item)) for item in headers]
-    safe_rows = [[t(str(cell)) for cell in row] for row in rows]
+    safe_headers = [sanitize_cell(t(str(item))) for item in headers]
+    safe_rows = [[sanitize_cell(t(str(cell))) for cell in row] for row in rows]
     column_count = len(safe_headers)
     if column_count == 0:
         return ""

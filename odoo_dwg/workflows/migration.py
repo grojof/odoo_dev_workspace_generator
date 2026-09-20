@@ -304,6 +304,10 @@ def _stage_modules() -> None:
     # Second phase: scan the staged output, then plan the additive scaffold and
     # report writes (previewed like everything else).
     write_commands = []
+    # The records belong to the step, not to the module: read once per version
+    # rather than once per (module, version), which re-globbed and re-parsed the
+    # whole OpenUpgrade checkout for every module of every step.
+    step_records = {version: _step_analysis_records(env, version) for version in env.chain()}
     for module in modules:
         steps: list[tuple[str, str, list, str | None]] = []
         for version in env.chain():
@@ -312,7 +316,7 @@ def _stage_modules() -> None:
             log_text = re.sub(r"\x1b\[[0-9;]*m", "", log_text)  # ANSI colors out of the report
             module_dir = env.addons_custom_dir(version) / module
             findings = analysis.scan_source(
-                _staged_module_files(module_dir), _step_analysis_records(env, version)
+                _staged_module_files(module_dir), step_records[version]
             )
             scaffold_path: str | None = None
             if findings:

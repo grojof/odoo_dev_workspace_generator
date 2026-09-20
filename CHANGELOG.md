@@ -85,6 +85,30 @@ All notable changes to this project are documented here. The format is based on
   first run: dead variables in `setup_venv.sh`, and a failure path written as `a && b || c`).
 
 ### Fixed
+- **A file name in a staged module could write code into the generated
+  `pre-migration.py`.** The scaffold put each finding's path into a `#` comment unescaped, and that path
+  comes from the operator's copy of a client's module — a tree this tool did not write, where a file name
+  may contain a newline. OpenUpgrade *executes* that file, while its own header says it does nothing. Paths
+  are now written escaped, in the scaffold and in the staging report, and the report's fence is longer than
+  any run of backticks in the tool log it quotes.
+- **Migration checkpoints and logs were world-readable.** A checkpoint is a `pg_dump` of the restored copy
+  of a customer's production database. The driver now runs under `umask 077` and both directories are
+  `700`, on new environments and on existing ones — it relied entirely on the home directory's mode before.
+- **A restored database could repaint the terminal.** Module names and authors are read from the database
+  under migration and printed in the preflight table; only colour was ever stripped, so `\x1b[2J` or an OSC
+  sequence reached the terminal and was counted in the column width. Table cells now carry colour and
+  nothing else.
+- **Scanning custom modules for breaking names took minutes and usually found nothing.** Each module's
+  source was scanned once per analysis record — 75,000 of them in one step — and the step's records were
+  re-read once per module. The names are looked up now instead of searched for one by one: the same 75,000
+  records over the same source went from **571 s to 0.7 s**, with identical output on 600 randomised
+  differential trials.
+- **`~/.psqlrc` could change what the generated driver did**, invisibly: one `psql` in its host preflight
+  ran without `-X`, unlike every other in the project.
+- **An unreadable directory ended the whole flow** instead of the file browser saying so and stepping back
+  out, and a profile too deeply nested for `json` to parse was reported without naming the profile.
+- **`apriori.py` could abort a preflight run**: a non-UTF-8 byte or a key `ast` cannot evaluate raised
+  instead of degrading to "renames unknown", in the Python reader and in the driver's rendered one.
 - **A `trust` for every role on one database was invisible to `provision`** (change
   `agree-on-what-a-trust-rule-covers`). The classification asked for the rule's *database* field to be `all`
   as well as its role field, so `host mydb all 127.0.0.1/32 trust` passed the check, survived apply and was

@@ -96,7 +96,9 @@ def _load_valid(path: Path) -> WorkspaceConfig | None:
         cfg = WorkspaceConfig.load(path)
         cfg.normalize_defaults()
         cfg.validate()
-    except (OSError, ValueError, TypeError) as error:
+    # RecursionError (a RuntimeError) is json's answer to a deeply nested file:
+    # the menu loop would catch it, but without naming the profile that caused it.
+    except (OSError, ValueError, TypeError, RecursionError) as error:
         print(level_text("ERROR", tf("Cannot use the profile {}: {}", str(path), error)))
         return None
     return cfg

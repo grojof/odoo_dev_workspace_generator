@@ -31,6 +31,10 @@ GENERIC_FIELD_NAMES = frozenset(
      "active", "sequence", "code", "note", "value", "description", "display_name"}
 )
 
+# A line's names, as maximal runs of word and dot characters — the shape both of
+# the scan's word-boundary rules are decided from.
+_DOTTED_RE = re.compile(r"[\w.]+")
+
 
 @dataclass(frozen=True)
 class AnalysisRecord:
@@ -87,24 +91,54 @@ def scan_source(
     the noise floor sane: removed *fields* only match in files that also mention
     the owning model, and ultra-generic field names are skipped entirely (see
     ``GENERIC_FIELD_NAMES``)."""
+    wanted = [
+        record
+        for record in records
+        if not (record.kind == "removed_field" and record.name in GENERIC_FIELD_NAMES)
+    ]
+    # The names are looked *up*, not searched for one by one. One analysis step
+    # carries tens of thousands of records and a module's source was scanned once
+    # against each of them — minutes per module per step, and in the ordinary case
+    # (a module inheriting a core model, so every record's model test passes and
+    # no field name matches) minutes to produce nothing at all. Reading each line
+    # once into the names it contains makes the cost the source's size, not the
+    # product of the two.
+    #
+    # The two token shapes are the two word-boundary rules this scan had. A model
+    # name must not match inside a longer dotted name, so it is looked up as a
+    # whole `[\w.]+` run. A field matches inside one — `<model>.<field>` is the
+    # normal usage — so it is looked up among a run's dot-separated pieces, of as
+    # many components as the longest field name has (one, unless an analysis file
+    # ever names a dotted field).
+    models = {record.model for record in wanted if record.kind == "removed_field"}
+    pieces = max(
+        (record.name.count(".") + 1 for record in wanted if record.kind == "removed_field"),
+        default=1,
+    )
     findings: list[Finding] = []
-    # Compiled once per record, not once per (file x record) pair: a long chain
-    # would otherwise thrash the module-level regex cache.
-    patterns: list[tuple[AnalysisRecord, re.Pattern[str]]] = []
-    for record in records:
-        if record.kind == "removed_field":
-            if record.name in GENERIC_FIELD_NAMES:
-                continue
-            # `<model>.<field>` is the normal usage, so a leading dot must match.
-            patterns.append((record, re.compile(rf"(?<!\w){re.escape(record.name)}(?!\w)")))
-        else:
-            # Model names must not match inside longer dotted names.
-            patterns.append((record, re.compile(rf"(?<![\w.]){re.escape(record.name)}(?![\w.])")))
     for path, text in files:
-        for record, pattern in patterns:
-            if record.kind == "removed_field" and record.model not in text:
-                continue
-            for line_number, line in enumerate(text.splitlines(), start=1):
-                if pattern.search(line):
-                    findings.append(Finding(path, line_number, record))
+        present = {model for model in models if model in text}
+        words: dict[str, list[int]] = {}
+        dotted: dict[str, list[int]] = {}
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            runs = set(_DOTTED_RE.findall(line))
+            in_line: set[str] = set()
+            for run in runs:
+                parts = run.split(".")
+                for first in range(len(parts)):
+                    for last in range(first + 1, min(first + pieces, len(parts)) + 1):
+                        in_line.add(".".join(parts[first:last]))
+            for token in in_line:
+                words.setdefault(token, []).append(line_number)
+            for token in runs:
+                dotted.setdefault(token, []).append(line_number)
+        # Record order, then line order — the order the scan has always reported.
+        for record in wanted:
+            if record.kind == "removed_field":
+                if record.model not in present:
+                    continue
+                hits = words.get(record.name, ())
+            else:
+                hits = dotted.get(record.name, ())
+            findings.extend(Finding(path, line_number, record) for line_number in hits)
     return findings

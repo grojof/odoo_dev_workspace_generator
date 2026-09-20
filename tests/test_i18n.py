@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from odoo_dwg import i18n
+from odoo_dwg import i18n, ui
 
 
 @pytest.fixture(autouse=True)
@@ -114,3 +114,14 @@ def test_the_catalog_is_authored_in_the_direction_it_is_read():
     suspicious = [k for k in i18n._ES
                   if k != "Español" and any(ch in k for ch in spanish_only)]
     assert not suspicious, f"these keys look Spanish: {suspicious}"
+
+
+def test_a_table_cell_carries_colour_and_nothing_else():
+    """Module names and authors come from the database under migration, and land
+    in the preflight table: a cell must not be able to drive the terminal."""
+    cell = "evil\x1b[2J\x1b[1;31mFAKE OK\x1b[0m\x1b]0;title\x07\rmore\tand\x1b"
+    out = ui.render_table(["State", "Module"], [["MISSING", cell]])
+    for control in ("\x1b[2J", "\x1b]0;", "\r", "\t"):
+        assert control not in out, control
+    assert "\x1b[1;31m" in out and "\x1b[0m" in out       # colour survives
+    assert out.count("\n") == 5                            # and the borders hold

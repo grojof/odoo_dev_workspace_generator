@@ -460,6 +460,7 @@ _ES: dict[str, str] = {
     "Unload the kernel modules it used": "Retirar de memoria los módulos del kernel que usaba",
     'No verified patched wkhtmltopdf is pinned for {} — install it by hand (github.com/wkhtmltopdf/packaging) or PDF reports will be degraded.':
         'No hay ningún wkhtmltopdf parcheado y verificado fijado para {} — instálalo a mano (github.com/wkhtmltopdf/packaging) o los informes PDF saldrán degradados.',
+    'Cannot read {}: {}': 'No se puede leer {}: {}',
     'Cannot use the profile {}: {}': 'No se puede usar el perfil {}: {}',
     '{} names another workspace ({}).': '{} corresponde a otro workspace ({}).',
     "Not an Odoo module name: {}": "No es un nombre de módulo de Odoo: {}",

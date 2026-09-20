@@ -553,9 +553,13 @@ def render_migration_scaffold(module: str, version: str, findings: list) -> str:
     for finding in findings:
         record = finding.record
         what = "model" if record.kind == "removed_model" else "field"
+        # The path comes from the operator's own module tree, which this tool did
+        # not write: a file name may legally contain a newline, and this comment
+        # is a line of a Python file OpenUpgrade *executes*. `repr` keeps it one
+        # line whatever it holds.
         lines.append(
             f"# TODO {record.model}: {what} '{record.name}' removed in {version}"
-            f" (seen at {finding.path}:{finding.line})"
+            f" (seen at {finding.path!r}:{finding.line})"
         )
     lines += [
         "",
@@ -581,9 +585,16 @@ def render_staging_report(module: str, steps: list[tuple[str, str, list, str | N
         "",
     ]
     for version, log_text, findings, scaffold in steps:
-        lines += [f"## Step {version}", "", "### odoo-module-migrate output (verbatim)", "```"]
-        lines.append(log_text.rstrip() or "(no output captured)")
-        lines += ["```", ""]
+        # The tool's log is carried verbatim, so the fence has to be longer than
+        # any run of backticks in it — otherwise the log ends the block early and
+        # the rest of the report is read as markdown.
+        body = log_text.rstrip() or "(no output captured)"
+        fence = "```"
+        while fence in body:
+            fence += "`"
+        lines += [f"## Step {version}", "", "### odoo-module-migrate output (verbatim)", fence]
+        lines.append(body)
+        lines += [fence, ""]
         if findings:
             lines.append("### Candidate findings (confirm each)")
             for finding in findings:
@@ -591,7 +602,7 @@ def render_staging_report(module: str, steps: list[tuple[str, str, list, str | N
                 what = "model" if record.kind == "removed_model" else "field"
                 lines.append(
                     f"- `{record.model}` {what} `{record.name}` removed in {version}"
-                    f" — seen at `{finding.path}:{finding.line}`"
+                    f" — seen at `{finding.path!r}:{finding.line}`"
                 )
             lines.append("")
         else:
@@ -694,7 +705,9 @@ def _render_preflight_host(env: MigrationEnv) -> str:
         '  command -v uv >/dev/null 2>&1 || fail "uv not found (needed for the native venvs)"',
     ]
     lines += [
-        '  psql -tAc "SELECT 1" postgres >/dev/null 2>&1 || fail "PostgreSQL not reachable as $PGUSER@$PGHOST:$PGPORT"',
+        # -X, like every other psql this project runs: `~/.psqlrc` can hold a
+        # `\\c otherdb` or a `\\! command`, none of which is visible in the plan.
+        '  psql -X -tAc "SELECT 1" postgres >/dev/null 2>&1 || fail "PostgreSQL not reachable as $PGUSER@$PGHOST:$PGPORT"',
         '  [ -r "$SRC_DUMP" ] || fail "source dump not readable: $SRC_DUMP"',
         '  pg_restore --list "$SRC_DUMP" >/dev/null 2>&1 || fail "pg_restore cannot list $SRC_DUMP — a custom-format dump (pg_dump -Fc) is required"',
         '  echo "[preflight] host checks passed"',
@@ -730,7 +743,7 @@ def _render_coverage_helper() -> str:
             "renames = {}",
             "try:",
             '    tree = ast.parse(open(apriori, encoding="utf-8").read())',
-            "except (OSError, SyntaxError):",
+            "except (OSError, ValueError, SyntaxError):",
             '    print("[coverage] %s: no readable apriori.py — renames unknown" % version,',
             "          file=sys.stderr)",
             "    tree = None",
@@ -743,7 +756,7 @@ def _render_coverage_helper() -> str:
             "            continue",
             "        try:",
             "            value = ast.literal_eval(node.value)",
-            "        except ValueError:",
+            "        except (ValueError, TypeError):",
             "            continue",
             "        if isinstance(value, dict):",
             "            renames.update({str(k): str(v) for k, v in value.items()",
@@ -844,7 +857,12 @@ DB={shlex.quote(env.database)}
 export PGHOST={shlex.quote(env.db_host)} PGPORT={int(env.db_port)} PGUSER={shlex.quote(env.db_user)}
 CK={shlex.quote(str(env.checkpoints_dir))}
 LOGS={shlex.quote(str(env.logs_dir))}
+# A checkpoint is a dump of the restored copy of a customer's production
+# database, and a log is Odoo's log for it: neither is for other accounts on this
+# host to read, whatever the operator's umask and home directory allow.
+umask 077
 mkdir -p "$CK" "$LOGS"
+chmod 700 "$CK" "$LOGS"
 
 fail() {{ echo "[preflight-fail] $1" >&2; exit 1; }}
 die() {{ echo "[fail] $1" >&2; exit 1; }}

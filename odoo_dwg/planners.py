@@ -895,10 +895,16 @@ def plan_migration_configs(
     dirs: list[Path] = [env.conf_dir, env.checkpoints_dir, env.logs_dir, env.requirements_dir]
     for version in env.chain():
         dirs += [env.addons_custom_dir(version), env.addons_oca_dir(version)]
+    private = [env.checkpoints_dir, env.logs_dir]
     commands: list[Command] = [
         Command(
             tf("Create migration directories"),
-            "mkdir -p " + " ".join(shlex.quote(str(p)) for p in dirs),
+            "mkdir -p " + " ".join(shlex.quote(str(p)) for p in dirs)
+            # A checkpoint is a `pg_dump` of the restored copy of a customer's
+            # production database, and a log is Odoo's log for it. `chmod` rather
+            # than `mkdir -m`, so an environment generated before this is narrowed
+            # too — `mkdir -p` leaves an existing directory's mode alone.
+            + " && chmod 700 " + " ".join(shlex.quote(str(p)) for p in private),
         )
     ]
     files = [
