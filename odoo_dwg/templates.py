@@ -131,16 +131,23 @@ def render_setup_venv_sh(
             ]
         else:
             create = [f"python3 -m venv {shlex.quote(str(venv))}"]
+        marker = cfg.venv_ready_marker(inst.version)
         blocks.append(
             "\n".join(
                 [
                     f"echo {shlex.quote(f'[odoo{inst.major}] creating venv {venv}')}",
+                    # Clear the ready marker first and write it last: neither
+                    # `uv venv --seed` nor `python3 -m venv` removes it, so a run
+                    # that dies between them would leave a half-built venv wearing
+                    # the marker that tells every later flow to skip it.
+                    f"rm -f {shlex.quote(str(marker))}",
                     *create,
                     f"{shlex.quote(f'{venv}/bin/pip')} install --upgrade pip wheel "
                     f"{shlex.quote(setuptools_requirement(inst.version))}",
                     requirements_install_command(
                         f"{venv}/bin/pip", f"{odoo}/requirements.txt", inst.version
                     ),
+                    f"touch {shlex.quote(str(marker))}",
                     "",
                 ]
             )
@@ -779,10 +786,10 @@ def _render_preflight_db(env: MigrationEnv) -> str:
         "",
         "preflight_db() {",
         "  local base_ver blocking=0",
-        '  base_ver=$(psql -d "$DB" -tAc "SELECT latest_version FROM ir_module_module WHERE name=\'base\'") '
+        '  base_ver=$(psql -X -d "$DB" -tAc "SELECT latest_version FROM ir_module_module WHERE name=\'base\'") '
         '|| fail "could not query the restored database \'$DB\'"',
         f'  case "$base_ver" in {source_major}.*) ;; *) fail "database base version \'$base_ver\' does not match declared source {env.source}";; esac',
-        '  modules_tsv=$(psql -d "$DB" -tAc "SELECT name || E\'\\t\' || coalesce(author, \'\') FROM ir_module_module WHERE state=\'installed\' ORDER BY name") '
+        '  modules_tsv=$(psql -X -d "$DB" -tAc "SELECT name || E\'\\t\' || coalesce(author, \'\') FROM ir_module_module WHERE state=\'installed\' ORDER BY name") '
         '|| fail "could not list the installed modules of \'$DB\'"',
     ]
     for version in env.chain():

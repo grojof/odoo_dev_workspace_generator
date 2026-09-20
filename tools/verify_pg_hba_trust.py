@@ -44,7 +44,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from odoo_dwg import pghba, planners, system  # noqa: E402
 
 ROLE = "odoo"
-LOOKUP = 'PGHBA=$(sudo -u postgres psql -tAc "SHOW hba_file;")'
+LOOKUP = 'PGHBA=$(sudo -u postgres psql -X -tAc "SHOW hba_file;")'
 
 UBUNTU_DEFAULT = """\
 local   all             postgres                                peer
@@ -134,6 +134,15 @@ host    all             all             127.0.0.1/32            scram-sha-256
 host    all             odoo            127.0.0.1/32            trust
 """
 
+# The role already has a trust rule, but on a connection type that is never
+# consulted with TLS on. Counting it as the role's line would insert nothing and
+# then fail a verification the operator cannot get past by re-running.
+ROLE_ON_HOSTSSL = """\
+local   all             postgres                                peer
+hostssl all             odoo            127.0.0.1/32            trust
+host    all             all             127.0.0.1/32            scram-sha-256
+"""
+
 # A rule this tool must not touch: the method is not trust, and "trust" only
 # appears in a comment.
 NOT_A_TRUST = """\
@@ -158,6 +167,7 @@ CASES = [
     ("a hostssl blanket trust", HOSTSSL),
     ("a hostgssenc blanket trust", HOSTGSSENC),
     ("a file with no trailing newline", NO_FINAL_NEWLINE),
+    ("the role's own trust rule on hostssl", ROLE_ON_HOSTSSL),
 ]
 
 # --- an oracle that is not the implementation ------------------------------
@@ -526,11 +536,15 @@ AUDIT_CASES = [
 
 def _the_audit_step(check, cluster: Cluster) -> None:
     """The plan's own "ask PostgreSQL what rules it now has" step, run for real."""
-    audit = next(
+    command = next(
         c.command for c in planners.plan_pg_hba_trust(ROLE) if "pg_hba_file_rules" in c.command
-    ).replace(
-        "sudo -u postgres psql",
-        f"{cluster.bin / 'psql'} -h {cluster.root} -p {cluster.port} -U postgres",
+    )
+    prefix = "sudo -u postgres psql"
+    # Without this, a flag added to that command would make the replace miss and
+    # the verifier would grade its cases against the host's own cluster.
+    assert prefix in command, f"the audit step's psql prefix changed: {command}"
+    audit = command.replace(
+        prefix, f"{cluster.bin / 'psql'} -h {cluster.root} -p {cluster.port} -U postgres"
     )
     for label, content, should_fail in AUDIT_CASES:
         cluster.load(content)

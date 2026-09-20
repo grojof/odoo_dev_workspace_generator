@@ -53,7 +53,8 @@ The pins live in `odoo_dwg/egress.py`. Check them with `python tools/verify_egre
 
 ## How OpenSnitch is configured
 
-- **The service** (`opensnitchd`) filters in the kernel and always runs.
+- **The service** (`opensnitch.service`, whose binary is `opensnitchd`) filters in the kernel and always
+  runs.
 - **The window** (`opensnitch-ui`) is a separate program. The service connects to it when it is open.
 
 The package's defaults do not match "block unless allowed". The tool changes these keys in

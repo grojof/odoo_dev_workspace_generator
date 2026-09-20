@@ -75,6 +75,26 @@ All notable changes to this project are documented here. The format is based on
   first run: dead variables in `setup_venv.sh`, and a failure path written as `a && b || c`).
 
 ### Fixed
+- **A host whose `pg_hba.conf` already trusted the development role on `hostssl` could not be provisioned
+  at all.** The rewriter counted any `host…` type as the role's trust line and so inserted nothing, while
+  the check and the verification had been tightened to plain `host` — the step then failed on a rule it had
+  never added, and re-running did the same. All three agree now.
+- **The patched wkhtmltopdf's install reported success without being the binary on `PATH`.** It is read
+  back after installing, and the step fails naming what it found, since an unpatched distribution build
+  earlier on `PATH` is exactly the state the step exists to fix.
+- **A service that started and died left the run saying "Provisioning applied".** `systemctl restart`
+  returns as soon as a `Type=simple` unit is forked, and OpenSnitch's unit is one. The firewall and the mail
+  capture now have their state read back and reported once the plan has run.
+- **The generated `setup_venv.sh` could leave a half-built venv wearing its ready marker.** Neither
+  `uv venv --seed` nor `python3 -m venv` removes the marker, so a run that died during `pip install` left
+  every later flow skipping that venv. The script clears the marker first and writes it last, as the plan
+  already did.
+- `provision check` reads the rules on a PostgreSQL older than 15 too, where `file_name` does not exist —
+  the apply side already branched for it, the check side did not.
+- Every `psql` the plan runs carries `-X` (four did not), pathname expansion is off while the verification
+  walks its findings, and the step's own name no longer promises more than it reads: the view is the file as
+  the server parses it now, and the connection check is what proves the loaded rules.
+
 - **A `pg_hba.conf` PostgreSQL refuses to load made `provision apply` report success on a host it had not
   changed.** `pg_ctl reload` returns 0 whether or not the file parsed, so with one malformed rule anywhere
   the server keeps its previous rules while the file on disk reads as narrowed — and the verification step,

@@ -326,11 +326,21 @@ def db_role_exists(role: str, port: int = 5432) -> bool | None:
     return "1" in result.stdout
 
 
-PG_HBA_RULES_QUERY = (
+_PG_HBA_COLUMNS = (
     "SELECT type, array_to_string(database, ','), array_to_string(user_name, ','), "
-    "coalesce(address, ''), coalesce(netmask, ''), auth_method, coalesce(file_name, ''), "
+    "coalesce(address, ''), coalesce(netmask, ''), auth_method, "
+)
+PG_HBA_RULES_QUERY = (
+    _PG_HBA_COLUMNS + "coalesce(file_name, ''), coalesce(line_number::text, '0'), "
+    "coalesce(error, '') FROM pg_hba_file_rules ORDER BY rule_number"
+)
+# `file_name` and `rule_number` exist from PostgreSQL 15; the view itself from 10,
+# and `include` directives (the only way a rule comes from another file) from 16.
+# So below 15 the configured file is the only one there is, and `hba_file` names it.
+PG_HBA_RULES_QUERY_PRE15 = (
+    _PG_HBA_COLUMNS + "(SELECT setting FROM pg_settings WHERE name = 'hba_file'), "
     "coalesce(line_number::text, '0'), coalesce(error, '') "
-    "FROM pg_hba_file_rules ORDER BY rule_number"
+    "FROM pg_hba_file_rules ORDER BY line_number"
 )
 
 
@@ -343,15 +353,16 @@ def pg_hba_rules(port: int = 5432) -> list[pghba.Rule] | None:
     file say now" before a reload. Superuser-only, hence `sudo -n`, which fails
     rather than prompting.
     """
-    result = run(
-        # $'\t' and not '\t': the second gives psql a literal backslash-t.
-        f"sudo -n -u postgres psql -X -p {int(port)} -w -tAF$'\\t' "
-        f"-c {shlex.quote(PG_HBA_RULES_QUERY)} 2>/dev/null",
-        check=False,
-    )
-    if result.returncode != 0:
-        return None
-    return pghba.parse_rules(result.stdout)
+    for query in (PG_HBA_RULES_QUERY, PG_HBA_RULES_QUERY_PRE15):
+        result = run(
+            # $'\t' and not '\t': the second gives psql a literal backslash-t.
+            f"sudo -n -u postgres psql -X -p {int(port)} -w -tAF$'\\t' "
+            f"-c {shlex.quote(query)} 2>/dev/null",
+            check=False,
+        )
+        if result.returncode == 0:
+            return pghba.parse_rules(result.stdout)
+    return None
 
 
 def pg_hba_loopback_state(role: str, port: int = 5432) -> tuple[bool, bool] | None:

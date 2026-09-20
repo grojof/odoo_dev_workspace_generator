@@ -304,7 +304,7 @@ def plan_postgresql(role: str) -> list[Command]:
         Command(tf("Enable and start PostgreSQL"), "systemctl enable --now postgresql"),
         Command(
             tf("Create development role {} (if missing)", role),
-            f"sudo -u postgres psql -v ON_ERROR_STOP=1 -c {shlex.quote(role_sql)}",
+            f"sudo -u postgres psql -X -v ON_ERROR_STOP=1 -c {shlex.quote(role_sql)}",
         ),
     ] + plan_pg_hba_trust(role)
 
@@ -337,9 +337,13 @@ def plan_pg_hba_trust(role: str) -> list[Command]:
     reached = (
         "awk '"
         "/^[[:space:]]*#/ { next } "
-        f"$0 ~ /^[[:space:]]*host[a-z]*[[:space:]]+all[[:space:]]+{role}[[:space:]]+"
+        # Plain `host` only, like the probe and the verification step: with TLS on
+        # a `hostnossl` rule is never consulted, and counting one as the role's
+        # trust line would insert nothing and then fail the step it cannot fix.
+        f"$0 ~ /^[[:space:]]*host[[:space:]]+all[[:space:]]+{role}[[:space:]]+"
         "[^[:space:]]+([[:space:]]+[0-9a-fA-F.:]+)?[[:space:]]+trust([[:space:]]|$)/ "
         "{ found=1; exit } "
+        # Every host type can shadow, which is why this one stays wide.
         "$0 ~ /^[[:space:]]*host[a-z]*[[:space:]]+all[[:space:]]+all[[:space:]]/ { exit } "
         "END { exit !found }' \"$PGHBA\""
     )
@@ -351,7 +355,7 @@ def plan_pg_hba_trust(role: str) -> list[Command]:
     # connect.
     script = "\n".join([
         'set -e',
-        'PGHBA=$(sudo -u postgres psql -tAc "SHOW hba_file;")',
+        'PGHBA=$(sudo -u postgres psql -X -tAc "SHOW hba_file;")',
         '[ -f "$PGHBA" ] || { echo "pg_hba.conf not found: $PGHBA" >&2; exit 1; }',
         # Rules this step cannot see, line by line: a record continued with a
         # trailing backslash, or rules pulled in from another file. Narrowing
@@ -387,7 +391,7 @@ def plan_pg_hba_trust(role: str) -> list[Command]:
     # matching the same connection wins, and pg_hba is first-match-wins. Only a
     # connection proves the narrowing did what it says.
     connect = (
-        f"psql -w -h 127.0.0.1 -U {shlex.quote(role)} -d postgres -tAc 'SELECT 1' >/dev/null 2>&1"
+        f"psql -X -w -h 127.0.0.1 -U {shlex.quote(role)} -d postgres -tAc 'SELECT 1' >/dev/null 2>&1"
     )
     probe = "\n".join([
         # The retry is on the connection itself — the reload is asynchronous, and
@@ -395,7 +399,7 @@ def plan_pg_hba_trust(role: str) -> list[Command]:
         f"for attempt in 1 2 3 4 5; do {connect} && ok=1 && break; sleep 1; done",
         f'[ "${{ok:-}}" = 1 ] || {{ echo "{role} cannot connect over loopback after the reload — '
         f"check that PostgreSQL is running, and the rules above the ones this step added in "
-        f'$(sudo -u postgres psql -tAc \"SHOW hba_file;\")" >&2; exit 1; }}',
+        f'$(sudo -u postgres psql -X -tAc \"SHOW hba_file;\")" >&2; exit 1; }}',
     ])
     return [
         Command(
@@ -403,17 +407,23 @@ def plan_pg_hba_trust(role: str) -> list[Command]:
             script,
         ),
         Command(tf("Reload PostgreSQL"), "systemctl reload postgresql"),
-        Command(tf("Ask PostgreSQL what rules it now has for {}", role), _pg_hba_audit(role)),
+        Command(tf("Ask PostgreSQL to read back the rules for {}", role), _pg_hba_audit(role)),
         Command(tf("Check that {} connects over loopback", role), probe),
     ]
 
 
 def _pg_hba_audit(role: str) -> str:
-    """Ask the server what it parsed, rather than trusting the text just written.
+    """Have the server parse what was just written, instead of trusting the text.
 
     `pg_hba_file_rules` folds continuations, expands `include*` and names the file
-    each rule came from, so this sees rules the rewriter above cannot — which is
-    the point: it is a check written against a different source of truth."""
+    each rule came from, so this sees rules the rewriter above cannot — a check
+    written against a different source of truth.
+
+    It reads the *file*, re-parsed at query time, not the rule set the postmaster
+    has loaded: PostgreSQL exposes no view of that. The `error` check is what ties
+    the two together — a file the server cannot parse is one it refused to load,
+    so the rules in force are still the previous ones — and the connection check
+    that follows is what proves the loaded set actually lets the role in."""
     # `file_name` and `rule_number` exist from PostgreSQL 15; `include` directives
     # (the only reason a rule can come from another file) from 16. Below 15 the
     # configured file is the only one there is, so `hba_file` names it.
@@ -448,6 +458,8 @@ def _pg_hba_audit(role: str) -> str:
         # as the keyword though the view reports it identically. Only the line tells.
         'IFS="',
         '"',
+        # -f: a glob character in a path must not be expanded while splitting.
+        "set -f",
         "for loc in $LEFT; do",
         '  [ -n "$loc" ] || continue',
         '  file=${loc%:*}; line=${loc##*:}',
@@ -458,6 +470,7 @@ def _pg_hba_audit(role: str) -> str:
         '(it may live in a file it cannot rewrite)" >&2',
         "  exit 1",
         "done",
+        "set +f",
         "unset IFS",
         # Only a plain `host` rule reaches the role: with TLS on, which the
         # supported host has, `hostnossl` is never consulted. Every host type can
@@ -494,6 +507,15 @@ def plan_wkhtmltopdf(major: int, codename: str) -> list[Command]:
                 f"echo {shlex.quote(sha256 + '  ' + tmp)} | sha256sum -c -"),
         Command(tf("Install verified wkhtmltopdf .deb"),
                 f"{APT_INSTALL} {shlex.quote(tmp)}"),
+        # The patched build is the whole reason for this step: an unpatched
+        # distribution one earlier on PATH would leave it reporting success with
+        # Odoo's PDF reports still degraded.
+        Command(
+            tf("Check that the patched wkhtmltopdf is the one on PATH"),
+            'wkhtmltopdf --version 2>/dev/null | grep -qi "with patched qt" || '
+            '{ echo "the wkhtmltopdf on PATH is not the patched build: '
+            '$(command -v wkhtmltopdf || echo none) — PDF reports will be degraded" >&2; exit 1; }',
+        ),
         Command(tf("Remove downloaded wkhtmltopdf .deb"), f"rm -f {shlex.quote(tmp)}"),
     ]
 

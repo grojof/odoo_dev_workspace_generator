@@ -206,6 +206,8 @@ _ES_TO_EN: dict[str, str] = {
     "Descargar wkhtmltopdf parcheado ({})": "Download patched wkhtmltopdf ({})",
     "Verificar el SHA-256 de wkhtmltopdf (aborta si no coincide)": "Verify wkhtmltopdf SHA-256 (abort on mismatch)",
     "Instalar el .deb verificado de wkhtmltopdf": "Install verified wkhtmltopdf .deb",
+    "Comprobar que el wkhtmltopdf del PATH es el parcheado":
+        "Check that the patched wkhtmltopdf is the one on PATH",
     "Eliminar el .deb descargado de wkhtmltopdf": "Remove downloaded wkhtmltopdf .deb",
     "Instalar Node.js y npm": "Install Node.js and npm",
     "Instalar rtlcss globalmente": "Install rtlcss globally",
@@ -249,8 +251,8 @@ _ES_TO_EN: dict[str, str] = {
     '¿Instalar o actualizar el cortafuegos de salida (OpenSnitch)?': 'Install or update the outbound firewall (OpenSnitch)?',
     '¿Instalar o actualizar la captura local de correo (Mailpit)?': 'Install or update the local mail capture (Mailpit)?',
     'Comprobar que {} conecta por loopback': 'Check that {} connects over loopback',
-    'Preguntar a PostgreSQL qué reglas tiene ahora para {}':
-        'Ask PostgreSQL what rules it now has for {}',
+    'Preguntar a PostgreSQL por las reglas que tiene para {}':
+        'Ask PostgreSQL to read back the rules for {}',
     'OpenSnitch bloquea toda conexión saliente sin regla y pregunta en su interfaz cuando está abierta. Odoo solo puede llegar a localhost, más DNS en el puerto 53; las herramientas de desarrollo conservan sus destinos. Ver docs/egress-control.md.': 'OpenSnitch blocks every outbound connection without a rule, asking in its UI when it is open. Odoo may reach only localhost, plus DNS on port 53; the development tools keep their hosts. See docs/egress-control.md.',
     'Base de datos cuyo correo redirigir': 'Database whose mail to redirect',
     'Nombre de base de datos no válido: {}': 'Invalid database name: {}',
@@ -269,6 +271,12 @@ _ES_TO_EN: dict[str, str] = {
     'no instalado': 'not installed',
     'encendido': 'on',
     'apagado': 'off',
+    'en ejecución': 'running',
+    'NO está en ejecución': 'NOT running',
+    'Hay un servicio instalado que no está en ejecución. Revisa `systemctl status`: una unidad que '
+    'arranca y muere deja igualmente su paso de instalación informando de éxito.':
+        'A service is installed but not running. Check `systemctl status` for it: a unit that '
+        'starts and then exits still leaves its install step reporting success.',
     'Componente': 'Component',
     'Versión': 'Version',
     'No hay ninguno instalado — usa Aplicar para instalarlos.': 'Neither is installed — use Apply to install them.',

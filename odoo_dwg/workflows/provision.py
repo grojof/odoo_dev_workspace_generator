@@ -100,6 +100,30 @@ def _apply() -> None:
     if ask_bool("Apply this plan now?", False):
         apply_commands(commands)
         print(level_text("OK", t("Provisioning applied.")))
+        _report_services()
+
+
+def _report_services() -> None:
+    """What the services are actually doing, once the plan says it is done.
+
+    `systemctl restart` returns as soon as a `Type=simple` unit is forked, so a
+    daemon that dies a second later leaves every step reporting success. Both of
+    these are security-relevant when they are not running — the firewall most of
+    all — so the state is read back rather than assumed."""
+    opensnitch, firewall_on, mailpit, capture_on = _egress_status()
+    if not opensnitch and not mailpit:
+        return
+    rows = []
+    if opensnitch:
+        rows.append(["OpenSnitch", opensnitch, t("running") if firewall_on else t("NOT running")])
+    if mailpit:
+        rows.append(["Mailpit", mailpit, t("running") if capture_on else t("NOT running")])
+    print(render_table(["Component", "Version", "State"], rows))
+    if (opensnitch and not firewall_on) or (mailpit and not capture_on):
+        print(level_text("WARN", t(
+            "A service is installed but not running. Check `systemctl status` for it: a unit that "
+            "starts and then exits still leaves its install step reporting success."
+        )))
 
 
 def _optional_egress(facts: provisioning.ProvisionFacts) -> list:

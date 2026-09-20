@@ -32,6 +32,29 @@ the headers backing lxml, Pillow, psycopg2, python-ldap, etc.), as an idempotent
 - **WHEN** the build dependencies are missing and apply runs
 - **THEN** the plan includes an `apt-get install` of the documented package set
 
+### Requirement: A step's success means the thing happened
+
+Where a command can succeed without achieving what it was planned for, `provision apply` SHALL check the
+outcome rather than the command's exit status:
+
+- **wkhtmltopdf** SHALL be re-read from `PATH` after installing, and the step SHALL fail when the binary
+  found there is not the patched build — an unpatched distribution one earlier on `PATH` would otherwise
+  leave the step reporting success with Odoo's PDF reports still degraded;
+- **the opt-in services** (the outbound firewall, the mail capture) SHALL have their state reported once the
+  plan has run. `systemctl restart` returns as soon as a `Type=simple` unit is forked, so a daemon that
+  exits a second later leaves every step reporting success; the firewall failing closed or not running at
+  all are both states the operator must be told about.
+
+#### Scenario: An unpatched wkhtmltopdf wins on PATH
+
+- **WHEN** the patched package installs but another `wkhtmltopdf` earlier on `PATH` is the one found
+- **THEN** the step fails, naming the binary it found
+
+#### Scenario: A service that started and died
+
+- **WHEN** the firewall's unit is started by the plan and its daemon exits immediately afterwards
+- **THEN** the run reports the service as not running, instead of ending on "Provisioning applied" alone
+
 ### Requirement: Install and configure PostgreSQL with a development role
 
 `provision apply` SHALL install PostgreSQL, enable and start its service, and create a development login role
@@ -101,6 +124,10 @@ Every probe behind these decisions is a tri-state, and an answer that could not 
 as "do the work", never as "already done": a stopped server hides both the role and the file. Every planned
 step SHALL be idempotent, so acting on an unknown costs a no-op.
 
+The rewriter, the check and the verification SHALL agree on what *reaches* the role: a plain `host` rule
+only. A rewriter that accepted another connection type would insert nothing and then fail a verification
+that re-running cannot fix.
+
 #### Scenario: An already-provisioned host is narrowed
 
 - **WHEN** apply runs on a host that has PostgreSQL, the role, and a blanket loopback `trust`
@@ -127,6 +154,12 @@ step SHALL be idempotent, so acting on an unknown costs a no-op.
 - **WHEN** `pg_hba.conf` holds `hostssl all all 127.0.0.1/32 trust`
 - **THEN** it is narrowed like any other blanket trust — it is the rule a loopback connection actually
   matches on a host with `ssl = on`
+
+#### Scenario: A trust rule for the role on another connection type
+
+- **WHEN** the role already has a `hostssl` trust rule and no plain `host` one
+- **THEN** the step inserts its own plain `host` rule, rather than treating the existing one as the role's
+  line and leaving the verification to fail
 
 #### Scenario: A file whose rules cannot all be read is refused
 
