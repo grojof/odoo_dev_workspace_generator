@@ -218,3 +218,50 @@ def test_the_line_never_overrides_the_server_where_the_server_knows_more(monkeyp
     monkeypatch.setattr(system, "pg_hba_rules", lambda port=5432: pghba.parse_rules(_row()))
     monkeypatch.setattr(system, "read_text", lambda _path: "host all @admins 127.0.0.1/32 trust\n")
     assert system.pg_hba_loopback_state("odoo") == (True, False)
+
+
+def test_the_line_may_confirm_the_server_but_never_narrow_it(monkeypatch):
+    """The line is read for one bit — was `all` quoted — and its reading is used
+    only when, with that mark removed, it names the roles the server reported.
+    Any other difference means the line was tokenized differently from `hba.c`,
+    and the server's answer stands. Four fixes each let the line narrow that
+    answer in one more shape; each was a blanket trust reported as narrowed."""
+    def state(view_users: str, line: str):
+        rules = pghba.parse_rules(_row(users=view_users))
+        monkeypatch.setattr(system, "pg_hba_rules", lambda port=5432: rules)
+        monkeypatch.setattr(system, "read_text", lambda _path: line + "\n")
+        return system.pg_hba_loopback_state("odoo")
+
+    # The server read a list continued after a blank as one list; a `#` inside
+    # quotes as part of the name; a non-breaking space as part of the name.
+    # (blanket, reached): this rule trusts every role *and* is odoo's own.
+    assert state("odoo,all", "host all odoo, all 127.0.0.1/32 trust") == (True, True)
+    assert state("a#b,all", 'host all "a#b",all 127.0.0.1/32 trust') == (True, False)
+    assert state("bob ,all", "host all bob ,all 127.0.0.1/32 trust") == (True, False)
+    # And where the line agrees with the server, its one bit is honoured.
+    assert state("all", 'host all "all" 127.0.0.1/32 trust') == (False, False)
+    assert state("Bob,all", 'host all "Bob","all" 127.0.0.1/32 trust') == (False, False)
+    assert state("all,bob", "host all all,bob 127.0.0.1/32 trust") == (True, False)
+
+
+def test_lines_are_counted_the_way_the_server_counts_them(monkeypatch):
+    """A form feed inside a comment is a line break to ``splitlines`` and not
+    to the server, so the reader landed on the neighbouring rule."""
+    rules = pghba.parse_rules(_row(users="all", line=2))
+    monkeypatch.setattr(system, "pg_hba_rules", lambda port=5432: rules)
+    monkeypatch.setattr(system, "read_text",
+                        lambda _path: "# c\x0chost all bob 127.0.0.1/32 md5\n"
+                                      "host all all 127.0.0.1/32 trust\n")
+    assert system.pg_hba_loopback_state("odoo") == (True, False)
+
+
+def test_a_wrong_line_that_happens_to_agree_cannot_pass_as_the_right_one(monkeypatch):
+    """The one case where miscounting lines is not caught by the agreement rule:
+    the neighbour names the same roles *and* quotes `all`. Lines are therefore
+    counted as the server counts them, on `\\n` alone."""
+    rules = pghba.parse_rules(_row(users="all", line=2))
+    monkeypatch.setattr(system, "pg_hba_rules", lambda port=5432: rules)
+    monkeypatch.setattr(system, "read_text",
+                        lambda _path: '# c\x0chost all "all" 127.0.0.1/32 md5\n'
+                                      "host all all 127.0.0.1/32 trust\n")
+    assert system.pg_hba_loopback_state("odoo") == (True, False)

@@ -358,6 +358,18 @@ class Cluster:
     def rules(self) -> list[pghba.Rule]:
         return pghba.parse_rules(self.sql(system.PG_HBA_RULES_QUERY).stdout)
 
+    def anyone_connects_as_superuser(self) -> bool:
+        """Whether `postgres` connects over TCP with no password — the fact a
+        blanket trust is: the truest oracle for "does this file trust every
+        role", written by no one in this project."""
+        env = dict(os.environ, PGPASSWORD="")
+        result = subprocess.run(
+            [str(self.bin / "psql"), "-X", "-h", "127.0.0.1", "-p", str(self.port),
+             "-U", "postgres", "-d", "postgres", "-w", "-tAc", "SELECT 1"],
+            capture_output=True, text=True, env=env,
+        )
+        return result.returncode == 0
+
     def role_can_connect_over_tcp(self) -> bool:
         """Without a password: the whole point of the development trust line."""
         env = dict(os.environ, PGPASSWORD="")
@@ -466,6 +478,9 @@ def main() -> int:
             ("databases named from another file",
              "local all postgres peer\nhost @dbs all 127.0.0.1/32 trust\n",
              "@"),
+            ("a role list continued after a blank",
+             "local all postgres peer\nhost all odoo, all 127.0.0.1/32 trust\n",
+             "after a blank"),
         ):
             unseeable = root / "unseeable.conf"
             unseeable.write_text(content, encoding="utf-8")
@@ -571,6 +586,7 @@ def _against_a_real_server(check) -> None:
                 )
 
             _the_audit_step(check, cluster)
+            _the_probe_against_the_server(check, cluster)
         finally:
             cluster.stop()
 
@@ -601,8 +617,16 @@ AUDIT_CASES = [
      'local all all trust\nhost all odoo 127.0.0.1/32 trust\n'
      'host all "/.*" 127.0.0.1/32 trust\n', True),
     ("roles named from a file the server expanded to every role",
-     "local all trust\nhost all odoo 127.0.0.1/32 trust\n"
+     "local all all trust\nhost all odoo 127.0.0.1/32 trust\n"
      "host all @admins 127.0.0.1/32 trust\n", True),
+    # Shapes the server reads as a list holding `all` and a line reader did
+    # not: a list continued after a blank, and a `#` inside quotes.
+    ("a role list continued after a blank",
+     "local all all trust\nhost all odoo 127.0.0.1/32 trust\n"
+     "host all odoo, all 127.0.0.1/32 trust\n", True),
+    ("a quoted role holding a # before all",
+     "local all all trust\nhost all odoo 127.0.0.1/32 trust\n"
+     'host all "a#b",all 127.0.0.1/32 trust\n', True),
     ("a role list naming all among others",
      "local all all trust\nhost all odoo 127.0.0.1/32 trust\n"
      "host all all,bob 127.0.0.1/32 trust\n", True),
@@ -616,6 +640,38 @@ AUDIT_CASES = [
      "local all all trust\nhost all odoo 127.0.0.1/32 trust\n"
      "host all all 127.0.0.1/32 scram-sha-256\n", False),
 ]
+
+
+# Shapes where the rule's own line tokenizes differently from `hba.c`. The
+# probe reads the line for one bit (was `all` quoted) and must never let that
+# reading narrow the server's answer: four fixes each let it, in one shape more.
+PROBE_CASES = [
+    ("a role list continued after a blank", "host all odoo, all 127.0.0.1/32 trust\n"),
+    ("a quoted role holding a # before all", 'host all "a#b",all 127.0.0.1/32 trust\n'),
+    ("roles named from a file", "host all @admins 127.0.0.1/32 trust\n"),
+    ("a non-breaking space inside the list", "host all bob\u00a0,all 127.0.0.1/32 trust\n"),
+    ("a form feed in a comment above the rule",
+     "# c\x0chost all bob 127.0.0.1/32 md5\nhost all all 127.0.0.1/32 trust\n"),
+    ("a role literally named all", 'host all "all" 127.0.0.1/32 trust\n'),
+    ("a role named all in a list", 'host all "Bob","all" 127.0.0.1/32 trust\n'),
+    ("an escaped quote in a name", 'host all "a""b",all 127.0.0.1/32 trust\n'),
+]
+
+
+def _the_probe_against_the_server(check, cluster: Cluster) -> None:
+    """`system.pg_hba_loopback_state`'s blanket answer, against the fact itself:
+    whether `postgres` connects with no password after the server loaded the
+    file. Neither side of this comparison is written by the code under test."""
+    (cluster.data / "admins").write_text("all\n", encoding="utf-8")
+    for label, rule in PROBE_CASES:
+        cluster.load("local all all trust\n" + rule)
+        probed = _probe(cluster)
+        exposed = cluster.anyone_connects_as_superuser()
+        check(
+            f"{label}: the probe says {'blanket' if exposed else 'narrow'}, as the server does",
+            probed is not None and probed[0] == exposed,
+            f"probe={probed} server_lets_anyone_in={exposed}",
+        )
 
 
 def _the_audit_step(check, cluster: Cluster) -> None:

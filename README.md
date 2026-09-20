@@ -124,7 +124,7 @@ By surface:
   workspace emits for it, and how to keep up with its releases).
 - **What is supported** — [`docs/support-matrix.md`](https://github.com/grojof/odoo_dev_workspace_generator/blob/main/docs/support-matrix.md) (hosts, Python per Odoo version,
   PostgreSQL — with the source behind every bound and how to re-verify it).
-- **Project** — [`docs/roadmap.md`](https://github.com/grojof/odoo_dev_workspace_generator/blob/main/docs/roadmap.md) (phases + backlog) · [`CLAUDE.md`](CLAUDE.md) (AI-agent
+- **Project** — [`docs/roadmap.md`](https://github.com/grojof/odoo_dev_workspace_generator/blob/main/docs/roadmap.md) (phases + backlog) · [`CLAUDE.md`](https://github.com/grojof/odoo_dev_workspace_generator/blob/main/CLAUDE.md) (AI-agent
   guide) · [`CONTRIBUTING.md`](https://github.com/grojof/odoo_dev_workspace_generator/blob/main/CONTRIBUTING.md) · [`SECURITY.md`](https://github.com/grojof/odoo_dev_workspace_generator/blob/main/SECURITY.md) ·
   [`CHANGELOG.md`](https://github.com/grojof/odoo_dev_workspace_generator/blob/main/CHANGELOG.md).
 - Non-trivial changes are **spec-first** via OpenSpec (`/opsx:*`); specs live in `openspec/specs/`.

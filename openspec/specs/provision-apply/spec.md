@@ -96,8 +96,10 @@ The role's own line SHALL be inserted *before* any rule that could match the sam
 first matching rule wins, and the role SHALL be treated as trusted only when its line is **reached**, never
 merely present.
 
-When the file holds rules the *rewriter* cannot read one line at a time — a record continued with a trailing
-backslash, or rules pulled in through `include`, `include_if_exists` or `include_dir` — the step SHALL
+When the file holds rules the *rewriter* cannot read one field at a time — a record continued with a
+trailing backslash, rules pulled in through `include`, `include_if_exists` or `include_dir`, a quoted
+database field (it may hold blanks), a database or role list named from a file (`@admins`, which the
+server expands), or a list continued after a blank (`odoo, all`, one list to the server) — the step SHALL
 refuse to rewrite it, naming what it cannot see. Narrowing the rules it can read while leaving the rest
 would report a success that did not happen. (The **check** reads such a file through the server and reports
 it like any other; it is the text rewriting that has the blind spot.)
@@ -113,8 +115,10 @@ any of these, naming the file and line — which may be a file the rewriter neve
 1. the server reports a rule it could not parse. It then refused to load the file and is still running the
    previous rules, while the file on disk reads as narrowed. `pg_ctl reload` returns success either way, so
    nothing else in the plan would notice;
-2. a TCP rule still trusts every role — unless that rule's own line quotes its **role field**, since `"all"`
-   is a role literally named `all` and not the keyword;
+2. a TCP rule still trusts every role — unless its own line, read exactly as the server reads it, shows that
+   `all` was written `"all"`, a role literally named `all` and not the keyword. A line the step cannot
+   read exactly (a `#` or blank inside quotes, an `@file`, a continuation, a list continued after a
+   blank) SHALL NOT excuse the rule: the server's answer stands;
 3. a TCP trust rule names its roles by pattern (`/…`) or group (`+…`), which this step cannot rule out;
 4. the first rule PostgreSQL matches for the development role is not the plain `host` trust rule the step
    added.

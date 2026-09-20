@@ -403,11 +403,19 @@ def pg_hba_loopback_state(role: str, port: int = 5432) -> tuple[bool, bool] | No
 
 
 def _as_the_server_reads_them(rules: list[pghba.Rule]) -> list[pghba.Rule]:
-    """Rules whose role field is taken from the file rather than from the view.
+    """Rules whose `all` is marked as quoted when their own line shows it so.
 
-    Only rules naming `all` need it, and a line that cannot be read keeps the
-    view's answer: reporting a host as narrowed on a file this cannot open is the
-    one mistake with a cost.
+    The line is consulted for exactly one bit the view lost — whether `all` was
+    written ``"all"`` — and is allowed to say nothing else. Its reading is used
+    only when, with that mark removed, it names the same roles the server
+    reported; any other difference means the line was tokenized differently
+    from `hba.c` (a list continued after a blank, a `#` inside quotes, an
+    `@file`, a non-ASCII blank …), and then the server's answer stands. Four
+    rounds of fixes each let the line *narrow* the server's answer in one more
+    shape, and each one was a host reported as narrowed while every role could
+    connect; a line that can only confirm cannot do that.
+
+    A line that cannot be read keeps the view's answer for the same reason.
     """
     lines: dict[str, list[str]] = {}
     out: list[pghba.Rule] = []
@@ -417,13 +425,23 @@ def _as_the_server_reads_them(rules: list[pghba.Rule]) -> list[pghba.Rule]:
             continue
         if rule.file not in lines:
             text = read_text(rule.file)
-            lines[rule.file] = text.splitlines() if text else []
+            # Split on "\n" only: the server counts lines that way, and
+            # ``splitlines`` also breaks on form feeds and U+2028, which would
+            # point this at a neighbouring rule.
+            lines[rule.file] = text.split("\n") if text else []
         file_lines = lines[rule.file]
         if not 1 <= rule.line <= len(file_lines):
             out.append(rule)
             continue
         elements = pghba.role_elements(file_lines[rule.line - 1])
-        out.append(rule if elements is None else replace(rule, users=elements))
+        if elements is None:
+            out.append(rule)
+            continue
+        unmarked = sorted("all" if element == '"all"' else element for element in elements)
+        if unmarked != sorted(rule.users):
+            out.append(rule)
+            continue
+        out.append(replace(rule, users=elements))
     return out
 
 

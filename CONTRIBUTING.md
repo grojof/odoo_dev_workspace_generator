@@ -74,7 +74,8 @@ upgrade-path ones. The unit suite may not shell out, so this is where the *behav
 whenever `render_run_migration_sh` changes.
 
 `verify_pg_hba_trust.py` runs the `pg_hba.conf` rewriter over every shape of that file this project has been
-caught by, and the server's verification step over ten more. The shapes it must narrow: a blanket trust
+caught by, the server's verification step over more, and the check's own answer against whether
+`postgres` really connects. The shapes it must narrow: a blanket trust
 written as CIDR, as `localhost`/`samehost`, indented, in `address netmask` form, as `hostnossl`, `hostssl` or
 `hostgssenc`, on `all`, on `0.0.0.0/0`, on `127.0.0.0/8`, on one database, and with a quoted address. The
 shapes it must leave alone: the Ubuntu default, a file with no `host` rules, one this tool already narrowed,

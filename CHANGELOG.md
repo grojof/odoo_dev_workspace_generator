@@ -53,7 +53,8 @@ All notable changes to this project are documented here. The format is based on
   workspace, and `README.md` says what "provision is optional" means — you may prepare the host yourself,
   but a workspace needs PostgreSQL, the role and wkhtmltopdf either way.
 
-- **`provision check` reads the loopback rules from PostgreSQL, not from `pg_hba.conf`** (change
+- **`provision check` reads the loopback rules from PostgreSQL, consulting `pg_hba.conf` only to tell a
+  role named `"all"` from the keyword** (change
   `read-pg-hba-from-the-server`). `pg_hba_file_rules` is the server's own parse: continued records folded,
   `include`/`include_dir` resolved and attributed to the file each rule came from, list fields split. Four
   audit rounds had found the same defect in four disguises — a blanket trust written `localhost`, indented,
@@ -77,7 +78,7 @@ All notable changes to this project are documented here. The format is based on
 - **The firewall's DNS rule is limited to port 53.** It allowed the resolver's every port to every process,
   which on WSL is the Windows host.
 - **Profiles are validated whenever they are loaded**, including when a workspace is managed. Versions must be
-  exactly one of `12.0` … `19.0`; OCA repository names, `db_host`, ports and Python versions are checked too.
+  exactly one of `12.0` … `19.0`; OCA repository names, `db_host` and ports are checked too.
   **BREAKING** only for profiles that relied on looser values such as `"18"`.
 - The unused `addon_prefix` profile field is gone. Old profiles that carry it still load, and it is ignored.
 - `provision check` and the migration preflight **never ask for a password**. PostgreSQL's state and version
@@ -115,6 +116,23 @@ All notable changes to this project are documented here. The format is based on
   made, holding their code.
 
 ### Fixed
+- **A rule's own line could narrow what the server said about it.** The check reads a rule's line for one
+  bit the server's view loses — whether `all` was written `"all"` — and every reading of that line so far
+  tokenized it a little differently from PostgreSQL: a comma list, then `@file`, then a list continued
+  after a blank (`odoo, all`), a `#` inside a quoted name, a non-breaking space. Each difference was a
+  blanket trust reported as *"trust for odoo only"*. The line's reading is now used only when, with
+  that one mark removed, it names exactly the roles the server reported; any other difference keeps the
+  server's answer. The plan's verification step applies the same rule in shell, the rewriter refuses a
+  list continued after a blank, and the verifier now compares the check's answer with whether `postgres`
+  actually connects — an oracle nobody in this project wrote.
+- **The Spanish UI was English in the places an operator reads most:** the provision-check and
+  migration-preflight tables, every validation error, and `--help`. The interpreter and step menus showed
+  a duplicated cancel entry, the file browser said *Cancelar* but accepted only `q`, and `--lang=es` (the
+  `=` form) was read as English. Technical terms — `workspace`, `host`, `dump`, `venv` — stay in English,
+  because that is what a Spanish-speaking Odoo developer says.
+- **An interrupted clone poisoned the shared cache for good.** A clone was skipped on its directory being
+  there, and git leaves a partial tree behind when interrupted after fetching, so nothing ever re-cloned it.
+  Clones now land in a `.partial` sibling and are renamed only when complete.
 - **A role list read from a file was read as narrow.** `pg_hba.conf` accepts `@admins` in the role field and
   the server expands it, so `host all @admins 127.0.0.1/32 trust` with `all` in that file lets every role in.
   The reading added earlier in this release took the rule's own line as authoritative, and the line does not
@@ -147,7 +165,7 @@ All notable changes to this project are documented here. The format is based on
   stopped at collection with zero tests run, which is what a distribution packager would see as their gate.
   A `MANIFEST.in` now ships what the suite reads; the wheel is unchanged.
 - **The README told anyone who installed the package to go and clone the repository.** It documented only
-  `git clone`, never the `odoo-dwg` console script, and its 21 relative links resolved to nothing outside a
+  `git clone`, never the `odoo-dwg` console script, and its 19 relative links resolved to nothing outside a
   checkout. They are absolute now, and installing with `uv tool`/`pipx` is the first thing the section says.
 - **`~/.psqlrc` could still change what five `psql` commands did.** An earlier round added `-X` to the
   probes it found; the version probe, the role-login probe, the role-existence probe, `psql_scalar` and the
@@ -275,8 +293,8 @@ All notable changes to this project are documented here. The format is based on
 - **A `hostnossl` trust rule for the development role counted as "reached".** With `ssl = on` — the
   supported host's default — that rule is never consulted, so the check reported a narrowed host where the
   role could not connect at all. Only a plain `host` rule counts as reached; every type still shadows.
-- The plan's `psql` calls run with `-X`, so the `postgres` user's `~/.psqlrc` cannot end up inside a parsed
-  answer, and the verification survives a server older than PostgreSQL 15, where `file_name` does not exist.
+- The plan's verification survives a server older than PostgreSQL 15, where `pg_hba_file_rules` has no
+  `file_name` column.
 
 - **A blanket `trust` written on any connection type but `host`/`hostnossl` was invisible to the
   narrowing** — and `hostssl` is not a corner case: Ubuntu 24.04 ships `ssl = on` and clients prefer TLS, so
@@ -333,7 +351,7 @@ All notable changes to this project are documented here. The format is based on
   `provision check` then reported `trust for odoo only` — while any local user could still connect as
   `postgres`. Every spelling is recognised now, by the rewriter and by the check alike, and the step ends by
   connecting as the role: a line that is present but shadowed by an earlier rule fails the step instead of
-  passing it. `tools/verify_pg_hba_trust.py` runs the rewriter over every shape of that file below.
+  passing it. `tools/verify_pg_hba_trust.py` runs the rewriter over every shape of that file this project has been caught by.
 - **Installing Odoo 12's requirements could report `[OK]` having installed only the `python-ldap`
   substitute.** The step is a `grep | pip` pipeline and plans run without `pipefail`, so `pip`'s status hid
   `grep`'s. The step sets `pipefail` now, as the generated `setup_venv.sh` always did.
@@ -374,7 +392,6 @@ All notable changes to this project are documented here. The format is based on
   fork's own `addons`, `odoo/addons` and `openupgrade_records/lib/apriori.py`.
 - **Pinning another Python for an already-built migration step had no effect.** The venv was kept because of
   its ready marker. It is now rebuilt when its `pyvenv.cfg` names another interpreter.
-- **Add a version** added the version to the loaded profile even when its plan was declined or failed.
 - **Invalid input crashed the CLI with a traceback:** a version like `3.x`, a malformed `workspace.json`, or a
   port given as text. It is now reported, and the CLI returns to the menu.
 - **An interrupted OpenSnitch install could leave `/usr/sbin/policy-rc.d` behind,** which stopped every
@@ -392,7 +409,9 @@ All notable changes to this project are documented here. The format is based on
 - **A `workspace.json` that is not a JSON object** raised a traceback.
 - **The database named in the preflight, and staged module names, were not validated.**
 - **An unparseable database version ended the whole preflight** instead of reporting one row.
-- **`Add a version` wrote the profile before building the venv,** so a failed build left the version listed.
+- **`Add a version` could leave a version listed that was never built:** the loaded profile was changed
+  before the plan was confirmed, and the profile file was written before the venv step. Both now happen
+  only once the build has succeeded.
 - **The interpreter prompt offered "keep the host python3"** on a host without one, which then cancelled.
 - **Only the OpenSnitch daemon's version was checked,** so a missing UI package was never installed.
 - **Smaller fixes:**

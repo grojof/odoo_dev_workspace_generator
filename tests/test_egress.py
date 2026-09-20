@@ -277,6 +277,9 @@ def test_loopback_trust_covers_only_the_development_role():
     # `@file` names roles from a file the server expands and this step cannot see.
     assert any("[[:space:],])?@" in line for line in refusals), refusals
     assert "from a file (@…)" in hba
+    # A list continued after a blank is one list to the server, two fields here.
+    assert any("[^#]*,[[:space:]]" in line for line in refusals), refusals
+
     assert "line continuations" in hba and "include directive" in hba
     # The role's line is inserted before the first host rule of any kind, never
     # after one that would match the same connection first.
@@ -316,3 +319,18 @@ def test_no_rule_that_could_match_odoo_precedes_its_rejection():
                 assert operand["data"].startswith("/usr/lib/systemd/"), rule["name"]
             else:
                 assert operand["operand"] in ("dest.network", "dest.ip", "dest.port"), rule["name"]
+
+
+def test_the_audit_lets_a_line_speak_only_when_it_reads_it_exactly():
+    """The verification step consults a rule's line for one bit — was `all`
+    quoted — and must keep the server's answer for any line it cannot read
+    exactly as `hba.c` does. The gate comes before the question."""
+    audit = next(c.command for c in planners.plan_pg_hba_trust("odoo")
+                 if "pg_hba_file_rules" in c.command)
+    function = audit[audit.index("names_every_role() {"):audit.index("\n}", audit.index("names_every_role() {"))]
+    assert 'grep -qE "$EXACT" || return 0' in function
+    assert function.index('"$EXACT"') < function.index('"$ROLEALL"')
+    # And the exact shape excludes what the server reads differently.
+    elem = next(line for line in audit.splitlines() if line.startswith("ELEM="))
+    for excluded in ("#", "@", "\\\\", "[:space:]"):
+        assert excluded in elem, excluded

@@ -10,7 +10,7 @@ updated: 2026-09-20
 
 **Released: v0.1.0 (2026-09-19).** F0–F3 are complete; see [`CHANGELOG.md`](../CHANGELOG.md).
 
-**Next release (0.2.0), on `main`:** the outbound firewall and mail capture (change `add-egress-control`);
+**Next release (0.2.0), on `fix/harden-for-0-2-0` until it merges:** the outbound firewall and mail capture (change `add-egress-control`);
 `harden-for-0-2-0`, which closed what repeated pre-release audit rounds found (each round one docs review and
 one code review, both verified by hand before anything was changed); and `read-pg-hba-from-the-server`, which
 ended the longest-running of them by asking PostgreSQL for its own rules instead of re-implementing its
@@ -50,6 +50,14 @@ running.
 
 Delivery is phased so each phase is independently useful and verifiable. Non-trivial work is proposed and
 tracked through OpenSpec (`/opsx:*`); every phase below was accepted end-to-end on WSL Ubuntu 24.04.
+
+**Where the hardening ended up (2026-09-20).** After the move to reading `pg_hba` from the server, four
+more rounds each found the same class of hole one layer in: a trust for one database, a quoted address,
+a role list (`all,bob`), a list named from a file (`@admins`), a list continued after a blank. The fix that
+closed the class (change `agree-on-what-a-trust-rule-covers`, then commits on `harden-for-0-2-0`) is a
+rule, not a shape: the rule's own line may *confirm* the server's reading — that `all` was quoted — and
+may never narrow it. Alongside: the test suite was mutation-audited (37 unnoticed mutations, all guarded
+now), the sdist ships what its tests read, and the operator surface has a spec.
 
 ## F0 — Foundation ✅
 

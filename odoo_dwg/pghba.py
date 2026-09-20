@@ -154,6 +154,12 @@ def role_is_reached(rules: list[Rule], role: str) -> bool:
     return False
 
 
+# What `hba.c` counts as a blank between fields. Python's ``str.isspace`` is
+# wider (NBSP, form feed, U+2000…), and a wider notion ends a field the server
+# keeps open.
+_BLANK = " \t\r"
+
+
 def _scan_fields(text: str) -> list[list[tuple[str, bool]]]:
     """A rule's fields, each split into its comma-separated elements.
 
@@ -164,7 +170,7 @@ def _scan_fields(text: str) -> list[list[tuple[str, bool]]]:
     fields: list[list[tuple[str, bool]]] = []
     index, end = 0, len(text)
     while index < end:
-        if text[index].isspace():
+        if text[index] in _BLANK:
             index += 1
             continue
         elements: list[tuple[str, bool]] = []
@@ -185,7 +191,7 @@ def _scan_fields(text: str) -> list[list[tuple[str, bool]]]:
                     current += text[index]
                     index += 1
                 continue
-            if char.isspace():
+            if char in _BLANK:
                 break
             if char == ",":
                 elements.append((current, quoted))

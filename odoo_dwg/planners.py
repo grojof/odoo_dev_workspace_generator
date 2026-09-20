@@ -454,6 +454,12 @@ def plan_pg_hba_trust(role: str) -> list[Command]:
         '{ echo "$PGHBA has a rule whose database field is quoted; this step reads '
         'fields by whitespace and cannot rewrite it — narrow that rule by hand" >&2; '
         'exit 1; }',
+        # A list continued after a blank (`odoo, all`) is one list to the server
+        # and two fields to every pattern below.
+        'grep -qE \'^[[:space:]]*host[a-z]*[[:space:]]+[^#]*,[[:space:]]\' "$PGHBA" && '
+        '{ echo "$PGHBA has a rule whose list continues after a blank (as in \\`odoo, all\\`); '
+        'this step reads fields by whitespace and cannot rewrite it — join the list, or '
+        'narrow the rule by hand" >&2; exit 1; }',
         # `@file` names its databases or roles from another file, which the server
         # expands and this step cannot see. Leaving such a rule while reporting
         # success is how a blanket trust survived a narrowing that said it worked.
@@ -541,14 +547,21 @@ def _pg_hba_audit(role: str) -> str:
         # Does the rule at `file:line` name every role, or a role *named* `all`?
         # A file this cannot open leaves the view's answer standing: treating an
         # unreadable line as narrow is the one mistake with a cost.
+        # Called only for a rule the *server* says trusts every role. The line is
+        # read for one bit the view lost — whether `all` was written "all" — and
+        # may say nothing else: it answers "not every role" only when it is a
+        # shape this reads exactly as `hba.c` does (plain or blank-free quoted
+        # names, no `@file`, no continuation, no `#` before the method) and that
+        # reading holds no bare `all`. Anything else keeps the server's answer.
+        # Four fixes each let this narrow the server's answer in one more shape,
+        # and each was a blanket trust reported as narrowed.
         "names_every_role() {",
         '  hba_file=${1%:*}; hba_line=${1##*:}',
         '  [ -f "$hba_file" ] || return 0',
-        '  hba_text=$(sed -n "${hba_line}p" "$hba_file" | sed "s/#.*//")',
-        # A role list read from a file, or a record continued onto the next line:
-        # the server expanded it and this cannot, so its answer stands.
-        '  case $hba_text in *@*) return 0 ;; *\\\\) return 0 ;; esac',
-        '  printf "%s" "$hba_text" | grep -qE "$ROLEALL"',
+        '  hba_text=$(sed -n "${hba_line}p" "$hba_file")',
+        '  printf "%s\\n" "$hba_text" | grep -qE "$EXACT" || return 0',
+        # 0 = "every role": a bare `all` among elements this read exactly.
+        '  printf "%s\\n" "$hba_text" | grep -qE "$ROLEALL"',
         "}",
         # A file the server cannot parse is a file it did not load: `pg_ctl reload`
         # returns 0 whatever happens, so without this the steps below would read a
@@ -569,9 +582,15 @@ def _pg_hba_audit(role: str) -> str:
         # keyword. Only the line tells them apart — and only in that field: the
         # server reads `host all all "127.0.0.1/32" trust` as the blanket trust it
         # is. Both walks below ask the same question of the same field.
-        "ROLEALL='^[[:space:]]*host[a-z]*[[:space:]]+(\"[^\"]*\"|[^[:space:]\"])+"
-        "[[:space:]]+((\"[^\"]*\"|[^[:space:],\"])+,)*all(,(\"[^\"]*\"|[^[:space:],\"])+)*"
-        "([[:space:]]|$)'",
+        # A field this reads exactly as the server does: elements that are plain
+        # words or quoted names with no blank, `#`, `@` or backslash inside, joined
+        # by commas with no blank around them. Then, a bare `all` among them.
+        "ELEM='(\"[^\"[:space:]#@\\\\]*\"|[^\"[:space:]#@\\\\,]+)'",
+        "EXACT=\"^[[:space:]]*host[a-z]*[[:space:]]+$ELEM(,$ELEM)*[[:space:]]+$ELEM(,$ELEM)*"
+        "[[:space:]]+[^[:space:]#]+([[:space:]]+[0-9a-fA-F.:]+)?[[:space:]]+[a-z0-9-]+"
+        "[[:space:]]*(#.*)?\\$\"",
+        "ROLEALL=\"^[[:space:]]*host[a-z]*[[:space:]]+$ELEM(,$ELEM)*"
+        "[[:space:]]+($ELEM,)*all(,$ELEM)*[[:space:]]\"",
         # -f: a glob character in a path must not be expanded while splitting, and
         # a location is `file:line`, so splitting is on newlines only.
         "set -f",

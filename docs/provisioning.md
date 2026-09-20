@@ -39,7 +39,7 @@ password:
 | OK    | Odoo build dependencies                 | all present                                    |
 | OK    | PostgreSQL                              | installed and running                          |
 | OK    | PostgreSQL version                      | 16 (Odoo 19.0 requires 13.0)                   |
-| OK    | Dev role (odoo)                         | present                                        |
+| OK    | Development role (odoo)                 | present                                        |
 | OK    | PostgreSQL loopback auth                | trust for odoo only                            |
 | OK    | wkhtmltopdf                             | wkhtmltopdf 0.12.6.1 (with patched qt)         |
 | OK    | Node.js (optional)                      | present                                        |
@@ -47,7 +47,7 @@ password:
 |       |                                         | languages)                                     |
 | OK    | uv (interpreters)                       | present — provides 3.8, 3.9, 3.10 …            |
 | INFO  | Host python3                            | 3.12                                           |
-| INFO  | Egress firewall — OpenSnitch (optional) | not installed                                  |
+| INFO  | Outbound firewall — OpenSnitch (optional)| not installed                                  |
 | INFO  | Mail capture — Mailpit (optional)       | not installed                                  |
 +-------+-----------------------------------------+------------------------------------------------+
 ```
@@ -90,11 +90,11 @@ password:
   1. PostgreSQL reports a rule it could not parse. It then refused to load the file and is **still running
      the previous rules**, while the file on disk reads as narrowed. `pg_ctl reload` reports success either
      way, so nothing else would notice.
-  2. A rule still trusts every role over TCP — read as the comma list it may be, since PostgreSQL
-     matches `all` anywhere in `all,bob` — unless that rule's own line quotes its **role field**, since
-     `"all"` in quotes is a role literally named `all` and not the keyword. Only that field is read: the
-     server accepts `host all all "127.0.0.1/32" trust` like any other blanket trust, so a quote elsewhere
-     on the line excuses nothing.
+  2. A rule still trusts every role over TCP. The rule's own line is consulted for exactly one thing —
+     whether `all` was written `"all"`, a role literally named `all` and not the keyword — and only when
+     it is a line the step reads exactly as PostgreSQL does: plain or quoted names with no blank, `#`, `@`
+     or backslash inside, joined by commas with no blank around them. Any other shape keeps the server's
+     answer, so a line the step reads differently from the server can never excuse a rule.
   3. A `trust` rule names its roles by pattern (`/…`) or group (`+…`), which apply cannot rule out: narrow
      that rule by hand.
   4. The first rule PostgreSQL matches for your role is not the plain `host` trust rule it just added.
@@ -104,9 +104,10 @@ password:
 
   The **rewriter** still reads text, and refuses rather than rewrite a file whose rules it cannot read one
   line at a time — an `include` directive, a record continued with a trailing backslash, a rule whose
-  database field is quoted (it may then contain blanks, and the rewriter counts fields by whitespace), or
-  one naming its databases or roles from another file (`@admins`), which the server expands and this
-  cannot read. It says which of the four it found: narrow that rule by hand, or inline what it cannot see, then run apply
+  database field is quoted (it may then contain blanks, and the rewriter counts fields by whitespace), one
+  naming its databases or roles from another file (`@admins`), which the server expands and this cannot
+  read, or a list continued after a blank (`odoo, all`), which is one list to the server and two fields
+  here. It says which of the five it found: narrow that rule by hand, or inline what it cannot see, then run apply
   again.
 
   The check says **unknown** (WARN) instead of claiming either answer — and apply plans the narrowing rather

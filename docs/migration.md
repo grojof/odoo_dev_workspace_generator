@@ -167,7 +167,7 @@ pg_dump -Fc -h <source-host> -U <source-user> <source-db> -f source-13.0.dump
 # host under the working database's name, or every ir_attachment row in the
 # migrated database will point at a file that is not there:
 rsync -a <source>/.local/share/Odoo/filestore/<source-db>/ \
-      ~/.local/share/Odoo/filestore/migration/
+      ~/.local/share/Odoo/filestore/migration_13_to_18/
 
 cd ~/odoo-migrations/13-to-18
 bash run_migration.sh /path/to/source-13.0.dump
@@ -202,7 +202,7 @@ logs/16.0.log`). Read that log: the cause is usually one of your own modules und
 command again — it resumes from the last checkpoint rather than from the source. Re-running without fixing
 anything fails identically.
 
-**When it finishes.** `[done] migration complete` leaves the result in the `migration` database on the
+**When it finishes.** `[done] migration complete` leaves the result in the `migration_13_to_18` database on the
 shared cluster. To look at it, start that step's Odoo by hand:
 
 ```bash
@@ -210,7 +210,7 @@ cd ~/odoo-migrations/13-to-18
 .venv/odoo18/bin/python .repos/odoo-18.0/odoo-bin -c conf/odoo18.conf -d migration_13_to_18
 ```
 
-To take it away: `pg_dump -Fc -h 127.0.0.1 -U odoo migration -f migrated-18.0.dump` (and the filestore
+To take it away: `pg_dump -Fc -h 127.0.0.1 -U odoo migration_13_to_18 -f migrated-18.0.dump` (and the filestore
 directory alongside it).
 
 **Resuming.** Run the same command again after a failure.

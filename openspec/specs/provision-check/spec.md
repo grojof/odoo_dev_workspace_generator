@@ -73,10 +73,14 @@ connection **reaches** as INFO; and the narrowed state as OK. The database field
 exposed, never whether it is: a rule trusting every role on one database lets any local user connect to it
 as `postgres`, and a superuser in one database is a superuser on the host.
 
-A rule whose own line quotes **its role field** SHALL NOT be treated as a blanket trust: `"all"` is a role
+A rule whose own line shows `all` written `"all"` SHALL NOT be treated as a blanket trust: that is a role
 literally named `all`, which the view reports exactly like the keyword and which PostgreSQL does not match
-a connection against. The exception SHALL be that field only — a quote elsewhere on the line, an address
-written `"127.0.0.1/32"` included, leaves the rule a blanket trust, because the server reads it as one.
+a connection against. The line SHALL be consulted for that one fact and SHALL be allowed to say nothing
+else: its reading is used only when, with that mark removed, it names exactly the roles the server
+reported. Any other difference — a list continued after a blank, a `#` inside a quoted name, an `@file`
+the server expanded, a continued record, a non-ASCII blank — means the line was read differently from
+the server, and the server's answer SHALL stand. A quote elsewhere on the line, an address written
+`"127.0.0.1/32"` included, excuses nothing either.
 
 When the state cannot be had — PostgreSQL is not running, the view cannot be read without a password, the
 server reports a rule it could not parse, or a TCP trust rule names its roles by pattern (`/…`) or group
@@ -116,6 +120,13 @@ host as narrowed where the role cannot connect at all.
 - **WHEN** a rule reads `host all "all" 127.0.0.1/32 trust`
 - **THEN** it is not reported as a blanket trust, because PostgreSQL does not match a connection against a
   quoted role field
+
+#### Scenario: A line the check reads differently from the server cannot narrow its answer
+
+- **WHEN** `pg_hba.conf` holds `host all odoo, all 127.0.0.1/32 trust`, which the server reads as one
+  list naming every role
+- **THEN** the row is WARN, because the line's own reading names other roles than the server's and is
+  therefore not trusted
 
 #### Scenario: A quote somewhere else does not excuse the rule
 
