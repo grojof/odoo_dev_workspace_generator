@@ -172,3 +172,16 @@ def test_a_module_that_was_absorbed_is_expected_to_be_gone():
     assert gone[0].state == "gone as predicted" and not gone[0].is_finding
     still = tester.read_probe_states([probe], [["module", "old_module", ""]])
     assert still[0].state == "still there" and still[0].is_finding
+
+
+def test_the_tester_is_written_for_the_source_version_too(tmp_path):
+    from odoo_dwg import planners
+    from odoo_dwg.models import MigrationEnv
+    MigrationEnv.base_dir = str(tmp_path / "envs")
+    env = MigrationEnv(source="12.0", target="14.0")
+    probes, uncovered = tester.choose_probes({"13.0": analysis.harvest_changes(FIELDS)})
+    written = " ".join(c.command for c in planners.plan_generate_tester(env, probes, uncovered))
+    # Installed at the source, so its records travel; found at every step, or
+    # `-u all` meets an installed module it cannot load.
+    for major in ("odoo12", "odoo13", "odoo14"):
+        assert f"{major}/custom/{tester.TESTER_MODULE}" in written

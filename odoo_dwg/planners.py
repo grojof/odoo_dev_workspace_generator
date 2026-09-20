@@ -1386,7 +1386,11 @@ def plan_generate_tester(
     chain = f"{env.source} - {env.target}"
     files = templates.render_tester_module(probes, uncovered, chain)
     commands: list[Command] = []
-    for version in env.chain():
+    # The source too, not only the steps. The module is *installed* at the source
+    # version — that is where its records are written, so that they travel
+    # through the chain — and every later step must still find it on disk, or
+    # `-u all` meets an installed module it cannot load.
+    for version in [env.source, *env.chain()]:
         root = env.addons_custom_dir(version) / tester.TESTER_MODULE
         directories = sorted({str((root / path).parent) for path in files})
         commands.append(
