@@ -87,7 +87,7 @@ def test_add_version_refuses_a_bad_version_before_planning(base, monkeypatch, ca
     monkeypatch.setattr(workspace, "_plan_added_version",
                         lambda *a: pytest.fail("must not plan an invalid version"))
     workspace._add_version(cfg)
-    assert cfg.versions == ["18.0"] and "invalid Odoo version" in capsys.readouterr().out
+    assert cfg.versions == ["18.0"] and "nvalid Odoo version" in capsys.readouterr().out
 
 
 # --- interpreters read back from existing venvs ---------------------------------

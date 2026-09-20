@@ -51,7 +51,12 @@ unless they are `system.py`.
 - **Plan → preview → confirm → apply is inviolable.** No code path mutates the host without a previewed
   plan; destructive/data actions require `confirm_with_phrase`. Planners stay pure.
 - **English is canonical** for code, docs, specs, and all generated artifacts. Spanish is only an optional
-  UI language: every operator-facing string goes through `t`/`tf` with the English text as key.
+  UI language: every operator-facing string goes through `t`/`tf` with the English text as key, and
+  `odoo_dwg/i18n.py` is authored in that direction (English → Spanish), never inverted.
+  **Technical terms stay in English** in the Spanish UI — `workspace`, `host`, `dump`, `venv`, `commit`,
+  `log`, `loopback`, `staging`, `worktree`, `addons`, `custom`, `pg_hba` — because that is what a
+  Spanish-speaking Odoo developer says; translating them reads worse than leaving them. Translate the
+  sentence around them.
 - **Anchor Odoo/OpenUpgrade facts to official sources**, cited bound by bound in
   `docs/support-matrix.md` and declared once in `models.py`; never assume them, and never restate a
   bound elsewhere. Each bound carries its evidence tier (`official`/`derived`/`untested`).

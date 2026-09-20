@@ -56,7 +56,7 @@ _ES: dict[str, str] = {
     "- Shows the command plan before running anything":
         "- Muestra el plan de comandos antes de ejecutar nada",
     "\nWhat do you want to do?": "\n¿Qué quieres hacer?",
-    "Workspaces (create / manage)": "Workspaces (generar / gestionar)",
+    "Workspaces (create / manage)": "Workspaces (crear / gestionar)",
     "System provisioning (optional)": "Provisión del sistema (opcional)",
     "Migration (OpenUpgrade 12→19)": "Migración (OpenUpgrade 12→19)",
     "Exit": "Salir",
@@ -68,12 +68,12 @@ _ES: dict[str, str] = {
     # generic menu chrome
     "Back": "Volver",
     "Cancel": "Cancelar",
-    "Select an option": "Selecciona opción",
+    "Select an option": "Selecciona una opción",
     "Enter the option number.": "Introduce el número de opción.",
     "Option out of range.": "Opción fuera de rango.",
     "No selection (0 to cancel).": "Sin selección (0 para cancelar).",
     "Execution plan": "Plan de ejecución",
-    "Command finished with code {}.": "Comando terminó con código {}.",
+    "Command finished with code {}.": "El comando terminó con código {}.",
     # prompt primitives
     "Value is required.": "Valor obligatorio.",
     "Answer 'yes'/'y' or 'no'/'n' (Enter = default).":
@@ -82,11 +82,11 @@ _ES: dict[str, str] = {
     "to confirm": "para confirmar",
     # apply / safety
     "To apply system changes, run with privileges (sudo).":
-        "Para aplicar cambios en el sistema ejecuta con privilegios (sudo).",
+        "Para aplicar cambios en el sistema, ejecútalo con privilegios (sudo).",
     # migration
     "Generate a migration environment": "Generar un entorno de migración",
     "Clean a migration environment": "Limpiar un entorno de migración",
-    "Which environment": "Qué entorno",
+    "Which environment": "¿Qué entorno?",
     "No migration environments found under {}.": "No hay entornos de migración en {}.",
     "Also remove the shared clones cache (.repos)? It serves every migration environment.":
         "¿Eliminar también la caché compartida de clones (.repos)? La usan todos los entornos de migración.",
@@ -104,8 +104,8 @@ _ES: dict[str, str] = {
     "Odoo {} states no Python maximum and is not known to build on {}; Python {} is recommended.":
         "Odoo {} no declara un Python máximo y no se sabe que compile en {}; se recomienda Python {}.",
     "Invalid PostgreSQL role: {}": "Rol PostgreSQL no válido: {}",
-    "Remove migration environment {}": "Elimina el entorno de migración {}",
-    "Remove shared migration clones {}": "Elimina la caché compartida de clones {}",
+    "Remove migration environment {}": "Eliminar el entorno de migración {}",
+    "Remove shared migration clones {}": "Eliminar la caché compartida de clones de migración {}",
     # preflight
     "Preflight check": "Comprobación previa (preflight)",
     "Source dump file to verify (empty to skip)":
@@ -126,7 +126,7 @@ _ES: dict[str, str] = {
     "Modules to stage (comma-separated, empty = all)":
         "Módulos a preparar (separados por comas, vacío = todos)",
     "Not a directory: {}": "No es un directorio: {}",
-    "Not found in the source directory: {}": "No encontrados en el directorio origen: {}",
+    "Not found in the source directory: {}": "No están en el directorio origen: {}",
     "No modules to stage.": "No hay módulos que preparar.",
     "No OpenUpgrade clone for {} — candidate detection will be empty for those steps (generate the environment first).":
         "Sin clon de OpenUpgrade para {} — la detección de candidatos quedará vacía en esos pasos (genera antes el entorno).",
@@ -218,11 +218,46 @@ _ES: dict[str, str] = {
         '{} — no están en {} ni renombrados; OpenUpgrade los elimina',
     'needs per-version adapted code (and migrations/ scripts when data changes) — presence is not sufficient; see the staging workflow':
         'necesita código adaptado a cada versión (y scripts migrations/ cuando cambian datos) — estar presente no basta; ver el flujo de staging',
+    # validation errors (models.py)
+    'Invalid Odoo version: {!r} (supported: {}).':
+        'Versión de Odoo no válida: {!r} (admitidas: {}).',
+    'Invalid Python version: {!r} (expected e.g. 3.10).':
+        'Versión de Python no válida: {!r} (se espera p. ej. 3.10).',
+    'Invalid {}: {!r} (a whole number from 1 to {}).':
+        '{} no válido: {!r} (un número entero de 1 a {}).',
+    'Invalid workspace name: start with a lowercase letter, only [a-z0-9_], max 32 chars.':
+        'Nombre de workspace no válido: empieza por minúscula, solo [a-z0-9_], máximo 32 caracteres.',
+    'Invalid db_host: {!r} (a host name or IP address).':
+        'db_host no válido: {!r} (un nombre de host o una dirección IP).',
+    'Invalid db_user: {!r} (a PostgreSQL role).': 'db_user no válido: {!r} (un rol de PostgreSQL).',
+    'Invalid working_db: {!r}.': 'working_db no válido: {!r}.',
+    'The source ({}) must be older than the target ({}).':
+        'El origen ({}) debe ser anterior al destino ({}).',
+    'A workspace profile must be a JSON object, not {}.':
+        'Un perfil de workspace debe ser un objeto JSON, no {}.',
+    '{} is not a step in this chain ({}).': '{} no es un paso de esta cadena ({}).',
+    'workspace profile': 'perfil de workspace',
+    # the CLI's own help, printed by argparse before any menu
+    'Create / manage per-client workspaces.': 'Crear y gestionar workspaces por cliente.',
+    'Prepare a Linux host (optional).': 'Preparar un host Linux (opcional).',
+    'Run an OpenUpgrade migration (12→19).': 'Ejecutar una migración OpenUpgrade (12→19).',
+    "Stream every line a plan's commands print (default: one line per step, plus warnings and the output of a step that fails). Also ODWG_VERBOSE=1.":
+        'Muestra cada línea que imprimen los comandos del plan (por defecto: una línea por paso, más los avisos y la salida de un paso que falla). También con ODWG_VERBOSE=1.',
+    '(no output)': '(sin salida)',
+    '{} — outside the supported range': '{} — fuera del rango soportado',
+    'At least one Odoo version is required.':
+        'Hace falta al menos una versión de Odoo.',
+    'oca_repos must be a list of OCA repository names.':
+        'oca_repos debe ser una lista de nombres de repositorios OCA.',
+    'Invalid OCA repository name: {!r}.':
+        'Nombre de repositorio OCA no válido: {!r}.',
+    'Invalid db_user: {!r} (a PostgreSQL role: lowercase letters, digits and underscores, max 63 chars).':
+        'db_user no válido: {!r} (un rol de PostgreSQL: minúsculas, dígitos y guiones bajos, máximo 63 caracteres).',
     # --- complete UI coverage (checked by tests/test_i18n.py) ---
     "English": "English",
     "Español": "Español",
     "The selected path for {} does not match the expected extensions: {}":
-        "El path seleccionado para {} no coincide con las extensiones esperadas: {}",
+        "La ruta seleccionada para {} no coincide con las extensiones esperadas: {}",
     "Use this file anyway?": "¿Usar este fichero de todos modos?",
     "Select required file": "Selecciona el fichero requerido",
     "(default)": "(por defecto)",
@@ -311,7 +346,7 @@ _ES: dict[str, str] = {
     "Clone OCA {} ({}) into the shared cache": "Clonar OCA {} ({}) en la caché compartida",
     "Create workspace directories for {}": "Crear los directorios del workspace {}",
     "Link OCA {} for Odoo {}": "Enlazar OCA {} para Odoo {}",
-    "Back up {} to {}": "Copia de seguridad de {} en {}",
+    "Back up {} to {}": "Guardar copia de seguridad de {} en {}",
     "Create directory for {}": "Crear el directorio de {}",
     "Update apt package lists": "Actualizar las listas de paquetes apt",
     "Install Odoo build dependencies": "Instalar las dependencias de compilación de Odoo",
@@ -381,7 +416,7 @@ _ES: dict[str, str] = {
         'Preguntar a PostgreSQL por las reglas que tiene para {}',
     'OpenSnitch blocks every outbound connection without a rule, asking in its UI when it is open. Odoo may reach only localhost, plus DNS on port 53; the development tools keep their hosts. See docs/egress-control.md.':
         'OpenSnitch bloquea toda conexión saliente sin regla y pregunta en su interfaz cuando está abierta. Odoo solo puede llegar a localhost, más DNS en el puerto 53; las herramientas de desarrollo conservan sus destinos. Ver docs/egress-control.md.',
-    'Database whose mail to redirect': 'Base de datos cuyo correo redirigir',
+    'Database whose mail to redirect': 'Base de datos a la que redirigir el correo',
     'Invalid database name: {}': 'Nombre de base de datos no válido: {}',
     'Every mail server of {} will point at Mailpit and lose its credentials, and mail fetching stops. Use it on rehearsal copies only — never on a database going back to production.':
         'Todos los servidores de correo de {} apuntarán a Mailpit y perderán sus credenciales, y se detiene la recepción de correo. Úsalo solo en copias de ensayo — nunca en una base de datos que vuelve a producción.',
@@ -391,7 +426,7 @@ _ES: dict[str, str] = {
     "Remove the tool's own OpenSnitch rules ({}*)":
         'Eliminar las reglas propias de OpenSnitch ({}*)',
     'Purge OpenSnitch and the packages it pulled in':
-        'Desinstalar OpenSnitch y los paquetes que arrastró',
+        'Purgar OpenSnitch y los paquetes que arrastró',
     'Remove {}': 'Eliminar {}',
     'Remove the captured mail ({})': 'Eliminar el correo capturado ({})',
     'apt would remove {} package(s): {}': 'apt eliminaría {} paquete(s): {}',
@@ -422,7 +457,7 @@ _ES: dict[str, str] = {
     'Turn the mail capture off': 'Apagar la captura de correo',
     'Turn the mail capture on': 'Encender la captura de correo',
     'Uninstall the mail capture': 'Desinstalar la captura de correo',
-    "Unload the kernel modules it used": "Descargar los módulos del kernel que usaba",
+    "Unload the kernel modules it used": "Retirar de memoria los módulos del kernel que usaba",
     'No verified patched wkhtmltopdf is pinned for {} — install it by hand (github.com/wkhtmltopdf/packaging) or PDF reports will be degraded.':
         'No hay ningún wkhtmltopdf parcheado y verificado fijado para {} — instálalo a mano (github.com/wkhtmltopdf/packaging) o los informes PDF saldrán degradados.',
     'Cannot use the profile {}: {}': 'No se puede usar el perfil {}: {}',

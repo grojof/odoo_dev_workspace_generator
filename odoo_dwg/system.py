@@ -109,7 +109,7 @@ def set_verbose(verbose: bool) -> None:
 
 def _tail(output: str, lines: int = 40) -> str:
     """The end of a failed step's output, indented — where the reason usually is."""
-    kept = (output.strip() or "(no output)").splitlines()
+    kept = (output.strip() or t("(no output)")).splitlines()
     shown = kept[-lines:]
     prefix = "" if len(kept) <= lines else f"    … {len(kept) - lines} earlier line(s)\n"
     return prefix + "\n".join(f"    {line}" for line in shown)

@@ -91,8 +91,8 @@ def _choose_step_interpreters(env: MigrationEnv) -> bool:
         )
         if not ask_bool("Pin a step to a specific Python version?", False):
             return True
-        version = choose(t("Which step"), list(env.chain()) + [t("Back")], default_index=None)
-        if version in ("", t("Back")):
+        version = choose("Which step", list(env.chain()) + ["Back"], default_index=None)
+        if version in ("", "Back"):
             return True
         support_default = env.interpreter_choice(version).python
         python = ask_text(tf("Python for Odoo {}", version), support_default, required=True)

@@ -18,6 +18,8 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import ClassVar
 
+from .i18n import tf
+
 # Workspace/client name: a short lowercase identifier reused for dirs, DB names,
 # and instance names, so it must be filesystem- and PostgreSQL-safe.
 WORKSPACE_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
@@ -61,13 +63,13 @@ def version_error(version: object) -> str | None:
     ``18.0$(…)``) is refused here rather than quoted everywhere downstream."""
     if isinstance(version, str) and version in MIGRATION_CHAIN:
         return None
-    return f"invalid Odoo version: {version!r} (supported: {', '.join(MIGRATION_CHAIN)})."
+    return tf("Invalid Odoo version: {!r} (supported: {}).", version, ", ".join(MIGRATION_CHAIN))
 
 
 def _port_error(label: str, value: object, highest: int = 65535) -> str | None:
     if isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= highest:
         return None
-    return f"invalid {label}: {value!r} (a whole number from 1 to {highest})."
+    return tf("Invalid {}: {!r} (a whole number from 1 to {}).", label, value, highest)
 
 def odoo_major(version: str) -> int:
     """Parse the major from an Odoo version string (``18.0`` → ``18``)."""
@@ -126,7 +128,7 @@ def python_version_error(python: object) -> str | None:
     """Why ``python`` is not a ``3.N`` interpreter version, or None."""
     if isinstance(python, str) and PYTHON_VERSION_RE.fullmatch(python):
         return None
-    return f"invalid Python version: {python!r} (expected e.g. 3.10)."
+    return tf("Invalid Python version: {!r} (expected e.g. 3.10).", python)
 
 
 def python_tuple(python: str) -> tuple[int, ...]:
@@ -466,7 +468,7 @@ class InterpreterChoice:
     def describe(self) -> str:
         label = f"{self.python} ({self.source})"
         if self.out_of_range:
-            return f"{label} — outside the supported range"
+            return tf("{} — outside the supported range", label)
         return label
 
 
@@ -569,7 +571,7 @@ def migration_chain(source: str, target: str) -> list[str]:
             raise ValueError(error)
     lo, hi = odoo_major(source), odoo_major(target)
     if lo >= hi:
-        raise ValueError(f"source ({source}) must be older than target ({target}).")
+        raise ValueError(tf("The source ({}) must be older than the target ({}).", source, target))
     if lo < 12 or hi > 19:
         raise ValueError("migration is supported within the 12.0–19.0 range.")
     return [f"{major}.0" for major in range(lo + 1, hi + 1)]
@@ -758,29 +760,25 @@ class WorkspaceConfig:
     def validate(self) -> None:
         errors: list[str] = []
         if not (isinstance(self.name, str) and WORKSPACE_NAME_RE.fullmatch(self.name)):
-            errors.append(
-                "invalid workspace name: start with a lowercase letter, "
-                "only [a-z0-9_], max 32 chars."
-            )
+            errors.append(tf("Invalid workspace name: start with a lowercase letter, only [a-z0-9_], "
+                             "max 32 chars."))
         if not (isinstance(self.db_user, str) and DB_ROLE_RE.fullmatch(self.db_user)):
-            errors.append(
-                f"invalid db_user: {self.db_user!r} (a PostgreSQL role: lowercase letters, "
-                "digits and underscores, max 63 chars)."
-            )
+            errors.append(tf("Invalid db_user: {!r} (a PostgreSQL role: lowercase letters, "
+                             "digits and underscores, max 63 chars).", self.db_user))
         if not isinstance(self.versions, list) or not self.versions:
-            errors.append("at least one Odoo version is required.")
+            errors.append(tf("At least one Odoo version is required."))
         else:
             errors += [e for e in map(version_error, self.versions) if e]
         if not isinstance(self.oca_repos, list):
-            errors.append("oca_repos must be a list of OCA repository names.")
+            errors.append(tf("oca_repos must be a list of OCA repository names."))
         else:
             errors += [
-                f"invalid OCA repository name: {repo!r}."
+                tf("Invalid OCA repository name: {!r}.", repo)
                 for repo in self.oca_repos
                 if not (isinstance(repo, str) and OCA_REPO_RE.fullmatch(repo) and ".." not in repo)
             ]
         if not (isinstance(self.db_host, str) and DB_HOST_RE.fullmatch(self.db_host)):
-            errors.append(f"invalid db_host: {self.db_host!r} (a host name or IP address).")
+            errors.append(tf("Invalid db_host: {!r} (a host name or IP address).", self.db_host))
         # The highest instance port plus the bus offset (+1000) must stay valid.
         errors += [e for e in (_port_error("db_port", self.db_port),
                                _port_error("http_port_base", self.http_port_base, 64000)) if e]
@@ -800,7 +798,8 @@ class WorkspaceConfig:
         """Build a config from a parsed JSON dict, ignoring unknown keys so old
         profiles keep loading (forward-compatible)."""
         if not isinstance(data, dict):
-            raise ValueError(f"a workspace profile must be a JSON object, not {type(data).__name__}.")
+            raise ValueError(tf("A workspace profile must be a JSON object, not {}.",
+                                type(data).__name__))
         known = {f.name for f in fields(cls)}
         return cls(**{k: v for k, v in data.items() if k in known})
 
@@ -891,7 +890,7 @@ class MigrationEnv:
         range."""
         chain = self.chain()
         if version not in chain:
-            raise ValueError(f"{version} is not a step in this chain ({', '.join(chain)}).")
+            raise ValueError(tf("{} is not a step in this chain ({}).", version, ", ".join(chain)))
         error = python_version_error(python)
         if error:
             raise ValueError(error)
@@ -1026,11 +1025,11 @@ class MigrationEnv:
         if self.working_db and not (
             isinstance(self.working_db, str) and DB_NAME_RE.fullmatch(self.working_db)
         ):
-            errors.append(f"invalid working_db: {self.working_db!r}.")
+            errors.append(tf("Invalid working_db: {!r}.", self.working_db))
         if not (isinstance(self.db_user, str) and DB_ROLE_RE.fullmatch(self.db_user)):
-            errors.append(f"invalid db_user: {self.db_user!r} (a PostgreSQL role).")
+            errors.append(tf("Invalid db_user: {!r} (a PostgreSQL role).", self.db_user))
         if not (isinstance(self.db_host, str) and DB_HOST_RE.fullmatch(self.db_host)):
-            errors.append(f"invalid db_host: {self.db_host!r} (a host name or IP address).")
+            errors.append(tf("Invalid db_host: {!r} (a host name or IP address).", self.db_host))
         port_error = _port_error("db_port", self.db_port)
         if port_error:
             errors.append(port_error)

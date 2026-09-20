@@ -82,7 +82,7 @@ def _quick_profile() -> WorkspaceConfig | None:
 
 
 def _load_profile() -> WorkspaceConfig | None:
-    path = select_file_path(requested_label="workspace profile", allowed_extensions=(".json",))
+    path = select_file_path(requested_label=t("workspace profile"), allowed_extensions=(".json",))
     if not path:
         return None
     return _load_valid(Path(path))

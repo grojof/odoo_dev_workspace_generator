@@ -163,7 +163,8 @@ def select_file_path(
             print(f"  {index}) {entry.name}{marker}")
 
         raw = input(f"{prompt_label('Choose a number, ..,  q, or a manual path')}: ").strip()
-        if raw.lower() in {"q", "cancel"}:
+        # Both languages' words, since the prompt shows the translated one.
+        if raw.lower() in {"q", "cancel", "cancelar", "salir"}:
             return ""
         if raw == "0":
             manual = input(f"{prompt_label('Full file path')}: ").strip()
@@ -267,16 +268,19 @@ def choose_interpreter(
     options = [tf("Build with uv Python {} (recommended)", recommended)] if uv_ready else []
     # Offering the host interpreter when there is none would read as a choice and
     # then cancel.
+    # English literals: `choose` shows them translated and returns the original,
+    # and it finds its own zero-entry by that literal. Passing a translated
+    # "Cancelar" gave the Spanish menu two cancel entries.
     options += ([keep_host] if host_python else []) + [
-        t("Choose another Python version"), t("Cancel")
+        "Choose another Python version", "Cancel"
     ]
     answer = choose(tf("Interpreter for Odoo {}", version), options, default_index=None)
 
-    if answer in ("", t("Cancel")):
+    if answer in ("", "Cancel"):
         return None
     if answer == keep_host:
         return _confirmed_choice(version, host_python, host_python, HOST_PYTHON)
-    if answer == t("Choose another Python version"):
+    if answer == "Choose another Python version":
         while True:
             chosen = ask_text(t("Python version (e.g. 3.10)"), recommended or None, required=True)
             error = python_version_error(chosen)

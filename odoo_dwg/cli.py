@@ -108,8 +108,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "--verbose",
         action="store_true",
         default=argparse.SUPPRESS,
-        help="Stream every line a plan's commands print (default: one line per step, "
-             "plus warnings and the output of a step that fails). Also ODWG_VERBOSE=1.",
+        help=t("Stream every line a plan's commands print (default: one line per step, "
+               "plus warnings and the output of a step that fails). Also ODWG_VERBOSE=1."),
     )
 
     parser = argparse.ArgumentParser(
@@ -120,14 +120,33 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"odoo-dwg {__version__}")
 
     sub = parser.add_subparsers(dest="section")
-    sub.add_parser("workspace", parents=[common], help="Create / manage per-client workspaces.")
-    sub.add_parser("provision", parents=[common], help="Prepare a Linux host (optional).")
-    sub.add_parser("migrate", parents=[common], help="Run an OpenUpgrade migration (12→19).")
+    sub.add_parser("workspace", parents=[common],
+                   help=t("Create / manage per-client workspaces."))
+    sub.add_parser("provision", parents=[common], help=t("Prepare a Linux host (optional)."))
+    sub.add_parser("migrate", parents=[common],
+                   help=t("Run an OpenUpgrade migration (12→19)."))
     return parser
+
+
+def _language_from(argv: list[str] | None) -> str | None:
+    """The `--lang` value, read before the parser exists.
+
+    `--help` is printed by the parser itself, so the language has to be known
+    before it is built or the help text can never be translated."""
+    args = list(argv if argv is not None else sys.argv[1:])
+    for index, item in enumerate(args):
+        if item == "--lang" and index + 1 < len(args):
+            return args[index + 1]
+        if item.startswith("--lang="):
+            return item.split("=", 1)[1]
+    return os.environ.get("ODWG_LANG") or None
 
 
 def main(argv: list[str] | None = None) -> int:
     _configure_utf8_console()
+    early = _language_from(argv)
+    if early:
+        set_language("es" if str(early).lower().startswith("es") else "en")
     parser = _build_parser()
     args = parser.parse_args(argv)
     lang = getattr(args, "lang", None)

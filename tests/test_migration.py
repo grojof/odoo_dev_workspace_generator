@@ -306,7 +306,7 @@ def test_a_ready_venv_is_rebuilt_when_its_step_is_pinned_to_another_python():
 def test_operator_pins_must_be_plain_python_versions():
     env = MigrationEnv(source="16.0", target="17.0")
     for bad in ("3.x", "3.10; rm -rf ~", "python3", "3", ""):
-        with pytest.raises(ValueError, match="invalid Python version"):
+        with pytest.raises(ValueError, match="[Ii]nvalid Python version"):
             env.set_interpreter_override("17.0", bad)
 
 
