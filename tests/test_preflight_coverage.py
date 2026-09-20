@@ -232,12 +232,14 @@ def test_driver_coverage_reads_apriori_at_run_time_not_at_render_time():
         assert spelling in sh
 
 
-def test_driver_fails_only_on_the_blocking_class():
+def test_driver_fails_on_the_blocking_class_and_on_unmet_dependencies():
     from odoo_dwg import templates
 
     env = MigrationEnv(source="12.0", target="19.0")
     sh = templates.render_run_migration_sh(env)
-    assert "sys.exit(1 if blocking else 0)" in sh
+    # A module nobody supplies, and a module that resolves while naming a
+    # dependency nobody supplies — Odoo refuses to upgrade either.
+    assert "sys.exit(1 if blocking or unmet else 0)" in sh
     assert 'fail "addons coverage incomplete' in sh
     # A dropped Odoo module is reported, never fatal.
     assert "OpenUpgrade removes it" in sh
