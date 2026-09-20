@@ -116,6 +116,11 @@ def scan_source(
         default=1,
     )
     findings: list[Finding] = []
+    if not wanted:
+        # Nothing to look up, so nothing to index: a step whose OpenUpgrade
+        # clone is absent has no records, and indexing a 14 MB module for it
+        # cost seconds and a hundred megabytes to return an empty list.
+        return findings
     for path, text in files:
         present = {model for model in models if model in text}
         words: dict[str, list[int]] = {}

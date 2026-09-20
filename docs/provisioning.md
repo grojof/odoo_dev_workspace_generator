@@ -90,7 +90,8 @@ password:
   1. PostgreSQL reports a rule it could not parse. It then refused to load the file and is **still running
      the previous rules**, while the file on disk reads as narrowed. `pg_ctl reload` reports success either
      way, so nothing else would notice.
-  2. A rule still trusts every role over TCP — unless that rule's own line quotes its **role field**, since
+  2. A rule still trusts every role over TCP — read as the comma list it may be, since PostgreSQL
+     matches `all` anywhere in `all,bob` — unless that rule's own line quotes its **role field**, since
      `"all"` in quotes is a role literally named `all` and not the keyword. Only that field is read: the
      server accepts `host all all "127.0.0.1/32" trust` like any other blanket trust, so a quote elsewhere
      on the line excuses nothing.
@@ -102,8 +103,10 @@ password:
   that had not happened, so success is now something PostgreSQL confirms.
 
   The **rewriter** still reads text, and refuses rather than rewrite a file whose rules it cannot read one
-  line at a time — an `include` directive, or a record continued with a trailing backslash. It says which of
-  the two it found: narrow that file by hand, or join the continued lines, then run apply again.
+  line at a time — an `include` directive, a record continued with a trailing backslash, or a rule whose
+  database field is quoted (it may then contain blanks, and the rewriter counts fields by whitespace). It
+  says which of the three it found: narrow that rule by hand, or inline what it cannot see, then run apply
+  again.
 
   The check says **unknown** (WARN) instead of claiming either answer — and apply plans the narrowing rather
   than assuming it is done — when PostgreSQL is stopped, when the view cannot be read without `sudo`, when

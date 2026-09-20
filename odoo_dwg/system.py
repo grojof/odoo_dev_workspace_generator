@@ -14,6 +14,7 @@ import re
 import shlex
 import shutil
 import subprocess
+from dataclasses import replace
 
 from . import pghba
 from .i18n import t, tf
@@ -389,31 +390,41 @@ def pg_hba_loopback_state(role: str, port: int = 5432) -> tuple[bool, bool] | No
         # A trust rule for `/regex` or `+group` roles: whether it covers every
         # role cannot be told from here, so this is unknown, not "fine".
         return None
-    # A rule for a role *named* `all` is not the keyword, though the view reports
-    # it identically. Only its own text tells them apart, and there may be more
-    # than one.
-    remaining = list(rules)
-    blanket = pghba.blanket_trust(remaining)
-    while blanket is not None and not _rule_trusts_every_role(blanket):
-        remaining = [rule for rule in remaining if rule is not blanket]
-        blanket = pghba.blanket_trust(remaining)
-    return (blanket is not None, pghba.role_is_reached(rules, role))
+    # The view cannot tell the keyword `all` from a role *named* `all`, and it
+    # reports a comma list as separate elements either way. Correct every rule
+    # from its own line once, and both questions below are asked of the same,
+    # corrected reading — they used to disagree, and `provision check` then
+    # reported a working trust as missing on every run.
+    corrected = _as_the_server_reads_them(rules)
+    return (
+        pghba.blanket_trust(corrected) is not None,
+        pghba.role_is_reached(corrected, role),
+    )
 
 
-def _rule_trusts_every_role(rule: pghba.Rule) -> bool:
-    """Read back the rule's own line, to tell `all` from a quoted `"all"`.
+def _as_the_server_reads_them(rules: list[pghba.Rule]) -> list[pghba.Rule]:
+    """Rules whose role field is taken from the file rather than from the view.
 
-    A line that cannot be read leaves the view's answer standing: the rule counts
-    as a blanket trust, because reporting a host as narrowed on a file this cannot
-    open is the one mistake with a cost.
+    Only rules naming `all` need it, and a line that cannot be read keeps the
+    view's answer: reporting a host as narrowed on a file this cannot open is the
+    one mistake with a cost.
     """
-    text = read_text(rule.file) if rule.file else None
-    if not text:
-        return True
-    lines = text.splitlines()
-    if not 1 <= rule.line <= len(lines):
-        return True
-    return pghba.role_field_is_keyword_all(lines[rule.line - 1])
+    lines: dict[str, list[str]] = {}
+    out: list[pghba.Rule] = []
+    for rule in rules:
+        if "all" not in rule.users or not rule.file:
+            out.append(rule)
+            continue
+        if rule.file not in lines:
+            text = read_text(rule.file)
+            lines[rule.file] = text.splitlines() if text else []
+        file_lines = lines[rule.file]
+        if not 1 <= rule.line <= len(file_lines):
+            out.append(rule)
+            continue
+        elements = pghba.role_elements(file_lines[rule.line - 1])
+        out.append(rule if elements is None else replace(rule, users=elements))
+    return out
 
 
 # --- migration preflight probes --------------------------------------------

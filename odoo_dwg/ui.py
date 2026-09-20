@@ -110,6 +110,11 @@ def sanitize_cell(text: str) -> str:
     borders still hold — but a tab would shift the columns it lands in.
     """
     kept = _TERMINAL_CONTROL_RE.sub(lambda match: match.group(1) or "", text)
+    # Colour that a cell opened and never closed would run past the border into
+    # the rest of the table — `\x1b[8m` (conceal) from a module name read out of
+    # a restored database hides everything printed after it.
+    if "\x1b[" in kept:
+        kept += _RESET
     return kept.replace("\t", " ")
 
 

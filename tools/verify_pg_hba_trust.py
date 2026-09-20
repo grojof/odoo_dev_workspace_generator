@@ -190,6 +190,19 @@ host    all             odoo            127.0.0.1/32            scram-sha-256
 host    all             odoo            127.0.0.1/32            trust
 """
 
+
+# The keyword matches anywhere in a comma list: reading only a bare `all` called
+# these narrow while the server let every role in.
+ROLE_LIST_FIRST = """\
+local   all             postgres                                peer
+host    all             all,bob         127.0.0.1/32            trust
+"""
+
+ROLE_LIST_LAST = """\
+local   all             postgres                                peer
+host    all             bob,all         127.0.0.1/32            trust
+"""
+
 CASES = [
     ("the Ubuntu default", UBUNTU_DEFAULT),
     ("a blanket loopback trust (CIDR)", BLANKET_CIDR),
@@ -212,6 +225,8 @@ CASES = [
     ("a blanket trust whose address is quoted", QUOTED_ADDRESS),
     ("a shadowing rule that is not host all all", SHADOWED_BY_ANOTHER_SHAPE),
     ("the role's own password rule above its trust rule", ROLE_SCRAM_FIRST),
+    ("a role list naming all first", ROLE_LIST_FIRST),
+    ("a role list naming all last", ROLE_LIST_LAST),
 ]
 
 # --- an oracle that is not the implementation ------------------------------
@@ -254,7 +269,7 @@ def _has_blanket_trust(text: str) -> bool:
     `trust` — on any database, whatever address it names. A quoted `"all"` is a
     role of that name, which the server does not match a connection against."""
     return any(
-        kind.startswith("host") and user == "all" and method == "trust"
+        kind.startswith("host") and "all" in user.split(",") and method == "trust"
         for kind, db, user, method in _records(text)
     )
 
@@ -265,9 +280,11 @@ def _role_is_reached(text: str) -> bool:
     for kind, db, user, method in _records(text):
         if not kind.startswith("host"):
             continue
-        if user.strip('"') != ROLE and user != "all":
+        names = user.split(",")
+        mine = ROLE in [part.strip('"') for part in names]
+        if not mine and "all" not in names:
             continue
-        return kind == "host" and user.strip('"') == ROLE and db == "all" and method == "trust"
+        return kind == "host" and mine and "all" in db.split(",") and method == "trust"
     return False
 
 
@@ -582,6 +599,9 @@ AUDIT_CASES = [
     ("a trust rule naming its roles by pattern",
      'local all all trust\nhost all odoo 127.0.0.1/32 trust\n'
      'host all "/.*" 127.0.0.1/32 trust\n', True),
+    ("a role list naming all among others",
+     "local all all trust\nhost all odoo 127.0.0.1/32 trust\n"
+     "host all all,bob 127.0.0.1/32 trust\n", True),
     ("a blanket trust the rewriter left behind",
      "local all all trust\nhost all odoo 127.0.0.1/32 trust\n"
      "host all all 127.0.0.1/32 trust\n", True),

@@ -125,3 +125,12 @@ def test_a_table_cell_carries_colour_and_nothing_else():
         assert control not in out, control
     assert "\x1b[1;31m" in out and "\x1b[0m" in out       # colour survives
     assert out.count("\n") == 5                            # and the borders hold
+
+    # Colour a cell opens and never closes would run past the border: `\x1b[8m`
+    # (conceal) from a module name hides every row printed after it.
+    opened = ui.render_table(["State", "Module"], [["MISSING", "sale\x1b[8m"], ["OK", "stock"]])
+    assert opened.rstrip().endswith("+")                  # the table ends in a border
+    assert "stock" in ui.strip_ansi(opened)
+    for row in opened.splitlines():
+        assert row.count("\x1b[") == 0 or row.endswith("|"), row
+    assert ui.sanitize_cell("sale\x1b[8m").endswith("\x1b[0m")

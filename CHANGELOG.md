@@ -115,6 +115,23 @@ All notable changes to this project are documented here. The format is based on
   made, holding their code.
 
 ### Fixed
+- **A role field listing `all` among others was read as narrow.** PostgreSQL matches the keyword anywhere
+  in a comma list, so `host all all,bob 127.0.0.1/32 trust` lets every role in — and the reading introduced
+  earlier in this release asked for a bare `all`, so `provision check` printed *"trust for odoo only"* on a
+  host where any local account was `postgres`. The rules are now read field by field, lists and quoting
+  included, by a reader that answers both of the questions asked of them; the verifier carries the shape.
+- **`provision check` could report a working trust as missing, for ever.** The blanket-trust answer was
+  corrected from the file while the "is the role reached" answer was not, so a rule for a role *named* `all`
+  above the role's own line made the check red on a correctly configured host, with apply unable to change
+  anything. Both answers now come from the same corrected reading.
+- **A rule whose database field is quoted is refused rather than skipped.** Such a field may contain blanks
+  and the rewriter counts fields by whitespace; it used to leave the rule silently while the check kept
+  reporting it. It now says what it cannot rewrite, like the other shapes it refuses.
+- **A table cell could leave colour open**, so a module name read from a database under migration could
+  conceal every row printed after it.
+- **Scanning custom modules built its index even with nothing to look up**: a step whose OpenUpgrade clone
+  is absent has no records, and a 14 MB module cost seconds and ~150 MB to return an empty list.
+- **The checkpoint-adoption command is copy-pasteable** when the dump's path contains a space.
 - **The source distribution shipped a test suite it could not run.** `tests/` was in the sdist while
   `tools/` and `docs/` were not, and three tests read files from both — so `pytest` on an unpacked sdist
   stopped at collection with zero tests run, which is what a distribution packager would see as their gate.

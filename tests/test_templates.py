@@ -193,8 +193,9 @@ def test_the_driver_keeps_its_checkpoints_and_logs_to_itself():
     header = script.split("fail()", 1)[0]
     assert header.index("umask 077") < header.index('mkdir -p "$CK" "$LOGS"')
     assert 'chmod 700 "$CK" "$LOGS"' in header
-    # Without `-e` an unchecked restore inside a function would run on.
-    assert script.splitlines()[2] == "set -euo pipefail"
+    # Without `-e` an unchecked restore inside a function would run on. Asserted
+    # on the header rather than on a line number, which a correct edit moves.
+    assert "set -euo pipefail" in header
 
 
 def test_the_generated_setup_script_writes_each_ready_marker_last():

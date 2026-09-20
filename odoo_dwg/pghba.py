@@ -13,7 +13,6 @@ Pure: the query itself lives in ``system``. See
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 
 # The columns SELECTed, in order, tab-separated (``psql -tAF'\t'``).
@@ -155,24 +154,71 @@ def role_is_reached(rules: list[Rule], role: str) -> bool:
     return False
 
 
-#: A rule whose role field — the third — is an unquoted ``all``. The database
-#: field before it may be quoted and may contain blanks; anything after the role
-#: field is irrelevant here.
-_ROLE_FIELD_IS_ALL = re.compile(
-    r'^\s*host[a-z]*\s+("[^"]*"|[^\s"]+)\s+all\s', re.IGNORECASE
-)
+def _scan_fields(text: str) -> list[list[tuple[str, bool]]]:
+    """A rule's fields, each split into its comma-separated elements.
+
+    Each element is ``(text, was_quoted)``. This is `pg_hba`'s own tokenization
+    as far as it matters here: whitespace separates fields unless it sits inside
+    double quotes, `""` is an escaped quote, and a field may be a comma list.
+    """
+    fields: list[list[tuple[str, bool]]] = []
+    index, end = 0, len(text)
+    while index < end:
+        if text[index].isspace():
+            index += 1
+            continue
+        elements: list[tuple[str, bool]] = []
+        current, quoted = "", False
+        while index < end:
+            char = text[index]
+            if char == '"':
+                quoted = True
+                index += 1
+                while index < end:
+                    if text[index] == '"':
+                        if index + 1 < end and text[index + 1] == '"':
+                            current += '"'
+                            index += 2
+                            continue
+                        index += 1
+                        break
+                    current += text[index]
+                    index += 1
+                continue
+            if char.isspace():
+                break
+            if char == ",":
+                elements.append((current, quoted))
+                current, quoted = "", False
+                index += 1
+                continue
+            current += char
+            index += 1
+        elements.append((current, quoted))
+        fields.append(elements)
+    return fields
+
+
+def role_elements(line: str) -> tuple[str, ...] | None:
+    """The roles a TCP rule's own text names, or None when the line is not one.
+
+    The view cannot tell the keyword `all` from a role *named* `all`, and the
+    line can, so an element that is a quoted ``all`` comes back as ``"all"`` —
+    quotes included — which is equal to no role and not to the keyword. Every
+    other element is its plain text, since quoting a name changes nothing.
+
+    The field is read as the list it may be: PostgreSQL matches the keyword
+    anywhere in ``all,bob``, so reading only a bare ``all`` called that rule
+    narrow while the server let every role in.
+    """
+    fields = _scan_fields(line.split("#", 1)[0])
+    if len(fields) < 3 or not fields[0][0][0].lower().startswith("host"):
+        return None
+    return tuple(
+        '"all"' if quoted and text == "all" else text for text, quoted in fields[2]
+    )
 
 
 def role_field_is_keyword_all(line: str) -> bool:
-    """Whether a rule's own text names *every role*, rather than one named `all`.
-
-    ``host all "all" 127.0.0.1/32 trust`` is a rule for a role *named* `all`,
-    which PostgreSQL does not match a connection against — but the view reports
-    it exactly like the keyword. The raw line is the only place that distinction
-    survives.
-
-    Only the role field is read. The server accepts ``host all all
-    "127.0.0.1/32" trust`` like any other blanket trust, so a quote elsewhere on
-    the line excuses nothing.
-    """
-    return _ROLE_FIELD_IS_ALL.match(line.split("#", 1)[0]) is not None
+    """Whether a rule's own text names *every role*, rather than one named `all`."""
+    return "all" in (role_elements(line) or ())

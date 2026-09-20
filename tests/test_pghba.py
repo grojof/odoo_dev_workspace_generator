@@ -161,12 +161,10 @@ def test_a_blanket_trust_whose_line_cannot_be_read_is_still_a_blanket_trust(monk
 
 
 def test_a_role_named_all_is_not_a_blanket_trust(monkeypatch):
-    """The view reports `"all"` exactly like the keyword, so the line decides.
-
-    The role is still reported as not reached: `role_is_reached` reads the view
-    alone, where that rule does match this connection. That errs towards doing
-    the work — apply inserts the role's line above it, which is a no-op when it
-    was already fine.
+    """The view reports `"all"` exactly like the keyword, so the line decides —
+    for *both* questions. The role's own rule is the one the server matches, so
+    reporting it as not reached would leave `provision check` red on a host that
+    is correctly configured, for ever, with apply unable to change anything.
     """
     monkeypatch.setattr(system, "pg_hba_rules", lambda port=5432: pghba.parse_rules(
         _row(users="all", line=1) + "\n" + _row(users="odoo", line=2)
@@ -175,7 +173,18 @@ def test_a_role_named_all_is_not_a_blanket_trust(monkeypatch):
         system, "read_text",
         lambda _path: 'host all "all" 127.0.0.1/32 trust\nhost all odoo 127.0.0.1/32 trust\n',
     )
-    assert system.pg_hba_loopback_state("odoo") == (False, False)
+    assert system.pg_hba_loopback_state("odoo") == (False, True)
+
+
+def test_a_role_field_listing_all_among_others_is_a_blanket_trust(monkeypatch):
+    """PostgreSQL matches the keyword anywhere in a comma list: `all,bob` lets
+    every role in. Reading only a bare `all` called such a host narrow."""
+    for line in ('host all all,bob 127.0.0.1/32 trust', 'host all bob,all 127.0.0.1/32 trust'):
+        monkeypatch.setattr(system, "pg_hba_rules", lambda port=5432: pghba.parse_rules(
+            _row(users="all,bob", line=1)
+        ))
+        monkeypatch.setattr(system, "read_text", lambda _path, line=line: line + "\n")
+        assert system.pg_hba_loopback_state("odoo") == (True, False), line
 
 
 def test_an_unnamed_role_is_refused_before_any_query(monkeypatch):

@@ -474,3 +474,40 @@ def test_a_failed_action_is_reported_and_the_menu_comes_back(monkeypatch, capsys
     assert cli.interactive_menu() == 0
     out = strip_ansi(capsys.readouterr().out)
     assert "did not complete" in out and "Traceback" not in out
+
+
+@pytest.mark.parametrize("action,setup", [
+    ("_generate_environment", "generate"),
+    ("_stage_modules", "stage"),
+])
+def test_every_migration_action_previews_before_it_applies(base, monkeypatch, action, setup):
+    """`apply_if_confirmed` is tested, but this surface open-codes the same three
+    steps at five sites; deleting the preview and the question at any of them
+    left the suite green."""
+    from odoo_dwg.models import MigrationEnv
+    monkeypatch.setattr(MigrationEnv, "base_dir", str(base))
+    seen = {"preview": 0, "apply": 0}
+    monkeypatch.setattr(migration, "preview_commands",
+                        lambda _c: seen.__setitem__("preview", seen["preview"] + 1))
+    monkeypatch.setattr(migration, "apply_commands",
+                        lambda _c: seen.__setitem__("apply", seen["apply"] + 1))
+    monkeypatch.setattr(migration, "_ask_env", lambda: MigrationEnv(source="16.0", target="18.0"))
+    monkeypatch.setattr(migration, "_choose_step_interpreters", lambda _e: True)
+    monkeypatch.setattr(migration.preflight, "gather_host_facts", lambda *a, **k: None)
+    monkeypatch.setattr(migration.preflight, "preflight_rows", lambda *a, **k: [])
+    monkeypatch.setattr(migration, "confirm_with_phrase", lambda *a: True)
+    if setup == "stage":
+        source = base / "src" / "client_sales"
+        source.mkdir(parents=True)
+        (source / "__manifest__.py").write_text("{}")
+        answers = iter([str(base / "src"), "client_sales"])
+        monkeypatch.setattr(migration, "ask_text", lambda *a, **k: next(answers))
+        # Without this the flow stops at "the staging tool is not installed" and
+        # previews *that* plan instead — a pass for the wrong reason.
+        monkeypatch.setattr(migration, "_ensure_staging_tool", lambda _e: True)
+
+    # Declined: the plan is shown and nothing runs.
+    monkeypatch.setattr(migration, "ask_bool", lambda *a, **k: False)
+    getattr(migration, action)()
+    assert seen["apply"] == 0, f"{action} applied a declined plan"
+    assert seen["preview"] == 1, f"{action} did not preview exactly one plan"

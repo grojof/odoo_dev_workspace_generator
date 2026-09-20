@@ -373,8 +373,13 @@ def plan_postgresql(role: str) -> list[Command]:
 # on any database: the database bounds which database is exposed, never whether
 # one is. The role field is matched unquoted on purpose — `"all"` is a role named
 # `all`, which PostgreSQL does not match a connection against.
+#: The role field as PostgreSQL reads it: a comma list, where an unquoted `all`
+#: anywhere means every role. `host all all,bob … trust` is a live blanket trust.
+_ROLE_LIST_WITH_ALL = "([^[:space:],]+,)*all(,[^[:space:],]+)*"
 BLANKET_TRUST_RULE = (
-    "^([[:space:]]*host[a-z]*[[:space:]]+[^[:space:]]+[[:space:]]+all[[:space:]]+[^[:space:]]+"
+    "^([[:space:]]*host[a-z]*[[:space:]]+[^[:space:]]+[[:space:]]+"
+    f"{_ROLE_LIST_WITH_ALL}"
+    "[[:space:]]+[^[:space:]]+"
     "([[:space:]]+[0-9a-fA-F.:]+)?[[:space:]]+)trust([[:space:]]|$)"
 )
 # Any host rule at all: the anchor the role's own line is inserted before, so it
@@ -402,16 +407,23 @@ def plan_pg_hba_trust(role: str) -> list[Command]:
         # `type database user address [netmask] method`: the netmask is there only
         # when the address carries no prefix length. Same reading as pghba.Rule.
         'm = 5; if ($4 !~ /\\// && NF > 5 && $5 ~ /^[0-9a-fA-F.:]+$/) m = 6; '
-        # Quoting a plain name changes nothing, but `"all"` is a role *named* all
-        # and not the keyword, so that comparison stays exact.
-        'u = $3; gsub(/^"|"$/, "", u); '
-        f'if (u != "{role}" && $3 != "all") next; '
+        # Both fields are comma lists, and PostgreSQL matches the keyword `all`
+        # anywhere in one. Quoting a plain name changes nothing, but `"all"` is a
+        # role *named* all and not the keyword, so that test comes before the
+        # quotes are stripped.
+        'every = 0; mine = 0; every_db = 0; '
+        'n = split($3, part, ","); '
+        'for (k = 1; k <= n; k++) { e = part[k]; if (e == "all") every = 1; '
+        f'gsub(/^"|"$/, "", e); if (e == "{role}") mine = 1 }} '
+        'n = split($2, part, ","); '
+        'for (k = 1; k <= n; k++) if (part[k] == "all") every_db = 1; '
+        "if (!every && !mine) next; "
         # The first rule matching this connection is the only one PostgreSQL
         # reads, so the answer is given here — whatever that rule turns out to be.
         # Plain `host` only, like the probe and the verification step: with TLS on
         # a `hostnossl` rule is never consulted, and counting one as the role's
         # trust line would insert nothing and then fail the step it cannot fix.
-        f'found = ($1 == "host" && u == "{role}" && $2 == "all" && $(m) == "trust"); '
+        'found = ($1 == "host" && mine && every_db && $(m) == "trust"); '
         "exit } "
         "END { exit !found }' \"$PGHBA\""
     )
@@ -434,9 +446,18 @@ def plan_pg_hba_trust(role: str) -> list[Command]:
         r'grep -qiE "^[[:space:]]*include(_if_exists|_dir)?[[:space:]]" "$PGHBA" && '
         r'{ echo "$PGHBA pulls in rules with an include directive; this step cannot '
         r'see them — narrow that file by hand, or inline its rules" >&2; exit 1; }',
-        # \1 is everything up to the method, \3 the whitespace or end of line
-        # after it — keep both in step with BLANKET_TRUST_RULE's groups.
-        f'sed -ri "s#{BLANKET_TRUST_RULE}#\\1scram-sha-256\\3#" "$PGHBA"',
+        # A quoted database field may contain blanks, and every pattern below
+        # counts fields by whitespace. The check reads such a rule correctly
+        # through the server, so refusing here is the difference between saying
+        # so and silently skipping the one rule that matters.
+        'grep -qE \'^[[:space:]]*host[a-z]*[[:space:]]+"\' "$PGHBA" && '
+        '{ echo "$PGHBA has a rule whose database field is quoted; this step reads '
+        'fields by whitespace and cannot rewrite it — narrow that rule by hand" >&2; '
+        'exit 1; }',
+        # \1 is everything up to the method, \5 the whitespace or end of line
+        # after it — keep both in step with BLANKET_TRUST_RULE's groups, which
+        # the role list adds two of.
+        f'sed -ri "s#{BLANKET_TRUST_RULE}#\\1scram-sha-256\\5#" "$PGHBA"',
         f"if ! {reached}; then",
         # The insertion must be at least as permissive as the downgrade above, or
         # the role's line lands *after* a rule that matches the same connection
@@ -537,7 +558,9 @@ def _pg_hba_audit(role: str) -> str:
         # keyword. Only the line tells them apart — and only in that field: the
         # server reads `host all all "127.0.0.1/32" trust` as the blanket trust it
         # is. Both walks below ask the same question of the same field.
-        "ROLEALL='^[[:space:]]*host[a-z]*[[:space:]]+[^[:space:]]+[[:space:]]+all[[:space:]]'",
+        "ROLEALL='^[[:space:]]*host[a-z]*[[:space:]]+(\"[^\"]*\"|[^[:space:]\"])+"
+        "[[:space:]]+((\"[^\"]*\"|[^[:space:],\"])+,)*all(,(\"[^\"]*\"|[^[:space:],\"])+)*"
+        "([[:space:]]|$)'",
         # -f: a glob character in a path must not be expanded while splitting, and
         # a location is `file:line`, so splitting is on newlines only.
         "set -f",

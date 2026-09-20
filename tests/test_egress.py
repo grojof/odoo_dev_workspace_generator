@@ -260,14 +260,21 @@ def test_loopback_trust_covers_only_the_development_role():
     # …and on every connection type pg_hba has, not only host/hostnossl: the
     # supported host runs with ssl = on, so `hostssl` is the record consulted.
     assert "host[a-z]*" in planners.BLANKET_TRUST_RULE
-    # …on any database: the database bounds which database a trust exposes, never
-    # whether it exposes one. The role field stays an unquoted `all`, since `"all"`
-    # is a role of that name and PostgreSQL does not match a connection against it.
-    assert "[[:space:]]+all[[:space:]]" in planners.BLANKET_TRUST_RULE
+    # …on any database, and the role field read as the comma list it may be:
+    # PostgreSQL matches the keyword anywhere in `all,bob`. It stays unquoted,
+    # since `"all"` is a role of that name and does not match a connection.
+    assert planners._ROLE_LIST_WITH_ALL in planners.BLANKET_TRUST_RULE
     # The backreference has to follow the pattern's own groups: \1 is everything up
     # to the method, and the trailing group is the last one the pattern opens.
-    assert re.compile(planners.BLANKET_TRUST_RULE.replace("[[:space:]]", r"\s")).groups == 3
-    assert r"scram-sha-256\3" in hba
+    groups = re.compile(planners.BLANKET_TRUST_RULE.replace("[[:space:]]", r"\s")).groups
+    assert groups == 5
+    assert f"scram-sha-256\\{groups}" in hba
+    # A rule this step cannot read field by field is refused, not skipped: the
+    # check sees such a rule through the server and would keep reporting it.
+    assert "database field is quoted" in hba
+    refusals = [line for line in hba.splitlines() if "grep -q" in line]
+    assert any('host[a-z]*[[:space:]]+"' in line for line in refusals), refusals
+    assert "line continuations" in hba and "include directive" in hba
     # The role's line is inserted before the first host rule of any kind, never
     # after one that would match the same connection first.
     assert planners.ANY_HOST_RULE in hba

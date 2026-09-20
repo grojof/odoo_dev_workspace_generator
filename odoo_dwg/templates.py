@@ -921,7 +921,7 @@ else
   if [ -z "$CK_SHA" ]; then
     die "the checkpoints in $CK do not record which dump they came from.
   If they came from $SRC_DUMP, adopt them with:
-    sha256sum $SRC_DUMP | cut -d' ' -f1 > $CK/source.sha256
+    sha256sum \\"$SRC_DUMP\\" | cut -d' ' -f1 > \\"$CK/source.sha256\\"
   If they came from another dump, remove $CK to start over."
   elif [ "$CK_SHA" != "$SRC_SHA" ]; then
     die "checkpoints in $CK came from another source dump — remove that whole directory to start over"
