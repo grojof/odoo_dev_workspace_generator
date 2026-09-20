@@ -7,6 +7,15 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **A probe is judged against its own step.** The rehearsal tester's quiet classes claim that a subject
+  *survives* the step that changed it; checking a 12 → 19 chain only at the end reported six of them as
+  silent losses when a **later** step had removed the subject. Where the database is past a probe's step,
+  a missing subject is now reported as `past its step` — not a finding — and the guidance is to check
+  between steps. An expected removal is still judged from any later version.
+- **The driver reads what the operator decided** about a module no step can resolve, from the
+  environment's own `decisions.json`. It was read only by the preflight menu action before, so a decision
+  could be accepted there and refused by the run. A decision matches under any name the module has in the
+  chain, is named when applied, and an unreadable file decides nothing.
 - **A probe that looked at nothing no longer reads as a pass.** Each probe now records what the sources
   say its subject becomes, and the check asks about that too: a subject *and* its successor both missing
   means the subject was never installed in that database, reported as **`not observed`** — neither a
