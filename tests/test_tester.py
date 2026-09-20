@@ -147,3 +147,28 @@ def test_the_generated_module_ships_no_menu_and_no_auto_install():
     assert "menu" not in files["data/probes.xml"]
     # The classes it does not cover are stated where an operator will read them.
     assert "Classes this chain never exercises" in manifest
+
+
+def test_a_module_subject_is_asked_of_the_module_table_not_the_model_table():
+    probe = tester.Probe(
+        name="p", kind="merged_module", version="14.0",
+        model="website_sale_product_style_badge", field="",
+        detail="merged into website_sale",
+    )
+    assert probe.subject_kind == "module"
+    sql = tester.probe_state_sql([probe])
+    # Asking ir_model about a module reports every module as gone.
+    assert "ir_module_module" in sql and "FROM ir_model WHERE" not in sql
+    # A row that survives as "uninstalled" is not a module still there for
+    # anything that depended on it.
+    assert "state != 'uninstalled'" in sql
+
+
+def test_a_module_that_was_absorbed_is_expected_to_be_gone():
+    probe = tester.Probe(name="p", kind="merged_module", version="14.0",
+                         model="old_module", field="", detail="d")
+    assert probe.expected_gone
+    gone = tester.read_probe_states([probe], [])
+    assert gone[0].state == "gone as predicted" and not gone[0].is_finding
+    still = tester.read_probe_states([probe], [["module", "old_module", ""]])
+    assert still[0].state == "still there" and still[0].is_finding

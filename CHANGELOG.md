@@ -7,6 +7,22 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **A chain can be rehearsed before there is a client dump.** *Seed a demo source database* prepares the
+  source version — which the chain itself never builds, since `chain()` is the *steps* — and writes a
+  `seed_demo.sh` that builds a database from Odoo's own demo data and dumps it in the format the driver
+  takes. It installs one module per call, so a failure names which module and stops rather than dumping a
+  database missing it, and it refuses to overwrite an existing dump or reuse an existing database.
+- **What the chain does to a module is answerable before running it.** *Module fates in this chain*
+  reports, per module, **renamed** to X, **absorbed into** Y, or nothing declared — from each step's own
+  `apriori.py`. Renamed and absorbed are now distinguished: the existing reader folds both into "the
+  successor is X", which is right for coverage and loses what becomes of the module's own records. A step
+  whose `apriori.py` cannot be read is named as unread, not counted as declaring nothing.
+- The demo seed **suggests a set that exercises the different fates** — one absorbed, one renamed, one
+  that carries on — drawn only from modules actually on disk at the source version, since one that is not
+  there cannot be installed there and would fail for the wrong reason.
+- **Module fates are probes too.** `renamed_module` and `merged_module` join the rehearsal tester's
+  classes, checked against `ir_module_module` after a step — where a module surviving as `uninstalled` is
+  not a module that is still there for whatever depended on it.
 - **The read-only answers, without the menu.** `odoo-dwg egress check`, `mail check --database`,
   `migrate report` and `migrate probes` write nothing, prompt for nothing and need no terminal, and each
   exits 0 / 1 / 2 for *nothing to report* / *found something* / *could not tell* — so they work in a

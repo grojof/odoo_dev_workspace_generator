@@ -371,6 +371,54 @@ With the [outbound firewall](egress-control.md) installed, `odoo-bin` is rejecte
 anything in that window is a step reaching for the outside — worth knowing before that code reaches
 production.
 
+### Rehearsing before there is a client dump
+
+The driver needs a source dump, and before a client's database exists nobody has one. **Menu → Migration →
+Seed a demo source database** builds one from Odoo's own demo data.
+
+It prepares the **source** version, which the chain itself never builds — `chain()` is 13.0 … 19.0 for a
+12 → 19 migration, so the environment has no Odoo 12 clone, venv or config at all. It needs none to
+migrate; it needs one to *make* a dump. What it builds is plain Odoo, not OpenUpgrade: there is no
+OpenUpgrade 12.0 branch, and the 12 → 13 step runs OpenUpgrade 13.
+
+Before asking what to install, it shows what this chain does to the modules already linked under the
+source version's `addons/odoo12/oca` and `custom`:
+
+```
+[INFO] Modules found under the source version, with what this chain does to them:
+  website_sale_product_style_badge             absorbed into website_sale (14.0)
+  account_consolidation                        renamed to account_consolidation_oca (14.0)
+  partner_firstname                            carries on under its own name
+```
+
+That is the set worth rehearsing with — **one absorbed, one renamed, one that carries on** — because those
+are three different things for the chain to get right, and they are read from each step's own `apriori.py`,
+not chosen by this tool's opinion. Only modules actually on disk at the source version are offered: one
+that is not there cannot be installed there, and a rehearsal that fails for that reason reads exactly like
+the chain failing.
+
+Applying the plan writes `seed_demo.sh`. Run it yourself, like the driver:
+
+```bash
+cd ~/odoo-migrations/12-to-19
+./seed_demo.sh                      # builds seed_12 with demo data, dumps it
+./run_migration.sh source-12.0-demo.dump
+```
+
+It installs **one module per call**, so a failure names which module rather than saying that something did
+not install, and it stops there instead of dumping a database missing the module the rehearsal was for. It
+refuses to overwrite an existing dump or reuse an existing database — a dump the checkpoints were taken
+against is not replaceable silently.
+
+Demo data is loaded because the flag is *not* passed: in Odoo 12.0 to 18.0 `--without-demo` defaults to
+off, so a database created with `-i` gets demo data. (19.0 rewrote that option and flipped the default,
+which cannot affect a seed — a chain's source is always ≤ 18.0.)
+
+**Menu → Migration → Module fates in this chain** answers the same question for any module you name,
+without seeding anything: renamed to X at a step, absorbed into Y at a step, or nothing declared, which
+means it is expected to carry on. A step whose `apriori.py` cannot be read is named as unread rather than
+counted as declaring nothing.
+
 ### Rehearsing against a module built to break
 
 A chain rehearsed only against the client's own add-ons exercises the classes of change *that client*

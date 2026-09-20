@@ -432,3 +432,108 @@ def preflight_rows(
                         "changes) — presence is not sufficient; see the staging workflow")))
 
     return rows
+
+
+@dataclass(frozen=True)
+class ModuleFate:
+    """What a chain declares will become of one module, and where it said so."""
+
+    module: str
+    kind: str        # "renamed" | "merged" | "carries on"
+    successor: str
+    version: str     # the step whose apriori.py declared it, "" when none did
+
+    @property
+    def absorbed(self) -> bool:
+        """Merged, not renamed: the module stops existing and its records are
+        folded into the successor. A reader told only "the successor is X" cannot
+        tell the two apart, and they differ in what happens to the data."""
+        return self.kind == "merged"
+
+
+def read_apriori_fates(path: Path) -> dict[str, tuple[str, str]]:
+    """``{old module: (new module, "renamed" | "merged")}`` from an ``apriori.py``.
+
+    ``read_apriori`` folds the two dicts together, which is right for coverage —
+    both mean "the successor is X" — and loses the difference between a module
+    that changed name and one that was absorbed into another.
+    """
+    fates: dict[str, tuple[str, str]] = {}
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, SyntaxError):
+        return fates
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        names = {t.id for t in node.targets if isinstance(t, ast.Name)}
+        kind = "renamed" if "renamed_modules" in names else "merged" if "merged_modules" in names else ""
+        if not kind:
+            continue
+        try:
+            value = ast.literal_eval(node.value)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(value, dict):
+            for old, new in value.items():
+                if isinstance(new, str):
+                    fates[str(old)] = (new, kind)
+    return fates
+
+
+def chain_fates(
+    modules: list[str], steps: list[tuple[str, Path]]
+) -> tuple[list[ModuleFate], list[str]]:
+    """What the chain does to each module, and the steps whose sources were unread.
+
+    ``steps`` is ``(version, apriori path)`` in chain order. A module is followed
+    through the chain: renamed at one step, it is looked up under its new name at
+    the next, because that is the name the later steps know it by.
+
+    The unread steps are returned rather than swallowed: a step whose `apriori.py`
+    is missing declared nothing *that could be read*, which is not the same as
+    having declared nothing.
+    """
+    unread: list[str] = []
+    found: list[ModuleFate] = []
+    current = {module: module for module in modules}
+    for version, path in steps:
+        fates = read_apriori_fates(path)
+        if not fates:
+            unread.append(version)
+            continue
+        for original, name in list(current.items()):
+            if name in fates:
+                successor, kind = fates[name]
+                found.append(ModuleFate(original, kind, successor, version))
+                # Followed under its new name: a module renamed at 14.0 and
+                # merged at 17.0 has both fates, and the second is declared
+                # against the name 14.0 gave it.
+                current[original] = successor
+    named = {fate.module for fate in found}
+    found += [
+        ModuleFate(module, "carries on", module, "")
+        for module in modules
+        if module not in named
+    ]
+    return found, unread
+
+
+def suggest_demo_modules(
+    available: list[str], steps: list[tuple[str, Path]], per_kind: int = 2
+) -> list[ModuleFate]:
+    """A demo set that exercises the different fates, from what is on disk.
+
+    ``available`` is what is actually linked under the *source* version's add-ons
+    directories. A module absent at the source version cannot be installed there,
+    and suggesting it would produce a rehearsal that fails for the wrong reason —
+    which would be read as the chain failing.
+
+    Modules with a declared fate come first, so a set truncated by ``per_kind``
+    keeps the interesting ones.
+    """
+    fates, _unread = chain_fates(sorted(available), steps)
+    chosen: list[ModuleFate] = []
+    for kind in ("merged", "renamed", "carries on"):
+        chosen += [fate for fate in fates if fate.kind == kind][:per_kind]
+    return chosen

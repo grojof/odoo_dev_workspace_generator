@@ -56,6 +56,21 @@ sale_project / product.template         / project_template_id (many2one): needs 
 """
 
 
+class _Fate:
+    """A `preflight.ModuleFate` in the shape the bridge reads, verbatim from
+    OpenUpgrade 14.0's own apriori.py."""
+
+    def __init__(self, module: str, kind: str, successor: str) -> None:
+        self.module, self.kind, self.successor = module, kind, successor
+
+
+FATES = [
+    _Fate("account_consolidation", "renamed", "account_consolidation_oca"),
+    _Fate("website_sale_product_style_badge", "merged", "website_sale"),
+    _Fate("partner_firstname", "carries on", "partner_firstname"),
+]
+
+
 def _by_version_from_clones() -> dict[str, list]:
     """The real chain, where this host has it."""
     found: dict[str, list] = {}
@@ -84,7 +99,9 @@ def main() -> int:
         if not condition:
             failures.append(f"{label}: {detail}")
 
-    sample = {"16.0": analysis.harvest_changes(REAL_LINES)}
+    # Both sources, as the generator uses them: analysis files for models and
+    # fields, apriori.py for modules.
+    sample = {"16.0": analysis.harvest_changes(REAL_LINES) + tester.module_fate_changes(FATES)}
     check(
         "every class this tool claims is harvested from the sample",
         {record.kind for record in sample["16.0"]} == set(analysis.CHANGE_CLASSES),
@@ -179,6 +196,8 @@ def main() -> int:
             cluster.sql(
                 "CREATE TABLE ir_model (id serial PRIMARY KEY, model varchar);"
                 "CREATE TABLE ir_model_fields (id serial PRIMARY KEY, model varchar, name varchar);"
+                "CREATE TABLE ir_module_module (id serial PRIMARY KEY, name varchar, "
+                "state varchar);"
                 f"CREATE TABLE {tester.PROBE_TABLE} (id serial PRIMARY KEY, name varchar, "
                 "kind varchar, step varchar, subject_model varchar, subject_field varchar, "
                 "expected_gone boolean, source_line text);",
@@ -186,10 +205,18 @@ def main() -> int:
             )
             # The database keeps the model of a probe that predicted its removal,
             # and loses the field of one that predicted nothing: one of each finding.
-            kept = next(p for p in probes if p.expected_gone and not p.field)
-            quiet = next(p for p in probes if not p.expected_gone and p.field)
+            kept = next(p for p in probes if p.expected_gone and p.subject_kind == "model")
+            quiet = next(p for p in probes if not p.expected_gone and p.subject_kind == "field")
+            # A module the chain absorbed, still installed: the same finding one
+            # table over, and the one this whole demo rehearsal is aimed at.
+            kept_module = next(p for p in probes if p.subject_kind == "module")
             for probe in probes:
-                if not probe.field:
+                if probe.subject_kind == "module":
+                    if probe is kept_module:
+                        cluster.sql(
+                            "INSERT INTO ir_module_module (name, state) VALUES "
+                            f"('{probe.model}', 'installed')", "probe")
+                elif probe.subject_kind == "model":
                     if probe is kept:
                         cluster.sql(
                             f"INSERT INTO ir_model (model) VALUES ('{probe.model}')", "probe")
@@ -228,9 +255,14 @@ def main() -> int:
                 "a subject gone with nothing predicting it is a finding",
                 by_name.get(quiet.name) == "gone unannounced", str(by_name.get(quiet.name)))
             check(
+                "an absorbed module still installed is a finding too",
+                by_name.get(kept_module.name) == "still there",
+                str(by_name.get(kept_module.name)),
+            )
+            check(
                 "and the findings are reported first",
-                all(verdict.is_finding for verdict in verdicts[:2]),
-                str([(v.probe.name, v.state) for v in verdicts[:3]]),
+                all(verdict.is_finding for verdict in verdicts[:3]),
+                str([(v.probe.name, v.state) for v in verdicts[:4]]),
             )
             check(
                 "a database without the module reports absent, not intact",

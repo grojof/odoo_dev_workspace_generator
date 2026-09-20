@@ -41,7 +41,12 @@ _NAME_RE = re.compile(r"^[a-z_][\w.]*$", re.IGNORECASE)
 #: Classes where the subject is *supposed* to be gone after its step. Everything
 #: else is a change the subject is expected to survive — which is what makes its
 #: disappearance a finding.
-_EXPECTED_GONE = frozenset({"removed_field", "removed_model", "renamed_model"})
+_EXPECTED_GONE = frozenset(
+    {"removed_field", "removed_model", "renamed_model", "renamed_module", "merged_module"}
+)
+#: Classes whose subject is a *module*, looked up in `ir_module_module` rather
+#: than in `ir_model`. Their records come from `apriori.py`.
+_MODULE_CLASSES = frozenset({"renamed_module", "merged_module"})
 
 
 @dataclass(frozen=True)
@@ -58,6 +63,14 @@ class Probe:
     @property
     def subject(self) -> str:
         return f"{self.model}/{self.field}" if self.field else self.model
+
+    @property
+    def subject_kind(self) -> str:
+        """Which table answers for this subject. A module is not a model, and
+        asking `ir_model` about one would report every module as gone."""
+        if self.kind in _MODULE_CLASSES:
+            return "module"
+        return "field" if self.field else "model"
 
     @property
     def expected_gone(self) -> bool:
@@ -122,13 +135,23 @@ def probe_state_sql(probes: list[Probe]) -> str:
     running, which matters because a step where the module failed to load is
     exactly the step worth asking about.
     """
-    models = sorted({probe.model for probe in probes})
-    fields = sorted({(probe.model, probe.field) for probe in probes if probe.field})
-    parts = [
-        "SELECT 'model', model, '' FROM ir_model WHERE model IN ("
-        + ", ".join(f"'{model}'" for model in models)
-        + ")"
-    ]
+    models = sorted({p.model for p in probes if p.subject_kind == "model"})
+    fields = sorted({(p.model, p.field) for p in probes if p.subject_kind == "field"})
+    modules = sorted({p.model for p in probes if p.subject_kind == "module"})
+    parts: list[str] = []
+    if models:
+        parts.append(
+            "SELECT 'model', model, '' FROM ir_model WHERE model IN ("
+            + ", ".join(f"'{model}'" for model in models)
+            + ")"
+        )
+    if modules:
+        # `state` matters: a module row that survives as "uninstalled" is not a
+        # module that is still there for anything that depended on it.
+        parts.append(
+            "SELECT 'module', name, '' FROM ir_module_module WHERE state != 'uninstalled' "
+            "AND name IN (" + ", ".join(f"'{module}'" for module in modules) + ")"
+        )
     if fields:
         parts.append(
             "SELECT 'field', model, name FROM ir_model_fields WHERE (model, name) IN ("
@@ -168,7 +191,7 @@ def read_probe_states(
     }
     verdicts: list[ProbeVerdict] = []
     for probe in probes:
-        key = ("field", probe.model, probe.field) if probe.field else ("model", probe.model, "")
+        key = (probe.subject_kind, probe.model, probe.field if probe.field else "")
         there = key in present
         if there:
             state = "still there" if probe.expected_gone else "intact"
@@ -207,3 +230,30 @@ def probes_from_rows(rows: list[list[str]]) -> list[Probe]:
             )
         )
     return probes
+
+
+def module_fate_changes(fates: list) -> list[ChangeRecord]:
+    """Module fates, as change records a probe can be chosen from.
+
+    The bridge between the two sources: analysis files state what happens to
+    models and fields, ``apriori.py`` what happens to modules, and a probe is
+    checked the same way whichever it came from. ``fates`` are
+    ``preflight.ModuleFate``; a module nothing declares is not a change and is
+    dropped here.
+    """
+    changes: list[ChangeRecord] = []
+    for fate in fates:
+        if fate.kind not in ("renamed", "merged"):
+            continue
+        kind = f"{fate.kind}_module"
+        detail = (
+            f"apriori.py: {fate.module} "
+            + ("merged into " if fate.kind == "merged" else "renamed to ")
+            + f"{fate.successor}"
+        )
+        changes.append(
+            ChangeRecord(
+                module=fate.module, model=fate.module, field="", kind=kind, detail=detail
+            )
+        )
+    return changes

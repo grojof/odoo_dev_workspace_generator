@@ -444,8 +444,7 @@ _ES: dict[str, str] = {
     "Clone Odoo {}": "Clonar Odoo {}",
     "Create requirements directory": "Crear el directorio de requirements",
     "Create uv venv (Python {}) for Odoo {}": "Crear el venv uv (Python {}) para Odoo {}",
-    "Install psycopg2-binary and openupgradelib for Odoo {}":
-        "Instalar psycopg2-binary y openupgradelib para Odoo {}",
+    "Install psycopg2-binary for Odoo {}": "Instalar psycopg2-binary para Odoo {}",
     "Mark Odoo {} venv as ready": "Marcar el venv de Odoo {} como listo",
     "Mark the venv {} ready": "Marcar el venv {} como listo",
     "Create migration directories": "Crear los directorios de migración",
@@ -487,6 +486,29 @@ _ES: dict[str, str] = {
     "Menu -> Migration -> Capture a database's mail in Mailpit stops it.":
         'Menú -> Migración -> Capturar en Mailpit el correo de una base de datos lo detiene.',
     'No run recorded yet in {}.': 'Todavía no hay ninguna ejecución registrada en {}.',
+    # --- the demo seed and module fates ---
+    'Invalid module name: {}': 'Nombre de módulo no válido: {}',
+    'Seed a demo source database': 'Sembrar una base de datos de origen con datos demo',
+    'Module fates in this chain': 'Destino de los módulos en esta cadena',
+    'Modules to ask about (comma-separated)':
+        'Módulos por los que preguntar (separados por comas)',
+    'Modules to install in the demo database (comma-separated, optional)':
+        'Módulos a instalar en la base de datos demo (separados por comas, opcional)',
+    'Modules found under the source version, with what this chain does to them:':
+        'Módulos encontrados bajo la versión de origen, y lo que esta cadena hace con ellos:',
+    'What the chain declares for the set you chose:':
+        'Lo que la cadena declara para el conjunto que elegiste:',
+    'carries on under its own name': 'sigue con su propio nombre',
+    'absorbed into': 'absorbido por',
+    'renamed to': 'renombrado a',
+    'No apriori.py could be read for: {} — clone those steps before trusting this.':
+        'No se pudo leer ningún apriori.py para: {} — clona esos pasos antes de fiarte de esto.',
+    'No modules under {} — the seed will install core Odoo only.':
+        'No hay módulos en {} — el seed instalará solo el core de Odoo.',
+    'Now run {} — it builds the database and dumps it for the driver.':
+        'Ahora ejecuta {} — construye la base de datos y hace el dump para el driver.',
+    'Create the source add-ons directories for {}':
+        'Crear los directorios de addons de origen para {}',
     # --- the rehearsal tester ---
     'Generate the migration tester': 'Generar el tester de migración',
     'Check the migration tester': 'Comprobar el tester de migración',

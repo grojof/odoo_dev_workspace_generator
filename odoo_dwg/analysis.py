@@ -160,6 +160,10 @@ CHANGE_CLASSES: dict[str, tuple[str, str]] = {
     "removed_field": ("loud", "the field is gone"),
     "removed_model": ("loud", "the model is gone"),
     "renamed_model": ("quiet", "the model answers to another name"),
+    # Module fates come from apriori.py, not from an analysis file; they are
+    # classes of the same kind and are checked the same way after a step.
+    "renamed_module": ("quiet", "the module answers to another name"),
+    "merged_module": ("quiet", "the module was absorbed into another"),
     "moved_field": ("quiet", "the field belongs to another module now"),
     "unstored_field": ("quiet", "the field is no longer stored — its column goes"),
     "stored_field": ("quiet", "the field is stored now, and starts empty"),

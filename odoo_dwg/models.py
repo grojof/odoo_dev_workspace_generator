@@ -980,6 +980,39 @@ class MigrationEnv:
         return self.logs_dir / "steps.tsv"
 
     @property
+    def source_dump_file(self) -> Path:
+        """Where a seeded source database is dumped, in the format the driver
+        takes (``pg_dump -Fc``). Named for its version, so a 12.0 seed and a 13.0
+        seed in the same environment do not overwrite each other."""
+        return self.root / f"source-{self.source}-demo.dump"
+
+    @property
+    def source_database(self) -> str:
+        """The database a seed builds. Distinct from ``database``, which is the
+        one the chain upgrades: the seed is dumped and the driver restores it into
+        the working database, exactly as it would a client's dump."""
+        return f"seed_{odoo_major(self.source)}"
+
+    @property
+    def source_addons_path(self) -> str:
+        """``addons_path`` for the **source** version, which is plain Odoo.
+
+        Not ``addons_path(self.source)``: that answers for a migration *step*, and
+        for a <= 13 step it names the OpenUpgrade fork's add-ons. There is no
+        OpenUpgrade for a source that is only ever restored from, and for 12.0
+        there is no OpenUpgrade branch at all — the 12 to 13 step runs OpenUpgrade
+        13. A seed needs the plain clone.
+        """
+        odoo = self.odoo_clone_dir(self.source)
+        parts = (
+            self.addons_custom_dir(self.source),
+            self.addons_oca_dir(self.source),
+            odoo / "addons",
+            odoo / "odoo" / "addons",
+        )
+        return ",".join(str(p) for p in parts)
+
+    @property
     def reports_dir(self) -> Path:
         """Where generated reports go. Inside the environment, so they belong to
         this chain and cleaning names them among what it deletes."""

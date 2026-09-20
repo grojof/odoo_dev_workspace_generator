@@ -690,6 +690,8 @@ def migration_menu() -> None:
                 "Promote reviewed modules",
                 "Report on the runs so far",
                 "Follow a running migration",
+                "Seed a demo source database",
+                "Module fates in this chain",
                 "Generate the migration tester",
                 "Check the migration tester",
                 "Clean a migration environment",
@@ -714,6 +716,10 @@ def migration_menu() -> None:
             _migration_report()
         elif action == "Follow a running migration":
             _watch_run()
+        elif action == "Seed a demo source database":
+            _seed_demo()
+        elif action == "Module fates in this chain":
+            _module_fates()
         elif action == "Generate the migration tester":
             _generate_tester()
         elif action == "Check the migration tester":
@@ -740,12 +746,20 @@ def _generate_tester() -> None:
     if env is None:
         return
     by_version: dict[str, list[analysis.ChangeRecord]] = {}
+    # Both sources: the analysis files state what happens to models and fields,
+    # `apriori.py` what happens to modules, and a probe is checked the same way
+    # whichever it came from.
+    on_disk = _modules_on_disk(env)
     for version in env.chain():
         changes = _step_changes(env, version)
+        if not changes:
+            print(level_text("WARN", tf("No analysis files read for {}.", version)))
+        fates, _unread = preflight.chain_fates(
+            on_disk, [(version, preflight.apriori_path(env, version))]
+        )
+        changes += tester.module_fate_changes(fates)
         if changes:
             by_version[version] = changes
-        else:
-            print(level_text("WARN", tf("No analysis files read for {}.", version)))
     if not by_version:
         print(level_text("ERROR", t("No OpenUpgrade analysis files were read: clone the environment first.")))
         return
@@ -816,3 +830,88 @@ def report_probes(database: str, verdicts: list) -> None:
               f"{verdict.probe.kind}: {verdict.probe.subject}")
         if verdict.is_finding:
             print(f"      {verdict.probe.detail}")
+
+
+def _chain_apriori_steps(env: MigrationEnv) -> list[tuple[str, Path]]:
+    """``(version, apriori path)`` for every step, in chain order."""
+    return [(version, preflight.apriori_path(env, version)) for version in env.chain()]
+
+
+def _module_fates() -> None:
+    """What the chain declares will become of each module named."""
+    env = _ask_env()
+    if env is None:
+        return
+    raw = ask_text("Modules to ask about (comma-separated)", required=True)
+    modules = [name.strip() for name in raw.split(",") if name.strip()]
+    invalid = [name for name in modules if not MODULE_NAME_RE.fullmatch(name)]
+    if invalid:
+        print(level_text("ERROR", tf("Invalid module name: {}", ", ".join(invalid))))
+        return
+    fates, unread = preflight.chain_fates(modules, _chain_apriori_steps(env))
+    _report_fates(fates, unread)
+
+
+def _report_fates(fates: list, unread: list[str]) -> None:
+    for fate in sorted(fates, key=lambda f: (f.kind == "carries on", f.module)):
+        if fate.kind == "carries on":
+            print(f"  {fate.module:<44} {t('carries on under its own name')}")
+        else:
+            word = t("absorbed into") if fate.absorbed else t("renamed to")
+            print(f"  {fate.module:<44} {word} {fate.successor} ({fate.version})")
+    if unread:
+        # An unread source declared nothing *that could be read*, which is not
+        # the same as having declared nothing.
+        print(level_text("WARN", tf(
+            "No apriori.py could be read for: {} — clone those steps before trusting this.",
+            ", ".join(unread),
+        )))
+
+
+def _seed_demo() -> None:
+    """Build a source database from Odoo's demo data, so a chain can be rehearsed
+    before any client dump exists."""
+    env = _ask_env()
+    if env is None:
+        return
+    steps = _chain_apriori_steps(env)
+    available = _modules_on_disk(env)
+    if available:
+        suggested = preflight.suggest_demo_modules(available, steps)
+        if suggested:
+            print(level_text("INFO", t(
+                "Modules found under the source version, with what this chain does to them:"
+            )))
+            _report_fates(suggested, [])
+    else:
+        print(level_text("INFO", tf(
+            "No modules under {} — the seed will install core Odoo only.",
+            str(env.addons_oca_dir(env.source)),
+        )))
+    raw = ask_text("Modules to install in the demo database (comma-separated, optional)", "")
+    modules = [name.strip() for name in raw.split(",") if name.strip()]
+    invalid = [name for name in modules if not MODULE_NAME_RE.fullmatch(name)]
+    if invalid:
+        print(level_text("ERROR", tf("Invalid module name: {}", ", ".join(invalid))))
+        return
+    fates, unread = preflight.chain_fates(modules, steps) if modules else ([], [])
+    if fates:
+        print(level_text("INFO", t("What the chain declares for the set you chose:")))
+        _report_fates(fates, unread)
+    commands = planners.plan_seed_environment(env, exists=Path.exists)
+    commands += planners.plan_seed_demo(env, modules)
+    if apply_if_confirmed(commands):
+        print(level_text("OK", tf(
+            "Now run {} — it builds the database and dumps it for the driver.",
+            str(env.root / "seed_demo.sh"),
+        )))
+
+
+def _modules_on_disk(env: MigrationEnv) -> list[str]:
+    """Module directories linked under the source version's add-ons, if any."""
+    found: list[str] = []
+    for base in (env.addons_oca_dir(env.source), env.addons_custom_dir(env.source)):
+        for name in list_dirs(str(base)):
+            if (Path(base) / name / "__manifest__.py").exists():
+                found.append(name)
+    return sorted(set(found))

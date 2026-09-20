@@ -90,7 +90,14 @@ in an exit code, and the three thin skills — migration triage, the OpenSnitch 
 configuration — are wrappers over them rather than parsers of their own. The rule audit also answers a
 question nothing answered before: whether anything on the host now sorts ahead of the rule confining Odoo.
 
-**Next:** a real rehearsal migration of the 12 client, which is what this whole phase was built for.
+And the rehearsal stopped needing a client (change `rehearse-on-demo-data`): a source database can be
+seeded from Odoo's own demo data, with a module set drawn from what this chain actually does to what is on
+disk — one absorbed, one renamed, one that carries on. Module fates are read with renamed and absorbed kept
+apart, and joined the tester's probe classes.
+
+**Next:** run that demo rehearsal end to end on the reference host — the first thing it will establish is
+whether Odoo 12 installs the chosen OCA modules, which cannot be verified from this repository. Then the
+real 12 client.
 
 ## F0 — Foundation ✅
 

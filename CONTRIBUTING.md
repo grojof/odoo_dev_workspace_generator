@@ -59,6 +59,7 @@ python tools/verify_pg_hba_trust.py              # run the pg_hba rewriter, and 
 python tools/verify_promoted_modules.py         # promote reviewed code, then stage again and derive nothing
 python tools/verify_mail_capture.py              # capture, check and restore a database's mail configuration
 python tools/verify_migration_tester.py          # generate the rehearsal tester, and run the query it asks
+python tools/verify_demo_seed.py                 # run the generated demo seed against stub binaries
 ```
 
 | Tool | Needs |
@@ -67,8 +68,15 @@ python tools/verify_migration_tester.py          # generate the rehearsal tester
 | `verify_workspace_versions.py` | the network **and** a host it may change (it previews, asks, and cleans up) |
 | `verify_generated_shell.py` | `shellcheck` on the host |
 | `verify_pg_hba_trust.py`, `verify_mail_capture.py`, `verify_migration_tester.py` | the host's PostgreSQL binaries; each runs a cluster of its own |
-| `verify_migration_driver.py` | nothing but `bash` |
+| `verify_migration_driver.py`, `verify_demo_seed.py` | nothing but `bash` |
 | `verify_promoted_modules.py` | nothing but `bash` and `git` |
+
+`verify_demo_seed.py` executes the generated `seed_demo.sh` against stub `createdb`/`psql`/`pg_dump` and
+a stub Odoo interpreter: a fresh seed produces a dump in the format the driver takes and installs `base`
+first, each chosen module is installed in its own call, a module that will not install is named and no dump
+is produced without it, an existing dump or database is refused rather than replaced, and a `pg_dump` that
+fails leaves neither a dump nor a half-written one. That last case passed against a script that *did* leave
+the partial file, until the stub was made to fail the way a real `pg_dump` fails — after writing something.
 
 `verify_migration_tester.py` generates the rehearsal tester from analysis lines copied verbatim out of
 OpenUpgrade's files, then asks whether the result is a *module*: every `.py` compiles, the manifest
