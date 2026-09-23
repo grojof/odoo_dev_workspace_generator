@@ -177,6 +177,16 @@ def _build_parser() -> argparse.ArgumentParser:
     mail_check.add_argument("--db-host", default="127.0.0.1")
     mail_check.add_argument("--db-port", type=int, default=5432)
     mail_check.add_argument("--db-user", default=DEFAULT_DB_ROLE)
+
+    neutral = sub.add_parser("neutralise", parents=[common],
+                             help=t("Check whether a database can act on the outside. Reads only."))
+    neutral_check = neutral.add_subparsers(dest="action").add_parser(
+        "check", parents=[common],
+        help=t("Report crons, tax, payment and other integrations still able to act."))
+    neutral_check.add_argument("--database", required=True, help=t("Database to read."))
+    neutral_check.add_argument("--db-host", default="127.0.0.1")
+    neutral_check.add_argument("--db-port", type=int, default=5432)
+    neutral_check.add_argument("--db-user", default=DEFAULT_DB_ROLE)
     return parser
 
 
@@ -233,6 +243,12 @@ def main(argv: list[str] | None = None) -> int:
             return checks.egress_check()
         elif args.section == "mail":
             return checks.mail_check(
+                args.database, args.db_host, args.db_port, args.db_user
+            )
+        elif args.section == "neutralise":
+            if getattr(args, "action", None) != "check":
+                parser.error(t("neutralise: the only action is 'check'"))
+            return checks.neutralise_check(
                 args.database, args.db_host, args.db_port, args.db_user
             )
         elif args.section == "migrate":

@@ -7,6 +7,37 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **A copy of production is neutralised, reversibly, and stays that way while it is migrated and
+  tested.** A copy is armed the moment Odoo starts on it: every cron is overdue, a tax integration in
+  production mode is one click from real submissions, and it identifies itself to Odoo's services as
+  production.
+
+  **Neutralise a database**, in the Workspace and Migration menus, does the following:
+  - captures the mail;
+  - switches off every cron but housekeeping;
+  - holds queued jobs;
+  - takes the Spanish SII (Odoo's and OCA's, 12.0 to 18.0), TicketBAI, EDI, payment, delivery, OAuth,
+    calendar, webhook and IAP integrations out of production;
+  - gives the copy its own `database.uuid` and local links.
+
+  Every value changed is recorded inside the database before it changes. It deletes nothing, unlike Odoo's
+  own `neutralize`, which exists only from 16.0 and cannot be undone.
+
+  Odoo switches crons back on by itself: a module update rewrites every cron not marked `noupdate` (85 of
+  93 in 18.0), and installing a module creates its crons active. So:
+  - the migration driver re-neutralises and checks after the source restore, after every step and on
+    resume, and stops if something can still act;
+  - the new `open_for_testing.sh` re-neutralises and checks before every start, then runs Odoo with no
+    cron thread.
+
+  Giving production its settings back is only ever the operator's explicit action (`RESTORE
+  PRODUCTION`). It names the rows production never had, such as crons a migration created, and leaves
+  them off.
+
+  Two more pieces:
+  - `odoo-dwg neutralise check` answers what can still act, without writing anything;
+  - `tools/verify_neutralise_sources.py` lists every official `neutralize.sql` the catalogue does not
+    cover yet.
 - **What a migration finds is recorded, and the client's reports come from that record.** The first
   client intake finds things before any step runs: a tax-reporting module in production mode with
   invoices pending, crons that would all fire at start, mail that has not left for years. They lived in chat

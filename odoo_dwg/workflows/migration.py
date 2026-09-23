@@ -38,7 +38,15 @@ from ..system import (
     psql_scalar,
 )
 from ..ui import level_text, render_table, title
-from .common import apply_if_confirmed, capture_mail, check_mail, restore_mail
+from .common import (
+    apply_if_confirmed,
+    capture_mail,
+    check_mail,
+    check_neutralisation,
+    neutralise_database,
+    restore_mail,
+    restore_production,
+)
 from .findings import findings_menu
 
 
@@ -706,6 +714,9 @@ def migration_menu() -> None:
                 "Capture a database's mail in Mailpit",
                 "Restore a database's mail configuration",
                 "Check whether a database can mail out",
+                "Neutralise a database",
+                "Give a neutralised database its production settings back",
+                "Check whether a database can act on the outside",
                 "Findings and client reports",
                 "Back",
             ],
@@ -743,6 +754,9 @@ def migration_menu() -> None:
             "Capture a database's mail in Mailpit",
             "Restore a database's mail configuration",
             "Check whether a database can mail out",
+            "Neutralise a database",
+            "Give a neutralised database its production settings back",
+            "Check whether a database can act on the outside",
         ):
             # Migration databases use the environment's defaults (host, port, role).
             defaults = MigrationEnv(source="12.0", target="19.0")
@@ -750,6 +764,9 @@ def migration_menu() -> None:
                 "Capture a database's mail in Mailpit": capture_mail,
                 "Restore a database's mail configuration": restore_mail,
                 "Check whether a database can mail out": check_mail,
+                "Neutralise a database": neutralise_database,
+                "Give a neutralised database its production settings back": restore_production,
+                "Check whether a database can act on the outside": check_neutralisation,
             }[action](defaults.db_host, defaults.db_port, defaults.db_user)
 
 

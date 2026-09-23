@@ -160,12 +160,22 @@ items are host-dependent.
 
   The intake's prototype ledger was converted and renders the same reports, minus what the prototype got
   wrong.
-- **Neutralise a production copy** (spec 2 of 3). Snapshot what can reach outside (crons, SII in 12 and
-  `l10n_es_aeat_sii_oca` from 13, IAP, `web.base.url`, `database.uuid`), turn off everything but
-  housekeeping, and record it. Restoring is **only on explicit request**, never at the end of a chain,
-  because a migrated database is opened for testing on a development host. The catalogue starts from
-  Odoo's own `data/neutralize.sql` files (16.0–19.0) and grows with OCA rules. It needs the ledger
-  above to record into.
+- ~~Neutralise a production copy~~ — **done** (2026-09-23, change `neutralise-a-production-copy`),
+  spec 2 of 3.
+  - **Reversible catalogue**, recorded inside the database and guarded per version from 12.0 to 18.0.
+  - **Re-applied everywhere Odoo can switch crons back on:** by the driver after every step, and by
+    `open_for_testing.sh` before every start, which then runs no cron thread.
+  - **Restore is manual only.**
+
+  Not done yet:
+  - **Official `neutralize.sql` files not covered.** `tools/verify_neutralise_sources.py` lists them:
+    mostly provider-specific payment and country EDI rules, since the generic payment rule already takes
+    every provider out of production.
+  - **The same start guard for workspaces** that open client copies (they run one cron thread today).
+  - **Starting Odoo on a neutralised client copy** with the firewall and Mailpit installed, and reading the
+    firewall journal. The SQL side was rehearsed on a real client copy: it neutralised, re-applied after a
+    simulated module update, and restored every touched table byte for byte.
+
 - **Take in a client copy** (spec 3 of 3). Turn that intake into commands whose results land in the
   ledger:
   - restore a dump and classify `pg_restore` errors;

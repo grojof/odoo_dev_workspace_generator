@@ -625,17 +625,47 @@ A step marked *skip* is shown as having run nothing that time, so its silence is
 
 ### Keeping a migration from reaching the outside
 
-Each step's `odoo.conf` sends mail to the local capture (`127.0.0.1:1025`). With the
-[outbound firewall](egress-control.md) installed, every `odoo-bin` step is also rejected on any non-local
+Each step's `odoo.conf` sends mail to the local capture (`127.0.0.1:1025`) and runs no cron thread. With
+the [outbound firewall](egress-control.md) installed, every `odoo-bin` step is also rejected on any non-local
 connection, and each attempt is logged.
-- **Rehearsing on a copy:** also run **Capture a database's mail in Mailpit** on it, so that its own mail
-  servers do not bypass `odoo.conf`. The capture moves none of the client's settings, so the same database can
-  be handed back later.
-- **A database going back to production:** capture it for the run, then run **Restore a database's mail
-  configuration** before cutover and confirm with **Check whether a database can mail out**. The record of what
-  was captured travels inside the database, through every step of the chain. Keep the firewall on during the
-  run, and review what it tried to reach before cutover
-  ([live production migrations](egress-control.md#live-production-migrations)).
+
+**The driver neutralises the working database**
+([neutralisation](egress-control.md#neutralising-a-copy-of-production)) at three points:
+- after restoring the source dump;
+- after every successful step, before that step's checkpoint;
+- after restoring a checkpoint to resume.
+
+It then checks that nothing can act, and stops the run if something still can. Every checkpoint, and the
+migrated database, is therefore neutralised. Re-applying after each step matters because a step's module
+updates switch crons back on by themselves. Each neutralisation is a `neutralised` line in `steps.tsv`.
+
+Generating the environment writes `neutralise.sql` and `neutralise_check.sql` beside the driver. An
+environment generated before this has neither: the driver then warns that the database is **not**
+neutralised, and regenerating adds them.
+
+**The driver never gives production's settings back.** That is **Give a neutralised database its
+production settings back**, run by you, on the day of the cutover
+([how](egress-control.md#giving-production-its-settings-back)). Keep the firewall on during the run, and
+review what it tried to reach before cutover
+([live production migrations](egress-control.md#live-production-migrations)).
+
+### Opening a migrated database for testing
+
+Open a migrated database, or a checkpoint you restored, only through the environment's own script:
+
+```bash
+~/odoo-migrations/12-to-18/open_for_testing.sh 18.0 migration_12_to_18
+```
+
+On every start it does three things, in order:
+1. **Neutralises the database again.** This covers anything an install or update switched back on since
+   the last start.
+2. **Runs the check.** If anything can still act on the outside, it refuses to start and names what.
+3. **Starts that version's Odoo** on `http://127.0.0.1:8069`, with **no cron thread**, loopback only, and
+   mail sent to the capture.
+
+With no cron thread, a cron that a module you install during the session creates or reactivates cannot
+run before the next start turns it off. There is no option to skip either guard.
 
 ## Recording what the migration finds
 

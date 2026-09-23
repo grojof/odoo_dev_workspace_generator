@@ -96,6 +96,7 @@ not tell — and exit 2 is never a clean result.
 | `odoo-dwg mail check --database X` | Can mail leave this database? |
 | `odoo-dwg migrate report --source A --target B` | The cumulative run report, to stdout (the menu action writes a file; this does not). |
 | `odoo-dwg migrate probes --source A --target B --database X` | What became of each rehearsal probe's subject. |
+| `odoo-dwg neutralise check --database X` | Can anything in this database still act on the outside? Rule by rule, with the mail verdict. |
 | `odoo-dwg migrate findings list --source A --target B` | The findings and their decisions; exit 1 while one is still pending. |
 | `odoo-dwg migrate findings show ID --source A --target B` | One finding in full, as the ledger holds it. |
 | `odoo-dwg migrate findings validate --source A --target B` | Whether the ledger is one the tool accepts; every problem named. |
@@ -114,6 +115,9 @@ are thin wrappers over the first four commands.
 | Capture a database's mail in Mailpit | Same as the workspace action, for the migration's databases. | Phrase `CAPTURE` |
 | Restore a database's mail configuration | The step before cutover: the migrated database mails out again through the client's own servers. | Phrase `RESTORE` |
 | Check whether a database can mail out | Reads only. Use it after restoring, before cutover. | — |
+| Neutralise a database | Captures the mail, then switches off every cron but housekeeping and takes tax/EDI, payment, delivery, OAuth, calendar, webhook and IAP integrations out of production, pointing `web.base.url` at the local instance — recording every change inside the database ([egress control](egress-control.md#neutralising-a-copy-of-production)). Also in a workspace's menu. | Phrase `NEUTRALISE` |
+| Give a neutralised database its production settings back | The cutover step: the first run's recorded values back, the mail capture restored; names the rows production never had (left off) before asking. Never run by anything else. | Phrase `RESTORE PRODUCTION` |
+| Check whether a database can act on the outside | Reads only. What can still act, rule by rule, and the mail verdict. | — |
 | Findings and client reports | The environment's findings ledger: start it, add findings from a JSON file, record the client's decisions (earlier ones kept), set phases, withdraw a finding (to the corrections log), and write the client and extended reports in English or Spanish ([migration](migration.md#recording-what-the-migration-finds)). | Each change previewed, confirmed |
 
 ## The generated driver

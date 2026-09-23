@@ -39,7 +39,14 @@ from ..system import (
 )
 from ..ui import level_text
 from .common import apply_if_confirmed as _apply_if_confirmed
-from .common import capture_mail, check_mail, restore_mail
+from .common import (
+    capture_mail,
+    check_mail,
+    check_neutralisation,
+    neutralise_database,
+    restore_mail,
+    restore_production,
+)
 
 
 def _exists(path: Path) -> bool:
@@ -352,6 +359,9 @@ def _manage_workspace() -> None:
                 "Capture a database's mail in Mailpit",
                 "Restore a database's mail configuration",
                 "Check whether a database can mail out",
+                "Neutralise a database",
+                "Give a neutralised database its production settings back",
+                "Check whether a database can act on the outside",
                 "Back",
             ],
             default_index=None,
@@ -372,6 +382,13 @@ def _manage_workspace() -> None:
             restore_mail(cfg.db_host, cfg.db_port, cfg.db_user)
         elif action == "Check whether a database can mail out":
             check_mail(cfg.db_host, cfg.db_port, cfg.db_user)
+        elif action == "Neutralise a database":
+            neutralise_database(cfg.db_host, cfg.db_port, cfg.db_user,
+                                f"http://127.0.0.1:{cfg.http_port_for(cfg.versions[0])}")
+        elif action == "Give a neutralised database its production settings back":
+            restore_production(cfg.db_host, cfg.db_port, cfg.db_user)
+        elif action == "Check whether a database can act on the outside":
+            check_neutralisation(cfg.db_host, cfg.db_port, cfg.db_user)
 
 
 # --- entry ----------------------------------------------------------------

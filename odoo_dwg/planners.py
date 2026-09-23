@@ -13,7 +13,7 @@ import shlex
 from collections.abc import Callable
 from pathlib import Path
 
-from . import egress, templates, tester
+from . import egress, neutralise, templates, tester
 from .i18n import tf
 from .models import (
     MODULE_NAME_RE,
@@ -862,6 +862,35 @@ def plan_mail_restore(database: str, host: str, port: int, user: str) -> list[Co
     ]
 
 
+def plan_neutralise(
+    database: str, host: str, port: int, user: str, local_url: str
+) -> list[Command]:
+    """Keep a copy of production from acting on the outside, recording every change.
+
+    Mail first, through the mail capture's own action and record, then the rest.
+    Repeatable: a second run turns off only what came back or appeared since."""
+    return [
+        *plan_mail_capture(database, host, port, user),
+        Command(
+            tf("Neutralise database {} (crons, tax and EDI, payments, IAP, links)", database),
+            _psql(database, host, port, user, neutralise.apply_sql(local_url)),
+        ),
+    ]
+
+
+def plan_restore_production(database: str, host: str, port: int, user: str) -> list[Command]:
+    """Give a neutralised database production's recorded settings back — never
+    called by any flow but the operator's explicit restore. The reverse order of
+    ``plan_neutralise``: its own record first, then the mail capture's."""
+    return [
+        Command(
+            tf("Give database {} its production settings back", database),
+            _psql(database, host, port, user, neutralise.restore_sql()),
+        ),
+        *plan_mail_restore(database, host, port, user),
+    ]
+
+
 def plan_migration_clones(env: MigrationEnv, exists: Exists = _never) -> list[Command]:
     """Clone what each step needs, shallow, skipping clones already present.
 
@@ -1017,6 +1046,12 @@ def plan_migration_configs(
         for version in env.chain()
     ]
     files.append((env.root / "run_migration.sh", templates.render_run_migration_sh(env), "755"))
+    # The driver and the start script neutralise with these; nothing here restores.
+    files.append((env.root / templates.NEUTRALISE_FILE, templates.render_neutralise_sql(), "644"))
+    files.append((env.root / templates.NEUTRAL_CHECK_FILE, templates.render_neutral_check_sql(),
+                  "644"))
+    files.append((env.root / "open_for_testing.sh", templates.render_open_for_testing_sh(env),
+                  "755"))
     for path, content, mode in files:
         current = read(path)
         if current is not None and current.rstrip("\n") == content.rstrip("\n"):
