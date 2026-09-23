@@ -637,11 +637,93 @@ connection, and each attempt is logged.
   run, and review what it tried to reach before cutover
   ([live production migrations](egress-control.md#live-production-migrations)).
 
+## Recording what the migration finds
+
+A client migration finds things long before it runs a step. The first real one found SII in production mode
+with 1,687 invoices pending, twelve crons that would all fire at start, mail broken for four years, and a
+core that was OCB rather than official Odoo. Each finding is recorded once, in the environment's **findings
+ledger**, and the reports shown to the client are rendered from that ledger only. A report is never edited
+by hand: correct the ledger and render the report again.
+
+```text
+~/odoo-migrations/12-to-18/
+├── findings/
+│   ├── findings.json      # the ledger
+│   └── data/*.tsv         # the tables findings cite (first row is the header)
+└── reports/
+    ├── findings-client.<lang>.md     # for the client
+    └── findings-extended.<lang>.md   # everything, and how to check it
+```
+
+### What a finding carries
+
+Every finding carries the following, and one without its evidence or its query is refused:
+
+| Field | Holds |
+|---|---|
+| `id` | A kebab-case id, unique; a withdrawn finding's id is never reused |
+| `severity` | `critical`, `high`, `medium`, `low` or `info` |
+| `audience` | `client` or `internal`; an internal finding never reaches the client report |
+| `evidence` | The structured facts it rests on |
+| `query` | The command or SQL that re-derives it |
+| `action` | The proposed action |
+| `decision` | `pending`, `accepted`, `act` or `declined`, with date and note; earlier decisions stay in `history` |
+
+The query is mandatory because a count quoted from memory is how the first intake told a client "about 380
+invoices" when there were 369.
+
+A finding written for the client also carries a `client` block **per language**: `{"es": {"title", "text",
+"question", "level"}}`. A table it attaches is `{"file", "audience", "title", "columns", "note"}`:
+- `columns` relabels the header per language;
+- `note` is printed under the table.
+
+Values are printed verbatim. If a table goes to a client, write its values the way the client reads them
+(`No enviada`, not `not_sent`), in a file of its own per language.
+
+Text meant for a reader is either a plain string or `{"en": …, "es": …}`. This covers phase titles, what
+was received, the versions, how the client's data is handled, and the reference links.
+
+### Changing it, and reading it
+
+Everything that writes the ledger or the reports is in **Menu → Migration → Findings and client reports**,
+previewed and confirmed:
+- start a ledger;
+- add findings from a JSON file;
+- record a decision;
+- set a phase's state;
+- withdraw a finding;
+- write the reports.
+
+A withdrawn finding moves to the **corrections** log with its reason. It disappears from the findings and
+appears in the extended report's corrections, because a report that once showed a false finding must be
+able to answer for it.
+
+Reading it writes nothing:
+
+```bash
+odoo-dwg migrate findings list     --source 12.0 --target 18.0   # exit 1 while a decision is pending
+odoo-dwg migrate findings show ID  --source 12.0 --target 18.0
+odoo-dwg migrate findings validate --source 12.0 --target 18.0
+odoo-dwg migrate findings report   --source 12.0 --target 18.0 --report-lang es [--kind extended]
+odoo-dwg migrate findings links    --source 12.0 --target 18.0
+```
+
+`--report-lang` is the report's language and `--lang` the interface's. They are independent: an English
+session can render a Spanish client report, byte-for-byte the same as a Spanish session would. A client
+finding with no text in the requested language stops the report and is named. It is never replaced by the
+technical summary, which is not written for the client.
+
+`links` requests every **reference** link: the context, the client texts, and table titles and notes. It
+never requests a URL recorded as evidence, in a summary or in a query. Those are the client's own systems,
+and its first version sent a request to a client's production server that way.
+
 ## Cleaning up
 
 The migration menu's **Clean a migration environment** action removes an environment directory
 (venvs, configs, checkpoints, logs, requirements, driver) after preview and an exact-phrase
-confirmation (`DELETE`) — use it to retest from scratch or clear leftovers. Removing the shared
+confirmation (`DELETE`) — use it to retest from scratch or clear leftovers. The findings ledger goes with
+it, so when there is one the confirmation says so: copy `findings/` first if you still need the client's
+decisions. Removing the shared
 `.repos` clone cache is a separate opt-in (it serves *every* migration environment). The PostgreSQL
 migration database is never touched; drop it manually (`dropdb -h 127.0.0.1 -U odoo migration_13_to_18`,
 named after the chain) for a fully

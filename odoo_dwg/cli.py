@@ -142,6 +142,27 @@ def _build_parser() -> argparse.ArgumentParser:
         "probes", parents=[common, chain],
         help=t("Report what each tester probe found in a database. Reads only."))
     probes.add_argument("--database", required=True, help=t("Database to read."))
+    findings = migrate_actions.add_parser(
+        "findings", parents=[common],
+        help=t("Read the findings ledger and render its reports. Writes nothing."))
+    findings_actions = findings.add_subparsers(dest="findings_action", required=True)
+    findings_actions.add_parser(
+        "list", parents=[common, chain],
+        help=t("List the findings; exits non-zero while a decision is pending."))
+    show = findings_actions.add_parser(
+        "show", parents=[common, chain], help=t("Print one finding in full."))
+    show.add_argument("finding", help=t("The finding's id."))
+    findings_actions.add_parser(
+        "validate", parents=[common, chain], help=t("Check the ledger against its schema."))
+    report = findings_actions.add_parser(
+        "report", parents=[common, chain], help=t("Print a report rendered from the ledger."))
+    report.add_argument("--kind", choices=["client", "extended"], default="client",
+                        help=t("Which report (default: client)."))
+    report.add_argument("--report-lang", choices=["en", "es"], default="en",
+                        help=t("The report's language, independent of --lang (default: en)."))
+    findings_actions.add_parser(
+        "links", parents=[common, chain],
+        help=t("Request every URL in the ledger and name those that do not answer."))
 
     egress_parser = sub.add_parser("egress", parents=[common],
                                    help=t("Check the outbound firewall rules. Reads only."))
@@ -171,6 +192,21 @@ def _language_from(argv: list[str] | None) -> str | None:
         if item.startswith("--lang="):
             return item.split("=", 1)[1]
     return os.environ.get("ODWG_LANG") or None
+
+
+def _findings_command(args: argparse.Namespace) -> int:
+    source, target = args.source, args.target
+    match args.findings_action:
+        case "list":
+            return checks.findings_list(source, target)
+        case "show":
+            return checks.findings_show(source, target, args.finding)
+        case "validate":
+            return checks.findings_validate(source, target)
+        case "report":
+            return checks.findings_report(source, target, args.kind, args.report_lang)
+        case _:
+            return checks.findings_links(source, target)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -205,6 +241,8 @@ def main(argv: list[str] | None = None) -> int:
                 return checks.migration_report(args.source, args.target)
             if action == "probes":
                 return checks.probe_check(args.source, args.target, args.database)
+            if action == "findings":
+                return _findings_command(args)
             migration_menu()
     except (KeyboardInterrupt, EOFError):
         print(t("\nExiting."))

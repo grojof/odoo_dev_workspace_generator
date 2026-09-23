@@ -1049,6 +1049,19 @@ class MigrationEnv:
         return self.root / "reports"
 
     @property
+    def findings_dir(self) -> Path:
+        """What this migration has found: the ledger and the tables it cites."""
+        return self.root / "findings"
+
+    @property
+    def findings_ledger(self) -> Path:
+        return self.findings_dir / "findings.json"
+
+    @property
+    def findings_data_dir(self) -> Path:
+        return self.findings_dir / "data"
+
+    @property
     def logs_dir(self) -> Path:
         return self.root / "logs"
 

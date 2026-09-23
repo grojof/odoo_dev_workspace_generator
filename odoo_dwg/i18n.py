@@ -26,7 +26,15 @@ def current_language() -> str:
 
 def t(text: str) -> str:
     """Translate an English UI string to the current language (English → Spanish)."""
-    if _LANG == "en":
+    return translate(text, _LANG)
+
+
+def translate(text: str, lang: str) -> str:
+    """Translate an English string to *lang*, whatever the session's language is.
+
+    For the one kind of file rendered in a chosen language — a report written for
+    a client — whose language is the report's, not the operator's."""
+    if lang == "en":
         return text
     return _ES.get(text, text)
 
@@ -640,6 +648,114 @@ _ES: dict[str, str] = {
     'Cannot use the profile {}: {}': 'No se puede usar el perfil {}: {}',
     '{} names another workspace ({}).': '{} corresponde a otro workspace ({}).',
     "Not an Odoo module name: {}": "No es un nombre de módulo de Odoo: {}",
+    "It also deletes the findings ledger and every client decision recorded in it — copy "
+    "findings/ first if you need them.":
+        "También borra el registro de hallazgos y todas las decisiones del cliente anotadas en "
+        "él: copie findings/ antes si los necesita.",
+    # --- the findings ledger: commands and menu ---
+    "Read the findings ledger and render its reports. Writes nothing.":
+        "Lee el registro de hallazgos y genera sus informes. No escribe nada.",
+    "List the findings; exits non-zero while a decision is pending.":
+        "Lista los hallazgos; sale con código distinto de cero mientras quede una decisión "
+        "pendiente.",
+    "Print one finding in full.": "Muestra un hallazgo completo.",
+    "The finding's id.": "El id del hallazgo.",
+    "Check the ledger against its schema.": "Comprueba el registro contra su esquema.",
+    "Print a report rendered from the ledger.": "Muestra un informe generado desde el registro.",
+    "Which report (default: client).": "Qué informe (por defecto: client).",
+    "The report's language, independent of --lang (default: en).":
+        "El idioma del informe, independiente de --lang (por defecto: en).",
+    "Request every URL in the ledger and name those that do not answer.":
+        "Consulta cada URL del registro e indica las que no responden.",
+    "No finding {} in the ledger.": "No hay ningún hallazgo {} en el registro.",
+    "{} is valid.": "{} es válido.",
+    "{} finding(s) await a decision. Menu -> Migration -> Findings -> Record a decision "
+    "records one.":
+        "{} hallazgo(s) pendientes de decisión. Menú -> Migración -> Hallazgos -> Anotar una "
+        "decisión la registra.",
+    "No findings ledger yet in {}.": "Todavía no hay registro de hallazgos en {}.",
+    "{} link(s) answer.": "{} enlace(s) responden.",
+    "No report was rendered:": "No se generó ningún informe:",
+    "Client name": "Nombre del cliente",
+    "Client database name": "Nombre de la base de datos del cliente",
+    "Reference database (the restored copy never modified)":
+        "Base de referencia (la copia restaurada que nunca se modifica)",
+    "Which finding": "Qué hallazgo",
+    "JSON file with the findings to add": "Fichero JSON con los hallazgos a añadir",
+    "Who decided, and why": "Quién lo decidió y por qué",
+    "Which phase": "Qué fase",
+    "New state": "Nuevo estado",
+    "Why it was wrong (kept in the corrections log)":
+        "Por qué era incorrecto (queda en el registro de correcciones)",
+    "Report language": "Idioma del informe",
+    "\nFindings ({} → {})": "\nHallazgos ({} → {})",
+    "No findings ledger yet in {}. Menu -> Migration -> Findings -> Start a findings ledger "
+    "starts one.":
+        "Todavía no hay registro de hallazgos en {}. Menú -> Migración -> Hallazgos -> Empezar "
+        "un registro de hallazgos crea uno.",
+    "Findings ledger written: {}": "Registro de hallazgos escrito: {}",
+    "{} already exists; it is not replaced.": "{} ya existe; no se sustituye.",
+    "The ledger holds no findings.": "El registro no contiene hallazgos.",
+    "The findings ledger {} cannot be used:": "El registro de hallazgos {} no se puede usar:",
+    "Nothing was changed:": "No se ha cambiado nada:",
+    "No report was written:": "No se escribió ningún informe:",
+    "Findings and client reports": "Hallazgos e informes para el cliente",
+    "List the findings": "Listar los hallazgos",
+    "Start a findings ledger": "Empezar un registro de hallazgos",
+    "Add findings from a JSON file": "Añadir hallazgos desde un fichero JSON",
+    "Record a decision": "Anotar una decisión",
+    "Set a phase's state": "Cambiar el estado de una fase",
+    "Withdraw a finding": "Retirar un hallazgo",
+    "Write the reports": "Escribir los informes",
+    # --- findings reports (rendered in the report's language, not the session's) ---
+    "Generated from the findings ledger. Do not edit it: render it again.":
+        "Generado desde el registro de hallazgos. No lo edite: vuelva a generarlo.",
+    "Migration of Odoo {} to {}": "Migración de Odoo {} a {}",
+    "Extended report — {} {} → {}": "Informe extendido — {} {} → {}",
+    "Reference database (never modified): {}": "Base de referencia (nunca se modifica): {}",
+    "report as of {}": "informe a fecha {}",
+    "Where we are": "En qué punto estamos",
+    "What we analysed": "Qué hemos analizado",
+    "What was analysed": "Qué se ha analizado",
+    "Versions": "Versiones",
+    "Reference": "Referencia",
+    "link": "enlace",
+    "What we need you to confirm": "Lo que necesitamos que nos confirmen",
+    "What we found": "Lo que hemos encontrado",
+    "Important": "Importante",
+    "Worth knowing": "A tener en cuenta",
+    "For your information": "Para su información",
+    "How we handle your data": "Cómo trabajamos con sus datos",
+    "Reference links": "Enlaces de referencia",
+    "What": "Qué",
+    "Where": "Dónde",
+    "Date": "Fecha",
+    "Phase": "Fase",
+    "Phases": "Fases",
+    "Pending": "Pendiente",
+    "In progress": "En curso",
+    "Done": "Hecho",
+    "Accepted": "Aceptado",
+    "Act on it": "Actuar",
+    "Declined": "Rechazado",
+    "private repository": "repositorio privado",
+    "Summary of findings": "Resumen de hallazgos",
+    "Id": "Id",
+    "Severity": "Gravedad",
+    "Category": "Categoría",
+    "Audience": "Público",
+    "Found": "Detectado",
+    "About": "Afecta a",
+    "For the client": "Para el cliente",
+    "Question": "Pregunta",
+    "Evidence": "Evidencia",
+    "How to check it again": "Cómo comprobarlo de nuevo",
+    "Proposed action": "Acción propuesta",
+    "Decision": "Decisión",
+    "Earlier decisions": "Decisiones anteriores",
+    "Corrections": "Correcciones",
+    "Withdrawn": "Retirado",
+    "Reason": "Motivo",
 }
 
 # Runtime lookup: English (the in-code source) → Spanish.

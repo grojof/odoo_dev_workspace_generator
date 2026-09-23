@@ -7,6 +7,24 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **What a migration finds is recorded, and the client's reports come from that record.** The first
+  real client intake produced fifteen findings in an afternoon: SII in production mode with 1,687
+  invoices pending, crons that would all fire at start, mail broken for four years. They lived in chat
+  and a hand-written script. Each environment now keeps a findings ledger (`findings/findings.json`,
+  plus the tables it cites in `findings/data/`):
+  - every finding carries its evidence and the query that re-derives it, and one without either is
+    refused;
+  - the client's decisions are kept with their history;
+  - a finding that proves false is moved to a corrections log, not deleted.
+
+  Two reports are rendered from the ledger alone and never edited by hand, in English or Spanish chosen
+  per report (`--report-lang`) whatever the interface language:
+  - the client report is plain, with tables, links and the questions the client has to answer;
+  - the extended report holds everything, with the evidence and how to check it.
+
+  The menu changes the ledger; `odoo-dwg migrate findings list|show|validate|report|links` read it.
+  The link check requests reference links only, never a URL recorded as evidence. Its first version
+  sent a request to a client's production server that way.
 - **The specs, docs and skills record what two full rehearsals established.** The probe verdicts are
   named in the spec as they are printed, and a test fails if the code grows one the spec does not name —
   prose drifts from constants without anything noticing. `decisions.json` is documented: where it lives,

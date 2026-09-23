@@ -3,6 +3,7 @@
 ## Purpose
 
 The terminal surface: how the tool is started, what language it speaks, how a menu behaves, what happens when something goes wrong, and what colour is allowed to mean. Generated artifacts are outside it — they are English whatever the operator's UI is.
+
 ## Requirements
 
 ### Requirement: One tool, three sections, two ways in
@@ -32,6 +33,11 @@ settled before the help text is built, so `--help` is shown in the chosen langua
 files, READMEs, the migration driver, staging reports and scaffolds — SHALL be English whatever the UI
 language is: they are technical, they are read by other tools, and they outlive the session that wrote them.
 
+**The one exception is a report written for a client.** It SHALL be rendered in a language chosen for that
+report, English or Spanish, whatever the UI language is. Its labels SHALL come from the same catalog.
+Choosing the language per report, rather than taking the session's, keeps the report independent of who
+rendered it: an English session can hand a Spanish-speaking client a Spanish report, and the reverse.
+
 #### Scenario: An untranslated string still reads
 
 - **WHEN** the UI language is Spanish and a string is absent from the catalog
@@ -41,6 +47,11 @@ language is: they are technical, they are read by other tools, and they outlive 
 
 - **WHEN** a workspace or a migration environment is generated with the UI in Spanish
 - **THEN** every generated file is byte-for-byte what an English session would have written
+
+#### Scenario: A client report in the client's language
+
+- **WHEN** a client report is rendered in Spanish from a session whose UI is English
+- **THEN** the report's labels are Spanish, and rendering it from a Spanish session yields the same bytes
 
 ### Requirement: Menus and prompts behave the same everywhere
 
