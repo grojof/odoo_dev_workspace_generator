@@ -265,6 +265,30 @@ def read_text(path: str) -> str | None:
         return None
 
 
+def url_status(url: str, timeout: float = 20.0) -> tuple[int | None, str]:
+    """The HTTP status a URL finally answers with (redirects followed), or the error.
+
+    ``HEAD`` first, since only the answer matters; ``GET`` when a server refuses
+    ``HEAD`` with 405. Some hosts (GitHub among them) reject a request without a
+    User-Agent, so one is sent."""
+    import urllib.error
+    import urllib.request
+
+    for method in ("HEAD", "GET"):
+        request = urllib.request.Request(url, method=method,
+                                         headers={"User-Agent": "odoo-dwg link check"})
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return response.status, ""
+        except urllib.error.HTTPError as error:
+            if error.code == 405 and method == "HEAD":
+                continue
+            return error.code, str(error.reason)
+        except (urllib.error.URLError, OSError, ValueError) as error:
+            return None, str(getattr(error, "reason", error))
+    return None, "no answer"
+
+
 def mailpit_version(binary: str) -> str | None:
     """``1.31.2`` from ``mailpit version``, or None when the binary is absent."""
     if not os.path.exists(binary):

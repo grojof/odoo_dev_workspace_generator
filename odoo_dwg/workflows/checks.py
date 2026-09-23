@@ -12,12 +12,16 @@ action to use; it does not perform it.
 
 from __future__ import annotations
 
+import json
+from datetime import date
+
 from .. import egress
+from .. import findings as fl
 from ..i18n import t, tf
 from ..models import DB_NAME_RE, MigrationEnv
 from ..system import read_dir_files, read_text
 from ..ui import level_text
-from . import migration
+from . import findings, migration
 from .common import mail_state, report_mail_state
 
 #: Found something / found nothing / could not tell. A caller that cannot reach
@@ -100,3 +104,81 @@ def probe_check(source: str, target: str, database: str) -> int:
         return UNKNOWN
     migration.report_probes(database, verdicts)
     return FOUND if any(verdict.is_finding for verdict in verdicts) else CLEAN
+
+
+def _findings_ledger(source: str, target: str):
+    env = _environment(source, target)
+    if env is None:
+        return None, None
+    return env, findings.load_ledger(env)
+
+
+def findings_list(source: str, target: str) -> int:
+    """The findings, one line each. Non-zero while any decision is still pending."""
+    env, ledger = _findings_ledger(source, target)
+    if ledger is None:
+        return CLEAN if env is not None and not env.findings_ledger.exists() else UNKNOWN
+    findings.print_findings(ledger)
+    waiting = fl.pending(ledger)
+    if waiting:
+        print(level_text("INFO", tf(
+            "{} finding(s) await a decision. Menu -> Migration -> Findings -> Record a "
+            "decision records one.", str(len(waiting)))))
+        return FOUND
+    return CLEAN
+
+
+def findings_show(source: str, target: str, finding_id: str) -> int:
+    """One finding in full, as the ledger holds it."""
+    _env, ledger = _findings_ledger(source, target)
+    if ledger is None:
+        return UNKNOWN
+    for finding in ledger.findings:
+        if finding.id == finding_id:
+            print(json.dumps(fl.finding_json(finding), indent=2, ensure_ascii=False))
+            return CLEAN
+    print(level_text("ERROR", tf("No finding {} in the ledger.", finding_id)))
+    return UNKNOWN
+
+
+def findings_validate(source: str, target: str) -> int:
+    """Whether the ledger is one the tool accepts; every problem named if not."""
+    env = _environment(source, target)
+    if env is None:
+        return UNKNOWN
+    if not env.findings_ledger.exists():
+        print(level_text("INFO", tf("No findings ledger yet in {}.", str(env.findings_ledger))))
+        return UNKNOWN
+    if findings.load_ledger(env) is None:
+        return FOUND
+    print(level_text("OK", tf("{} is valid.", str(env.findings_ledger))))
+    return CLEAN
+
+
+def findings_report(source: str, target: str, kind: str, lang: str) -> int:
+    """A report rendered to stdout. The menu action is the one that writes it to disk."""
+    env, ledger = _findings_ledger(source, target)
+    if env is None or ledger is None:
+        return UNKNOWN
+    try:
+        print(findings.render(env, ledger, kind, lang, date.today()), end="")
+    except fl.LedgerError as error:
+        print(level_text("ERROR", t("No report was rendered:")))
+        for problem in error.problems:
+            print(f"  - {problem}")
+        return UNKNOWN
+    return CLEAN
+
+
+def findings_links(source: str, target: str) -> int:
+    """Every URL in the ledger, requested; the ones that do not answer are named."""
+    _env, ledger = _findings_ledger(source, target)
+    if ledger is None:
+        return UNKNOWN
+    broken = findings.broken_links(ledger)
+    if not broken:
+        print(level_text("OK", tf("{} link(s) answer.", str(len(fl.ledger_urls(ledger))))))
+        return CLEAN
+    for where, url, answer in broken:
+        print(f"  {answer:<8} {url}  ({where})")
+    return FOUND

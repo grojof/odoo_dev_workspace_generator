@@ -39,6 +39,7 @@ from ..system import (
 )
 from ..ui import level_text, render_table, title
 from .common import apply_if_confirmed, capture_mail, check_mail, restore_mail
+from .findings import findings_menu
 
 
 def _exists(path) -> bool:
@@ -491,6 +492,8 @@ def _clean_environment() -> None:
     # The environment holds the operator's per-version staged code, which may
     # carry their own edits and exists nowhere else. `rm -rf <root>` takes it, so
     # the phrase is asked for with those modules named.
+    # The findings ledger is the record of what this migration found and what the
+    # client decided; it too exists nowhere else.
     staged = sorted({path.name for path in root.glob("addons/*/custom/*") if path.is_dir()})
     question = (
         tf("This permanently deletes {}, including the staged modules: {}.",
@@ -498,6 +501,9 @@ def _clean_environment() -> None:
         if staged
         else tf("This permanently deletes {}.", str(root))
     )
+    if (root / "findings" / "findings.json").is_file():
+        question += " " + t("It also deletes the findings ledger and every client decision "
+                            "recorded in it — copy findings/ first if you need them.")
     if not confirm_with_phrase(question, "DELETE"):
         print(level_text("INFO", t("Cancelled.")))
         return
@@ -700,6 +706,7 @@ def migration_menu() -> None:
                 "Capture a database's mail in Mailpit",
                 "Restore a database's mail configuration",
                 "Check whether a database can mail out",
+                "Findings and client reports",
                 "Back",
             ],
             default_index=None,
@@ -728,6 +735,10 @@ def migration_menu() -> None:
             _check_tester()
         elif action == "Clean a migration environment":
             _clean_environment()
+        elif action == "Findings and client reports":
+            env = _ask_env()
+            if env is not None:
+                findings_menu(env)
         elif action in (
             "Capture a database's mail in Mailpit",
             "Restore a database's mail configuration",

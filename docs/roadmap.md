@@ -151,6 +151,32 @@ items are host-dependent.
 
 ## Features (OpenSpec)
 
+- ~~Findings ledger and client reports~~ — **done** (2026-09-23, change `record-what-a-migration-finds`).
+  Spec 1 of 3 from the first real client intake:
+  - one ledger per environment, whose findings carry their evidence, their re-deriving query and the
+    client's decision history;
+  - a corrections log;
+  - client and extended reports rendered from the ledger in a language chosen per report.
+
+  The intake's prototype ledger was converted and renders the same reports, minus what the prototype got
+  wrong.
+- **Neutralise a production copy** (spec 2 of 3). Snapshot what can reach outside (crons, SII in 12 and
+  `l10n_es_aeat_sii_oca` from 13, IAP, `web.base.url`, `database.uuid`), turn off everything but
+  housekeeping, and record it. Restoring is **only on explicit request**, never at the end of a chain,
+  because a migrated database is opened for testing on a development host. The catalogue starts from
+  Odoo's own `data/neutralize.sql` files (16.0–19.0) and grows with OCA rules. It needs the ledger
+  above to record into.
+- **Take in a client copy** (spec 3 of 3). Turn that intake into commands whose results land in the
+  ledger:
+  - restore a dump and classify `pg_restore` errors;
+  - create a read-only role with secret columns hidden;
+  - inventory what can reach outside;
+  - classify the addons archive, including legacy `__openerp__.py` manifests;
+  - identify the core, official or OCB, and its commit, against full history (merge commits included);
+  - check each module's availability per step across all OCA repositories;
+  - scan custom code for network calls, with a positive control;
+  - run the source on OCB when it is OCB.
+
 - ~~The operator surface has a spec~~ — **done** (2026-09-20, change `name-the-operator-surface`).
   The twelve capabilities all described what the tool does to the *host*; nothing described what the
   operator touches, and "previewed and confirmed" was restated in six of them with no one place

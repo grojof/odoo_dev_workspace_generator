@@ -121,9 +121,12 @@ By surface:
 - **Host safety** — [`docs/egress-control.md`](docs/egress-control.md) (the outbound firewall that denies by
   default and asks, the local mail capture, and capturing a copied database's mail without losing its
   configuration).
+- **Findings and client reports** — [`docs/migration.md`](docs/migration.md#recording-what-the-migration-finds)
+  (one ledger per migration of everything found, with the evidence, the query that re-derives it and the
+  client's decision; the client and extended reports are rendered from it, in English or Spanish).
 - **Read-only checks without the menu** — `odoo-dwg egress check`, `mail check`, `migrate report`,
-  `migrate probes`: they write nothing, prompt for nothing, and carry their verdict in the exit code, so
-  they work in a script or in a second terminal while a migration runs.
+  `migrate probes`, `migrate findings …`: they write nothing, prompt for nothing, and carry their verdict
+  in the exit code, so they work in a script or in a second terminal while a migration runs.
 - **Editor** — [`docs/editor-integration.md`](docs/editor-integration.md) (the official Odoo extension, what a
   workspace emits for it, and how to keep up with its releases).
 - **What is supported** — [`docs/support-matrix.md`](docs/support-matrix.md) (hosts, Python per Odoo version,
