@@ -176,16 +176,18 @@ items are host-dependent.
     firewall journal. The SQL side was rehearsed on a real client copy: it neutralised, re-applied after a
     simulated module update, and restored every touched table byte for byte.
 
-- **Take in a client copy** (spec 3 of 3). Turn that intake into commands whose results land in the
-  ledger:
-  - restore a dump and classify `pg_restore` errors;
-  - create a read-only role with secret columns hidden;
-  - inventory what can reach outside;
-  - classify the addons archive, including legacy `__openerp__.py` manifests;
-  - identify the core, official or OCB, and its commit, against full history (merge commits included);
-  - check each module's availability per step across all OCA repositories;
-  - scan custom code for network calls, with a positive control;
-  - run the source on OCB when it is OCB.
+- ~~Take in a client copy~~ — **done in part** (2026-09-23, change `take-in-a-client-copy`, spec 3a):
+  - restore with classified errors;
+  - a read-only role without secrets;
+  - the archive classified;
+  - the core identified (official or OCB, and the exact commit, from blobless histories);
+  - the filestore;
+  - the source built from that core with the client's add-ons, started guarded.
+
+  **Still to do (spec 3b):**
+  - the outbound inventory written as findings;
+  - per-step availability across *all* OCA repositories;
+  - a scan of custom code for network calls with a positive control.
 
 - ~~The operator surface has a spec~~ — **done** (2026-09-20, change `name-the-operator-surface`).
   The twelve capabilities all described what the tool does to the *host*; nothing described what the

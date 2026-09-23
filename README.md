@@ -121,6 +121,10 @@ By surface:
 - **Host safety** — [`docs/egress-control.md`](docs/egress-control.md) (the outbound firewall that denies by
   default and asks, the local mail capture, and capturing a copied database's mail without losing its
   configuration).
+- **Taking in a client copy** — [`docs/migration.md`](docs/migration.md#taking-in-a-client-copy)
+  (restore the dump into a reference nobody modifies, a read-only role without secrets, the add-ons archive
+  classified, the core identified — official or OCB, and the commit — and the source built from exactly
+  that, started guarded).
 - **Neutralising a copy of production** — [`docs/egress-control.md`](docs/egress-control.md#neutralising-a-copy-of-production)
   (crons, tax and EDI, payments, IAP and links switched off with every change recorded inside the database;
   the migration driver re-applies it after every step, `open_for_testing.sh` before every start, and only

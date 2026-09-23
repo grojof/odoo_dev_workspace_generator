@@ -48,6 +48,7 @@ from .common import (
     restore_production,
 )
 from .findings import findings_menu
+from .intake import intake_menu, load_intake
 
 
 def _exists(path) -> bool:
@@ -81,6 +82,9 @@ def _ask_env(with_oca: bool = False) -> MigrationEnv | None:
     env = MigrationEnv(source=source, target=target, oca_repos=oca)
     try:
         env.validate()
+        # What taking in a client copy established: the source is then the
+        # client's own core and add-ons, and the reference is never opened.
+        env.intake = load_intake(env)
     except ValueError as error:
         print(level_text("ERROR", str(error)))
         return None
@@ -717,6 +721,7 @@ def migration_menu() -> None:
                 "Neutralise a database",
                 "Give a neutralised database its production settings back",
                 "Check whether a database can act on the outside",
+                "Take in a client copy",
                 "Findings and client reports",
                 "Back",
             ],
@@ -746,6 +751,10 @@ def migration_menu() -> None:
             _check_tester()
         elif action == "Clean a migration environment":
             _clean_environment()
+        elif action == "Take in a client copy":
+            env = _ask_env()
+            if env is not None:
+                intake_menu(env)
         elif action == "Findings and client reports":
             env = _ask_env()
             if env is not None:

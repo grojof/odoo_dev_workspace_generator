@@ -7,6 +7,33 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **A client's copy is taken in by the tool, and the source version is what the client runs.**
+  Menu → Migration → Take in a client copy has the following steps:
+  - restores the dump into a reference database nothing modifies, and classifies every `pg_restore`
+    error against known data-safe classes, each with its source. An unknown error is a high-severity
+    finding;
+  - creates a read-only role that cannot see secrets, whose random password is never shown;
+  - unpacks the add-ons archive read-only and classifies it: both manifest names, the client's
+    `addons_path` order, and uncommitted production changes. It reads the delivered `.git` only and
+    strips credentials from remote URLs;
+  - identifies the core as official Odoo, OCA/OCB or patched, and finds the exact commit. It compares
+    trees of blobless histories (merge commits included), in under a minute on a 30,000-commit branch;
+  - unpacks the filestore;
+  - builds the source from that core, pinned at its commit, with the client's add-ons in the client's
+    order, and installs the Python packages the installed modules declare. Those packages are held to
+    what the venv already has, because a module listing `lxml` unpinned once upgraded it past what
+    Odoo 12 imports.
+
+  `open_for_testing.sh` starts the source version too. It refuses the reference, and gives a copy its
+  filestore as hard links.
+
+  Six traps met on the first real intake are now tests or verifier checks:
+  - legacy manifests;
+  - shallow clones with no history;
+  - hidden merges;
+  - a tab-split path;
+  - PostgreSQL 14's `array_cat`;
+  - columns hidden by privilege.
 - **A copy of production is neutralised, reversibly, and stays that way while it is migrated and
   tested.** A copy is armed the moment Odoo starts on it: every cron is overdue, a tax integration in
   production mode is one click from real submissions, and it identifies itself to Odoo's services as
@@ -96,6 +123,12 @@ All notable changes to this project are documented here. The format is based on
   coverage treat this project's own module as Odoo's dropped code.
 
 ### Fixed
+- **A generated file over 128 KiB could not be written.** The file travelled in a heredoc inside
+  `bash -lc`, and Linux refuses a single argument over 128 KiB. A findings ledger or a table of
+  twenty thousand rows failed with "Argument list too long" before bash started. An over-long command
+  now runs from a temporary script (mode 600), which is removed afterwards.
+- **Building the source version no longer assumes the chain was generated first.** It creates `conf/`
+  itself, as it now can run before, or without, the chain's own generation.
 
 *Six defects, all in shipped code, all found by the first real rehearsal — a 12 → 14 demo migration on the
 reference host. None was visible to 419 unit tests or seven verifiers.*

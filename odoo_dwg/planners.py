@@ -16,6 +16,7 @@ from pathlib import Path
 from . import egress, neutralise, templates, tester
 from .i18n import tf
 from .models import (
+    DB_NAME_RE,
     MODULE_NAME_RE,
     PKG_RESOURCES_LAST_MAJOR,
     SETUPTOOLS_PIN,
@@ -1450,8 +1451,19 @@ def plan_seed_environment(env: MigrationEnv, exists: Exists = _never) -> list[Co
     """
     version = env.source
     commands: list[Command] = []
-    clone = env.odoo_clone_dir(version)
-    if not exists(clone):
+    clone = env.source_clone_dir
+    core = env.intake.core if env.intake is not None else None
+    if core is not None and not exists(clone):
+        # What the client runs, at its commit: fetched by id, so the branch moving
+        # on can never change it, and kept in a directory named for the commit.
+        commands.append(Command(
+            tf("Fetch {} {} at commit {}", core.flavour, version, core.commit[:12]),
+            f"git init -q {shlex.quote(str(clone))} && "
+            f"git -C {shlex.quote(str(clone))} fetch -q --depth 1 {shlex.quote(core.url)} "
+            f"{shlex.quote(core.commit)} && "
+            f"git -C {shlex.quote(str(clone))} -c advice.detachedHead=false checkout -q FETCH_HEAD",
+        ))
+    elif core is None and not exists(clone):
         commands.append(
             Command(tf("Clone Odoo {}", version), _clone_command(env.odoo_repo_url, version, clone))
         )
@@ -1468,15 +1480,36 @@ def plan_seed_environment(env: MigrationEnv, exists: Exists = _never) -> list[Co
         commands += venv_commands(
             env, version, python, clone / "requirements.txt", openupgrade=False
         )
-    # The source version is not a step, so the chain's OCA linking skips it.
-    commands += plan_migration_oca(env, exists, versions=[version])
+    if env.intake is not None and env.intake.python_deps:
+        # What the client's installed modules import beyond Odoo's requirements.txt:
+        # installed on every build, so a dependency recorded later is not missed,
+        # and a satisfied one costs nothing. Constrained to what the venv already
+        # holds: a manifest listing `lxml` unpinned once upgraded Odoo 12's pinned
+        # lxml to a release without `lxml.html.clean`, and Odoo stopped importing. A
+        # dependency that needs a newer version of something installed now fails
+        # the step, by name, instead.
+        venv = shlex.quote(str(env.venv_dir(version) / "bin" / "python"))
+        commands.append(Command(
+            tf("Install the client's modules' Python dependencies for {}", version),
+            f'held=$(mktemp) && uv pip freeze --python {venv} > "$held" && '
+            f'uv pip install --python {venv} -c "$held" '
+            + " ".join(shlex.quote(d) for d in env.intake.python_deps)
+            + '; code=$?; rm -f "$held"; exit $code',
+        ))
+    # The source version is not a step, so the chain's OCA linking skips it. With
+    # an intake the client's own OCA checkouts, as delivered, are the source's.
+    if core is None:
+        commands += plan_migration_oca(env, exists, versions=[version])
     commands.append(
         Command(
             tf("Create the source add-ons directories for {}", version),
             "mkdir -p "
             + " ".join(
                 shlex.quote(str(p))
-                for p in (env.addons_custom_dir(version), env.addons_oca_dir(version))
+                # conf/ too: with an intake the source is built before, or without,
+                # the chain's own generation, which is what used to create it.
+                for p in (env.addons_custom_dir(version), env.addons_oca_dir(version),
+                          env.conf_dir)
             ),
         )
     )
@@ -1496,3 +1529,128 @@ def plan_seed_demo(env: MigrationEnv, modules: list[str]) -> list[Command]:
             raise ValueError(tf("Invalid module name: {}", module))
     script = env.root / "seed_demo.sh"
     return write_text_file_command(script, templates.render_seed_demo_sh(env, modules), "755")
+
+
+# --- taking in a client copy ----------------------------------------------------------
+
+def _pg(env: MigrationEnv) -> str:
+    return f"-h {shlex.quote(env.db_host)} -p {int(env.db_port)} -U {shlex.quote(env.db_user)}"
+
+
+def intake_restore_stderr(env: MigrationEnv) -> Path:
+    return env.findings_data_dir / "intake-restore.stderr"
+
+
+def plan_intake_restore(env: MigrationEnv, dump: Path, reference: str) -> list[Command]:
+    """Restore a client dump into a new reference database, keeping every error.
+
+    ``--no-owner --no-acl``: the client's roles are not this host's. The errors go
+    to a file and do not stop the plan — ``pg_restore`` exits non-zero for any
+    ignored error — because each one is classified afterwards, and one of no known
+    class becomes a finding rather than passing over."""
+    if not DB_NAME_RE.fullmatch(reference):
+        raise ValueError(tf("Invalid database name: {}", reference))
+    stderr = intake_restore_stderr(env)
+    q = shlex.quote
+    return [
+        Command(tf("Create {}", str(env.findings_data_dir)),
+                f"mkdir -p {q(str(env.findings_data_dir))}"),
+        Command(tf("Create database {}", reference),
+                f"createdb {_pg(env)} -T template0 -E UTF8 {q(reference)}"),
+        Command(tf("Restore {} into {} (errors kept in {})", str(dump), reference, str(stderr)),
+                f"pg_restore {_pg(env)} --no-owner --no-acl -j 4 -d {q(reference)} "
+                f"{q(str(dump))} 2> {q(str(stderr))} || true"),
+    ]
+
+
+def plan_reader_role(env: MigrationEnv, reference: str, role: str, grants_sql: str,
+                     create: bool) -> list[Command]:
+    """A role that reads everything but secrets, its password never seen.
+
+    The password is generated inside the command, handed to PostgreSQL on standard
+    input and appended to ``~/.pgpass`` — never in an argument, the preview or a
+    log. Creating a role needs a superuser; the grants are the owner's."""
+    if not (DB_NAME_RE.fullmatch(reference) and DB_NAME_RE.fullmatch(role)):
+        raise ValueError(tf("Invalid database name: {}", f"{reference} / {role}"))
+    q = shlex.quote
+    commands: list[Command] = []
+    if create:
+        sql = (f'CREATE ROLE "{role}" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT '
+               f"CONNECTION LIMIT 5 PASSWORD '%s'; "
+               f'ALTER ROLE "{role}" SET default_transaction_read_only = on;\n')
+        prefix = f"{env.db_host}:{int(env.db_port)}:{reference}:{role}:"
+        commands.append(Command(
+            tf("Create the read-only role {} (password to ~/.pgpass, never shown)", role),
+            "umask 077 && PW=$(python3 -c 'import secrets; print(secrets.token_hex(24))') && "
+            f"printf {q(sql)} \"$PW\" | sudo -n -u postgres psql -X -q -v ON_ERROR_STOP=1 "
+            f"-d postgres && touch ~/.pgpass && "
+            f"{{ grep -v -F {q(prefix)} ~/.pgpass || true; }} > ~/.pgpass.odwg-tmp && "
+            f"printf '%s%s\\n' {q(prefix)} \"$PW\" >> ~/.pgpass.odwg-tmp && "
+            "chmod 600 ~/.pgpass.odwg-tmp && mv -f ~/.pgpass.odwg-tmp ~/.pgpass",
+        ))
+    commands.append(Command(
+        tf("Grant {} read access to {}, secrets excluded", role, reference),
+        f"psql -X -w {_pg(env)} -d {q(reference)} -v ON_ERROR_STOP=1 -q -c {q(grants_sql)}",
+    ))
+    return commands
+
+
+def plan_unpack_archive(env: MigrationEnv, archive: Path, top: str) -> list[Command]:
+    """Unpack the client's add-ons archive as delivered, then make it read-only:
+    it is the reference for what production runs, including what nobody committed."""
+    q = shlex.quote
+    target = env.client_src_dir / top
+    return [
+        Command(tf("Create {}", str(env.client_src_dir)), f"mkdir -p {q(str(env.client_src_dir))}"),
+        Command(tf("Unpack {} into {}", str(archive), str(env.client_src_dir)),
+                f"tar -xf {q(str(archive))} -C {q(str(env.client_src_dir))}"),
+        Command(tf("Make {} read-only", str(target)), f"chmod -R a-w {q(str(target))}"),
+    ]
+
+
+def plan_history(env: MigrationEnv, flavour: str, version: str, exists: Exists = _never
+                 ) -> list[Command]:
+    """A blobless history of Odoo or OCB at one branch: every commit and tree, no
+    file contents. Shallow build clones have no history, and comparing a core
+    against one called every older file a local patch."""
+    from .intake import FLAVOURS
+
+    q = shlex.quote
+    dest = env.history_dir / f"{flavour}-{version}"
+    if exists(dest):
+        return [Command(tf("Refresh the {} {} history", flavour, version),
+                        f"git -C {q(str(dest))} fetch -q --filter=blob:none origin {q(version)} && "
+                        f"git -C {q(str(dest))} update-ref refs/heads/{q(version)} FETCH_HEAD")]
+    return [Command(tf("Fetch the {} {} history (no file contents)", flavour, version),
+                    f"mkdir -p {q(str(env.history_dir))} && git clone -q --filter=blob:none "
+                    f"--no-checkout --single-branch -b {q(version)} {q(FLAVOURS[flavour])} "
+                    f"{q(str(dest))}")]
+
+
+def plan_unpack_filestore(env: MigrationEnv, archive: Path, reference: str) -> list[Command]:
+    """Unpack a filestore archive into ``data/filestore/<reference>``, whatever its
+    top level: the shallowest directory holding two-hex-digit buckets is the
+    filestore. Shallowest, not the one with most buckets: a filestore holds
+    ``checklist/`` with buckets of its own, just as many, and picking by count once
+    moved that and deleted the attachments."""
+    q = shlex.quote
+    target = env.data_dir / "filestore" / reference
+    incoming = env.data_dir / "filestore" / f".incoming-{reference}"
+    return [
+        Command(tf("Unpack {} into {}", str(archive), str(incoming)),
+                f"mkdir -p {q(str(incoming))} && tar -xf {q(str(archive))} -C {q(str(incoming))}"),
+        Command(tf("Move the filestore into {}", str(target)),
+                f"d=$(find {q(str(incoming))} -mindepth 1 -maxdepth 4 -type d "
+                "-regextype posix-extended -regex '.*/[0-9a-f]{2}' -printf '%d\\t%h\\n' "
+                "| sort -n | head -n 1 | cut -f 2-) && [ -n \"$d\" ] "
+                f"&& mv \"$d\" {q(str(target))} && rm -rf {q(str(incoming))}"),
+    ]
+
+
+def plan_copy_database(env: MigrationEnv, reference: str, copy: str) -> list[Command]:
+    """A working copy of the reference, which nothing modifies."""
+    for name in (reference, copy):
+        if not DB_NAME_RE.fullmatch(name):
+            raise ValueError(tf("Invalid database name: {}", name))
+    return [Command(tf("Copy {} to {}", reference, copy),
+                    f"createdb {_pg(env)} -T {shlex.quote(reference)} {shlex.quote(copy)}")]

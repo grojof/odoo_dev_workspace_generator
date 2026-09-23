@@ -9,6 +9,7 @@ tests that do not shell out. Standard-library only.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import shlex
@@ -22,19 +23,50 @@ from .i18n import t, tf
 from .models import DB_ROLE_RE, DEFAULT_DB_ROLE, Command  # noqa: F401 (re-exported)
 from .ui import level_tag, level_text, style, title, wrap_plain_block
 
+#: Linux refuses a single argument longer than 128 KiB (``MAX_ARG_STRLEN``), and a
+#: command writing a generated file carries the file in a heredoc: a findings
+#: ledger or a table of twenty thousand rows failed with "Argument list too long"
+#: before bash started. Past this size the command is run from a script file.
+_ARG_LIMIT = 100_000
+
+
+class _Bash:
+    """``bash -lc <command>``, or ``bash -l <script>`` for a command too long to be
+    an argument; the script (mode 600) is removed afterwards."""
+
+    def __init__(self, command: str):
+        self.script: str | None = None
+        if len(command.encode("utf-8")) <= _ARG_LIMIT:
+            self.argv = ["bash", "-lc", command]
+            return
+        import tempfile
+        handle, self.script = tempfile.mkstemp(prefix="odwg-step-", suffix=".sh")
+        with os.fdopen(handle, "w", encoding="utf-8") as script:
+            script.write(command)
+        self.argv = ["bash", "-l", self.script]
+
+    def __enter__(self) -> list[str]:
+        return self.argv
+
+    def __exit__(self, *_exc: object) -> None:
+        if self.script:
+            with contextlib.suppress(OSError):
+                os.unlink(self.script)
+
 
 def run(command: str, check: bool = False) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(
-        ["bash", "-lc", command],
-        # A step that reads stdin would swallow the operator's keystrokes while
-        # its prompt sits invisible in the captured output (quiet is the
-        # default). Commands are non-interactive by construction.
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+    with _Bash(command) as argv:
+        result = subprocess.run(
+            argv,
+            # A step that reads stdin would swallow the operator's keystrokes while
+            # its prompt sits invisible in the captured output (quiet is the
+            # default). Commands are non-interactive by construction.
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
     if check and result.returncode != 0:
         raise RuntimeError(
             f"Command failed: {command}\n"
@@ -53,23 +85,24 @@ def run_streaming(command: str) -> subprocess.CompletedProcess[str]:
     that would otherwise sit silent. stdin is closed so a command never blocks
     waiting for input. Returns a ``CompletedProcess`` with the accumulated output.
     """
-    process = subprocess.Popen(
-        ["bash", "-lc", command],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        bufsize=1,
-    )
-    captured: list[str] = []
-    assert process.stdout is not None
-    for line in process.stdout:
-        print(line, end="", flush=True)
-        captured.append(line)
-    process.stdout.close()
-    returncode = process.wait()
+    with _Bash(command) as argv:
+        process = subprocess.Popen(
+            argv,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        )
+        captured: list[str] = []
+        assert process.stdout is not None
+        for line in process.stdout:
+            print(line, end="", flush=True)
+            captured.append(line)
+        process.stdout.close()
+        returncode = process.wait()
     return subprocess.CompletedProcess(process.args, returncode, "".join(captured), "")
 
 
@@ -561,3 +594,114 @@ def psql_scalar(
     if result.returncode != 0:
         return None
     return result.stdout.strip()
+
+
+# --- taking in a client copy (reads only) -----------------------------------------------
+
+def git_output(repo: Path | str, *args: str) -> str | None:
+    """A git command's standard output in ``repo``, or None when it fails. Reads only:
+    the callers ask for logs, trees and remotes, never for anything that writes."""
+    try:
+        result = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True,
+                                encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL)
+    except OSError:
+        return None
+    return result.stdout if result.returncode == 0 else None
+
+
+def git_raw_log(repo: Path | str, paths: list[str], batch: int = 400) -> str | None:
+    """``git log --raw`` for these paths, merges included, in batches so that a core
+    with thousands of differing files does not exceed the argument limit."""
+    out = []
+    for start in range(0, len(paths), batch):
+        text = git_output(repo, "log", "--raw", "--no-abbrev", "--no-renames",
+                          "--diff-merges=separate", "--format=@%H %cs", "HEAD", "--",
+                          *paths[start:start + batch])
+        if text is None:
+            return None
+        out.append(text)
+    return "".join(out)
+
+
+def scan_manifests(root: Path | str, dirs: list[str]) -> list[tuple[str, str, str]]:
+    """``(directory, module, manifest)`` for every module directly under each of
+    ``dirs`` (relative to ``root``), in the given order. Both manifest names count:
+    Odoo up to 12.0 still loads the legacy ``__openerp__.py``."""
+    from .intake import MANIFESTS
+
+    found: list[tuple[str, str, str]] = []
+    for directory in dirs:
+        base = Path(root) / directory
+        if not base.is_dir():
+            continue
+        for module in sorted(p for p in base.iterdir() if p.is_dir()):
+            manifest = next((m for m in MANIFESTS if (module / m).is_file()), None)
+            if manifest:
+                found.append((directory, module.name, manifest))
+    return found
+
+
+def tree_blobs(root: Path | str, subdirs: tuple[str, ...] = ("addons", "odoo/addons")
+               ) -> dict[str, str]:
+    """``{path: git blob id}`` of every file under ``subdirs`` of ``root``, paths
+    relative to ``root`` — the shape ``git ls-tree -r`` gives for a commit."""
+    from .intake import git_blob_id
+
+    base = Path(root)
+    blobs: dict[str, str] = {}
+    for sub in subdirs:
+        top = base / sub
+        if not top.is_dir():
+            continue
+        for path in top.rglob("*"):
+            if path.is_file() and not path.is_symlink():
+                blobs[str(path.relative_to(base))] = git_blob_id(path.read_bytes())
+    return blobs
+
+
+def repo_state(path: Path | str) -> dict[str, str]:
+    """A client repository as delivered: remote, branch, commit, commits ahead of and
+    behind its upstream, and files changed but not committed. Empty when not git.
+
+    Local only: the client's remotes may be private, and nothing here contacts
+    them — "ahead" and "behind" are against the upstream as the client last
+    fetched it. The remote URL is recorded without any credentials in it."""
+    from .intake import redact_url
+
+    if not (Path(path) / ".git").exists():
+        return {}
+    def one(*args: str) -> str:
+        return (git_output(path, *args) or "").strip()
+    upstream = one("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+    counts = one("rev-list", "--left-right", "--count", f"{upstream}...HEAD") if upstream else ""
+    behind, ahead = (counts.split() + ["", ""])[:2] if counts else ("", "")
+    dirty = git_output(path, "--no-optional-locks", "status", "--porcelain") or ""
+    return {
+        "remote": redact_url(one("config", "--get", "remote.origin.url")),
+        "branch": one("rev-parse", "--abbrev-ref", "HEAD"),
+        "head": one("rev-parse", "HEAD"),
+        "last_commit": one("log", "-1", "--format=%cs"),
+        "upstream": upstream, "ahead": ahead, "behind": behind,
+        "dirty": ";".join(line[3:] for line in dirty.splitlines() if line.strip()),
+    }
+
+
+def archive_top(archive: Path | str) -> str | None:
+    """The first path component of a tar archive's first member, or None.
+
+    Stops at the first line: listing a filestore archive of many gigabytes whole
+    to learn its top directory took minutes."""
+    try:
+        proc = subprocess.Popen(["tar", "-tf", str(archive)], stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, text=True)
+    except OSError:
+        return None
+    first = ""
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        if line.strip():
+            first = line.strip()
+            break
+    proc.kill()
+    proc.wait()
+    return first.removeprefix("./").split("/")[0] or None

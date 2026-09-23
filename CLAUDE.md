@@ -112,6 +112,7 @@ python tools/verify_migration_tester.py    # the rehearsal tester: it is a modul
 python tools/verify_demo_seed.py           # the generated demo seed, against stub binaries
 python tools/verify_neutralisation.py      # neutralise, check, re-apply and restore, against a throwaway PostgreSQL
 python tools/verify_neutralise_sources.py  # the neutralisation catalogue vs the sources it cites
+python tools/verify_intake.py              # restore errors, reader role, core identification and filestore, on real tools
 ```
 
 End-to-end validation (cloning Odoo, building venvs, running `odoo-bin`, migrations) happens on a real

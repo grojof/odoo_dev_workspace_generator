@@ -76,6 +76,7 @@ python tools/verify_migration_tester.py          # generate the rehearsal tester
 python tools/verify_demo_seed.py                 # run the generated demo seed against stub binaries
 python tools/verify_neutralisation.py            # neutralise, check, re-apply and restore on a throwaway PostgreSQL
 python tools/verify_neutralise_sources.py        # the catalogue vs Odoo's neutralize.sql files and the OCA sources it cites
+python tools/verify_intake.py                    # restore errors, reader role, core identification and filestore, on real tools
 ```
 
 | Tool | Needs |
@@ -83,7 +84,7 @@ python tools/verify_neutralise_sources.py        # the catalogue vs Odoo's neutr
 | `verify_support_matrix.py`, `verify_odools_config.py`, `verify_egress_pins.py` | the network |
 | `verify_workspace_versions.py` | the network **and** a host it may change (it previews, asks, and cleans up) |
 | `verify_generated_shell.py` | `shellcheck` on the host |
-| `verify_pg_hba_trust.py`, `verify_mail_capture.py`, `verify_migration_tester.py`, `verify_neutralisation.py` | the host's PostgreSQL binaries; each runs a cluster of its own |
+| `verify_pg_hba_trust.py`, `verify_mail_capture.py`, `verify_migration_tester.py`, `verify_neutralisation.py`, `verify_intake.py` (also `git` and `tar`) | the host's PostgreSQL binaries; each runs a cluster of its own |
 | `verify_neutralise_sources.py` | the local clones under `~/odoo-migrations/.repos` (`git` may fetch an OCA file it cites) |
 | `verify_migration_driver.py`, `verify_demo_seed.py` | nothing but `bash` |
 | `verify_promoted_modules.py` | nothing but `bash` and `git` |
