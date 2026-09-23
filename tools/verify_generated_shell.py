@@ -58,6 +58,10 @@ def _render(into: Path) -> list[Path]:
             templates.render_run_migration_sh(env),
         )
         write(
+            f"open_for_testing_{source.split('.')[0]}_{target.split('.')[0]}.sh",
+            templates.render_open_for_testing_sh(env),
+        )
+        write(
             f"seed_demo_{source.split('.')[0]}.sh",
             templates.render_seed_demo_sh(env, ["partner_firstname", "web_responsive"]),
         )

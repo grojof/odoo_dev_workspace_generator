@@ -22,7 +22,7 @@ from ..models import DB_NAME_RE, MigrationEnv
 from ..system import read_dir_files, read_text
 from ..ui import level_text
 from . import findings, migration
-from .common import mail_state, report_mail_state
+from .common import armed_state, mail_state, report_armed, report_mail_state
 
 #: Found something / found nothing / could not tell. A caller that cannot reach
 #: the host must not read its silence as a clean result.
@@ -63,6 +63,23 @@ def mail_check(database: str, host: str, port: int, user: str) -> int:
         print(level_text("INFO", t(
             "Menu -> Migration -> Capture a database's mail in Mailpit stops it."
         )))
+        return FOUND
+    return CLEAN
+
+
+def neutralise_check(database: str, host: str, port: int, user: str) -> int:
+    """Whether anything in a database can still act on the outside."""
+    if not DB_NAME_RE.fullmatch(database):
+        print(level_text("ERROR", tf("Invalid database name: {}", database)))
+        return UNKNOWN
+    armed = armed_state(database, host, port, user)
+    mail = mail_state(database, host, port, user)
+    if armed is None or mail is None:
+        return UNKNOWN
+    if report_armed(database, armed, mail):
+        print(level_text("INFO", t(
+            "Nothing was changed. Menu -> Migration (or a workspace) -> Neutralise a database "
+            "turns it off.")))
         return FOUND
     return CLEAN
 

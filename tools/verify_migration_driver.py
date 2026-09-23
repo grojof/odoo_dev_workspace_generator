@@ -485,6 +485,86 @@ def main() -> int:
             str([event[0] for event in events]),
         )
 
+    # --- neutralisation: every database the driver leaves behind, and every start ---
+    with tempfile.TemporaryDirectory(prefix="odwg-neutral-driver-") as tmp:
+        root = Path(tmp)
+        script, env = _build(root)
+        missing = _run(root, script)
+        check("without neutralise.sql the driver says the database is NOT neutralised",
+              missing.returncode == 0 and "is NOT neutralised" in missing.stderr,
+              missing.stderr[-400:])
+
+    with tempfile.TemporaryDirectory(prefix="odwg-neutral-driver-") as tmp:
+        root = Path(tmp)
+        script, env = _build(root)
+        for name, text in ((templates.NEUTRALISE_FILE, templates.render_neutralise_sql()),
+                           (templates.NEUTRAL_CHECK_FILE, templates.render_neutral_check_sql())):
+            (env.root / name).write_text(text, encoding="utf-8")
+        # Every -f the driver hands psql is logged, in order; the check can be made
+        # to fail, as it does on a database something can still act from.
+        log = root / "psql-files.log"
+        _stub(root / "bin" / "psql",
+              f'for a in "$@"; do case "$a" in *.sql) echo "$(basename "$a")" >> {log};; '
+              'esac; done; '
+              'if [[ "$*" == *neutralise_check.sql* && -n "${FAIL_CHECK:-}" ]]; then '
+              'echo "can still act on the outside: crons (3)" >&2; exit 1; fi; '
+              'if [[ "$*" == *base* && "$*" == *latest_version* ]]; then '
+              f'echo {SOURCE}.1.0; else printf "base\\tOdoo S.A.\\n"; fi')
+        run = _run(root, script)
+        calls = log.read_text().split() if log.exists() else []
+        expected = [templates.NEUTRALISE_FILE, templates.NEUTRAL_CHECK_FILE] * (1 + len(env.chain()))
+        check("the driver neutralises and checks after the source and after every step",
+              run.returncode == 0 and calls == expected, f"{calls}\n{run.stderr[-300:]}")
+        events = [line.split("\t") for line in Path(env.steps_file).read_text().splitlines()]
+        check("each neutralisation is in the step log, as no step of its own",
+              [e[4] for e in events if e[3] == "neutralised"] == ["00_source", *env.chain()]
+              and all(e[2] == "-" for e in events if e[3] == "neutralised"), str(events))
+        generated = "\n".join([templates.render_run_migration_sh(env),
+                                templates.render_neutralise_sql(),
+                                templates.render_neutral_check_sql(),
+                                templates.render_open_for_testing_sh(env)])
+        check("nothing the environment runs can give production's settings back",
+              "no neutralisation is recorded" not in generated
+              and "jsonb_populate_record(NULL::%I" not in generated)
+
+        for path in Path(env.checkpoints_dir).iterdir():
+            path.unlink()
+        log.unlink()
+        refused = subprocess.run(
+            ["bash", str(script), "source.dump"], cwd=root, capture_output=True, text=True,
+            env={"PATH": f"{root / 'bin'}:/usr/bin:/bin", "HOME": str(root),
+                 "STATE": str(root / "steps-run"), "FAIL_CHECK": "1"})
+        check("a database that stays armed stops the run before its checkpoint",
+              refused.returncode != 0 and "can still act on the outside" in refused.stderr
+              and not (Path(env.checkpoints_dir) / "00_source.dump").exists(),
+              refused.stderr[-300:])
+
+        # The start script: re-neutralise, check, then Odoo with no cron thread.
+        opener = root / "open_for_testing.sh"
+        opener.write_text(templates.render_open_for_testing_sh(env), encoding="utf-8")
+        started = root / "odoo-started.log"
+        _stub(env.venv_dir(TARGET) / "bin" / "python", f'echo "$*" > {started}')
+
+        def open_(*args: str, fail: bool = False) -> subprocess.CompletedProcess[str]:
+            extra = {"FAIL_CHECK": "1"} if fail else {}
+            return subprocess.run(["bash", str(opener), *args], cwd=root, capture_output=True,
+                                  text=True, env={"PATH": f"{root / 'bin'}:/usr/bin:/bin",
+                                                  "HOME": str(root), **extra})
+
+        armed = open_(TARGET, "acme_copy", fail=True)
+        check("open_for_testing refuses a database that can still act, and starts nothing",
+              armed.returncode != 0 and "not starting" in armed.stderr and not started.exists(),
+              armed.stderr[-300:])
+        ok = open_(TARGET, "acme_copy")
+        argv = started.read_text() if started.exists() else ""
+        check("open_for_testing starts Odoo with no cron thread, on loopback, for that database",
+              ok.returncode == 0 and "--max-cron-threads=0" in argv
+              and "--http-interface=127.0.0.1" in argv and "-d acme_copy" in argv,
+              f"{argv}\n{ok.stderr[-300:]}")
+        check("open_for_testing refuses a version outside the chain and a bad database name",
+              open_("11.0", "acme_copy").returncode != 0
+              and open_(TARGET, "x;rm -rf /").returncode != 0)
+
     if failures:
         print("\n".join(["", "FAILED:"] + failures))
         return 1

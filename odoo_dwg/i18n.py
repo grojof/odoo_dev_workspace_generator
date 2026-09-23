@@ -652,6 +652,64 @@ _ES: dict[str, str] = {
     "findings/ first if you need them.":
         "También borra el registro de hallazgos y todas las decisiones del cliente anotadas en "
         "él: copie findings/ antes si los necesita.",
+    # --- neutralising a copy of production ---
+    "Check whether a database can act on the outside. Reads only.":
+        "Comprueba si una base de datos puede actuar hacia fuera. Solo lee.",
+    "Report crons, tax, payment and other integrations still able to act.":
+        "Informa de los crons, integraciones fiscales, de pago y demás que aún pueden actuar.",
+    "neutralise: the only action is 'check'": "neutralise: la única acción es 'check'",
+    "Neutralise database {} (crons, tax and EDI, payments, IAP, links)":
+        "Neutralizar la base de datos {} (crons, fiscal y EDI, pagos, IAP, enlaces)",
+    "Give database {} its production settings back":
+        "Devolver a la base de datos {} su configuración de producción",
+    "Nothing was changed. Menu -> Migration (or a workspace) -> Neutralise a database turns "
+    "it off.":
+        "No se ha cambiado nada. Menú -> Migración (o un workspace) -> Neutralizar una base de "
+        "datos lo desactiva.",
+    "URL this copy is reached at (its links will point here)":
+        "URL por la que se accede a esta copia (sus enlaces apuntarán aquí)",
+    "Every cron of {} but housekeeping will be switched off, its mail captured, and its tax, "
+    "EDI, payment, delivery, OAuth, calendar and IAP integrations taken out of production. "
+    "Every value changed is recorded inside the database; only 'Give a neutralised database "
+    "its production settings back' puts them back.":
+        "Se desactivarán todos los crons de {} salvo los de limpieza, se capturará su correo y "
+        "sus integraciones fiscales, EDI, de pago, transporte, OAuth, calendario e IAP saldrán "
+        "de producción. Cada valor cambiado queda anotado dentro de la base de datos; solo "
+        "'Devolver a una base neutralizada su configuración de producción' los restablece.",
+    "{} will act on the outside again as production did: its crons run, its tax integration "
+    "submits for real, its mail leaves through the client's servers. Do this on the day it "
+    "goes into production, never on a copy being tested.":
+        "{} volverá a actuar hacia fuera como producción: sus crons se ejecutan, su integración "
+        "fiscal envía de verdad y su correo sale por los servidores del cliente. Hazlo el día "
+        "que pase a producción, nunca en una copia en pruebas.",
+    "{} row(s) did not exist in production and will stay neutralised:":
+        "{} fila(s) no existían en producción y seguirán neutralizadas:",
+    "No neutralisation is recorded in {}.": "No hay ninguna neutralización anotada en {}.",
+    "Nothing in {} can act on the outside.": "Nada en {} puede actuar hacia fuera.",
+    "{} can still act on the outside:": "{} todavía puede actuar hacia fuera:",
+    "No active mail server: Odoo uses the configuration file's smtp_server. The tool's own "
+    "configurations point it at the capture; one written elsewhere may not.":
+        "No hay servidor de correo activo: Odoo usa el smtp_server del fichero de "
+        "configuración. Las configuraciones de la herramienta lo apuntan a la captura; una "
+        "escrita en otro sitio puede que no.",
+    "Menu -> Neutralise a database turns it off.":
+        "Menú -> Neutralizar una base de datos lo desactiva.",
+    "mail: an active mail server points outside the capture":
+        "correo: un servidor de correo activo apunta fuera de la captura",
+    "Neutralise a database": "Neutralizar una base de datos",
+    "Give a neutralised database its production settings back":
+        "Devolver a una base neutralizada su configuración de producción",
+    "Check whether a database can act on the outside":
+        "Comprobar si una base de datos puede actuar hacia fuera",
+    "Database to neutralise": "Base de datos a neutralizar",
+    "Database to give its production settings back":
+        "Base de datos a la que devolver su configuración de producción",
+    "Database to check": "Base de datos a comprobar",
+    "The role may not be allowed to read every column the check needs (a read-only role that "
+    "hides secrets cannot answer it); run it as the database's owner.":
+        "Puede que el rol no tenga permiso para leer todas las columnas que necesita la "
+        "comprobación (un rol de solo lectura que oculta secretos no puede responderla); "
+        "ejecútala como propietario de la base de datos.",
     # --- the findings ledger: commands and menu ---
     "Read the findings ledger and render its reports. Writes nothing.":
         "Lee el registro de hallazgos y genera sus informes. No escribe nada.",
