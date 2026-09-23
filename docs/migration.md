@@ -667,6 +667,39 @@ On every start it does three things, in order:
 With no cron thread, a cron that a module you install during the session creates or reactivates cannot
 run before the next start turns it off. There is no option to skip either guard.
 
+## Taking in a client copy
+
+A client hands over three things: a database dump, an archive of the add-ons their server loads, and
+its `odoo.conf`. Often a filestore archive comes too. **Menu → Migration → Take in a client copy** works
+through them in steps. Each step is previewed and confirmed. Each writes what it found into the
+environment's `intake.json`, its data tables into `findings/data/intake-*.tsv`, and its findings into the
+[findings ledger](#recording-what-the-migration-finds). Findings are recorded as `internal`: the
+client-facing text is yours to write.
+
+| Step | What it does | What it guards against |
+|---|---|---|
+| Restore the client's dump | Into a new **reference** database, `--no-owner --no-acl`, errors kept in `findings/data/intake-restore.stderr`. Tables restored are counted against the dump's table of contents. | An existing database is refused. Every `pg_restore` error is classified against a list of known, data-safe classes, each with its reason and source. The first is an aggregate on `array_cat(anyarray)`, which [PostgreSQL 14 changed](https://www.postgresql.org/docs/release/14.0/). An error of no known class is a high-severity finding. |
+| Create the read-only role | `SELECT` only, read-only by default, no `TEMP`, and no access to secret columns: passwords, tokens, keys, `ir_config_parameter.value`, attachment contents. Tables holding one are granted column by column. | Column existence is read from `pg_attribute`: `information_schema` hides columns by privilege. The random password is generated in the command, handed to PostgreSQL on standard input and written only to `~/.pgpass` (mode 600), never shown. |
+| Unpack the client's add-ons archive | Into `client-src/`, then made read-only. | An existing directory is refused. |
+| Classify the add-ons archive | Maps the client's `addons_path` onto the archive and finds the core. Per repository it records the remote, commit, commits ahead of and behind upstream, and uncommitted files. Per installed module it records where it loads from. | Both manifest names count (`__openerp__.py` too), and the first directory in the client's order wins. Everything is read from the delivered `.git` only, and the client's remotes are never contacted. Credentials in a remote URL are removed before anything is recorded. |
+| Identify the client's core | Official Odoo or OCA/OCB, and the exact commit. It samples trees of both histories, refines between the best sample's neighbours, and looks up the files that still differ in both histories, merge commits included. A file found in neither is a **local patch**. | Histories are blobless clones in `.repos/history/` (trees, no file contents), because shallow build clones have no history. Files only the client has, like a stray `.xml_backup`, are reported apart. |
+| Unpack the client's filestore | Into `data/filestore/<reference>`, whatever the archive's top level. | An existing target is refused. |
+| Build the client's source | The core cloned at its commit into `.repos/<flavour>-<version>-<commit>`, with a venv and a source `odoo.conf` whose `addons_path` is the client's directories in the client's order, then the core's, with `data_dir` in the environment. The Python packages the installed modules declare (`external_dependencies`) are installed too; classification records them, mapping import names to pip names (`OpenSSL` → `pyOpenSSL`). | Pinned: the directory carries the commit, and nothing moves it. The modules' packages are installed **held to what the venv already has**: a module listing `lxml` unpinned once upgraded it past what Odoo 12 imports. A package that would need an upgrade fails the step by name. |
+| Copy the reference to a working database | `createdb -T <reference> <copy>`, phrase `COPY`. | The reference itself is never opened. |
+
+The source instance is then opened like any other version, through the guarded start:
+
+```bash
+~/odoo-migrations/12-to-18/open_for_testing.sh 12.0 acme_copy
+```
+
+With an intake, the guarded start:
+- **refuses the reference database by name**;
+- **gives a copy its own filestore on first start**, as hard links to the reference's. That takes no
+  space, and Odoo never rewrites an attachment file in place, so the reference's files stay as they were;
+- **uses the environment's `data_dir`** for every version, so a migrated database finds the client's
+  attachments too.
+
 ## Recording what the migration finds
 
 A client migration finds things long before it runs a step: a tax-reporting module in production mode with

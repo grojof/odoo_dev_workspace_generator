@@ -544,6 +544,7 @@ def main() -> int:
         opener.write_text(templates.render_open_for_testing_sh(env), encoding="utf-8")
         started = root / "odoo-started.log"
         _stub(env.venv_dir(TARGET) / "bin" / "python", f'echo "$*" > {started}')
+        Path(env.config_file(TARGET)).write_text("[options]\n", encoding="utf-8")
 
         def open_(*args: str, fail: bool = False) -> subprocess.CompletedProcess[str]:
             extra = {"FAIL_CHECK": "1"} if fail else {}
@@ -564,6 +565,37 @@ def main() -> int:
         check("open_for_testing refuses a version outside the chain and a bad database name",
               open_("11.0", "acme_copy").returncode != 0
               and open_(TARGET, "x;rm -rf /").returncode != 0)
+
+        # With an intake: the client's source, the reference refused, a copy's filestore.
+        from odoo_dwg.intake import Core, IntakeRecord
+        env.intake = IntakeRecord("ACME_original", "acme_reader", "client-src/acme", ("custom",),
+                                  Core("ocb", "4" * 40))
+        opener.write_text(templates.render_open_for_testing_sh(env), encoding="utf-8")
+        source_bin = Path(env.source_odoo_bin)
+        source_bin.parent.mkdir(parents=True, exist_ok=True)
+        source_bin.write_text("", encoding="utf-8")
+        _stub(env.venv_dir(SOURCE) / "bin" / "python", f'echo "$*" > {started}')
+        Path(env.config_file(SOURCE)).write_text("[options]\n", encoding="utf-8")
+        started.unlink(missing_ok=True)
+        refused_ref = open_(SOURCE, "ACME_original")
+        check("open_for_testing refuses the reference, which nothing modifies",
+              refused_ref.returncode != 0 and "reference" in refused_ref.stderr
+              and not started.exists(), refused_ref.stderr[-200:])
+        store = env.data_dir / "filestore" / "ACME_original" / "ab"
+        store.mkdir(parents=True)
+        (store / "abcd").write_text("attachment\n", encoding="utf-8")
+        opened = open_(SOURCE, "acme_copy")
+        argv = started.read_text() if started.exists() else ""
+        copy = env.data_dir / "filestore" / "acme_copy"
+        check("the source starts from the client's pinned core, with the environment's data dir",
+              opened.returncode == 0 and str(source_bin) in (opener.read_text())
+              and f"--data-dir={env.data_dir}" in argv and "--max-cron-threads=0" in argv,
+              f"{argv}\n{opened.stderr[-300:]}")
+        same_inode = (copy / "ab" / "abcd").exists() and \
+            (copy / "ab" / "abcd").stat().st_ino == (store / "abcd").stat().st_ino
+        (copy / "ab" / "new-in-the-copy").write_text("x", encoding="utf-8")
+        check("a copy gets the reference's filestore by hard links, and its new files stay its own",
+              same_inode and not (store / "new-in-the-copy").exists())
 
     if failures:
         print("\n".join(["", "FAILED:"] + failures))

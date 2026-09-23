@@ -652,6 +652,71 @@ _ES: dict[str, str] = {
     "findings/ first if you need them.":
         "También borra el registro de hallazgos y todas las decisiones del cliente anotadas en "
         "él: copie findings/ antes si los necesita.",
+    # --- taking in a client copy ---
+    "Create database {}": "Crear la base de datos {}",
+    "Restore {} into {} (errors kept in {})": "Restaurar {} en {} (errores guardados en {})",
+    "Grant {} read access to {}, secrets excluded":
+        "Dar a {} acceso de lectura a {}, sin los secretos",
+    "Unpack {} into {}": "Desempaquetar {} en {}",
+    "Make {} read-only": "Dejar {} en solo lectura",
+    "Fetch the {} {} history (no file contents)":
+        "Descargar la historia de {} {} (sin contenido de ficheros)",
+    "Move the filestore into {}": "Mover el filestore a {}",
+    "Copy {} to {}": "Copiar {} en {}",
+    "Fetch {} {} at commit {}": "Descargar {} {} en el commit {}",
+    "Create the read-only role {} (password to ~/.pgpass, never shown)":
+        "Crear el rol de solo lectura {} (contraseña en ~/.pgpass, nunca se muestra)",
+    "Refresh the {} {} history": "Actualizar la historia de {} {}",
+    "Reference database (never modified)": "Base de referencia (nunca se modifica)",
+    "Read-only role": "Rol de solo lectura",
+    "Working copy database": "Base de datos de trabajo (copia)",
+    "Client name (for the findings ledger)": "Nombre del cliente (para el registro de hallazgos)",
+    "Flavour": "Variante",
+    "Differing": "Distintos",
+    "Patched": "Parcheados",
+    "Client-only": "Solo del cliente",
+    "Commit": "Commit",
+    "{} will be created as a copy of {}. Neutralise it before starting Odoo on it.":
+        "Se creará {} como copia de {}. Neutralízala antes de arrancar Odoo sobre ella.",
+    "{} column(s) will be hidden from {}.": "Se ocultarán {} columna(s) a {}.",
+    "{} core file(s) differ from official {} head; reading history…":
+        "{} fichero(s) del core difieren del oficial {} actual; leyendo la historia…",
+    "\nTake in a client copy ({} → {})": "\nRecibir una copia de cliente ({} → {})",
+    "Intake recorded: {}": "Recepción anotada: {}",
+    "No intake yet: restore the client's dump first.":
+        "Todavía no hay recepción: restaura primero el dump del cliente.",
+    "Client dump (pg_dump -Fc)": "Dump del cliente (pg_dump -Fc)",
+    "Database {} exists (or cannot be checked); it is not replaced.":
+        "La base de datos {} existe (o no se puede comprobar); no se sustituye.",
+    "{} tables restored of {} in the dump: the reference may be incomplete.":
+        "{} tablas restauradas de {} en el dump: la referencia puede estar incompleta.",
+    "Client add-ons archive (.tar/.tar.gz)": "Archivo de addons del cliente (.tar/.tar.gz)",
+    "Unpack the client's add-ons archive first.":
+        "Desempaqueta primero el archivo de addons del cliente.",
+    "Cannot read the configuration file.": "No se puede leer el fichero de configuración.",
+    "Classify the client's add-ons archive first.":
+        "Clasifica primero el archivo de addons del cliente.",
+    "No core add-ons under {}.": "No hay addons del core en {}.",
+    "Client filestore archive (.tar/.tar.gz)": "Archivo del filestore del cliente (.tar/.tar.gz)",
+    "Identify the client's core first.": "Identifica primero el core del cliente.",
+    "Finding {} is already in the ledger; left as it is.":
+        "El hallazgo {} ya está en el registro; se deja como está.",
+    "Client odoo.conf": "odoo.conf del cliente",
+    "Take in a client copy": "Recibir una copia de cliente",
+    "Restore the client's dump": "Restaurar el dump del cliente",
+    "Create the read-only role": "Crear el rol de solo lectura",
+    "Unpack the client's add-ons archive": "Desempaquetar el archivo de addons del cliente",
+    "Classify the add-ons archive": "Clasificar el archivo de addons",
+    "Identify the client's core": "Identificar el core del cliente",
+    "Unpack the client's filestore": "Desempaquetar el filestore del cliente",
+    "Build the client's source": "Montar el origen del cliente",
+    "Copy the reference to a working database": "Copiar la referencia a una base de trabajo",
+    "Show the intake": "Mostrar la recepción",
+    "Install the client's modules' Python dependencies for {}":
+        "Instalar las dependencias Python de los módulos del cliente para {}",
+    "Comparing the client's core with {} sampled commits…":
+        "Comparando el core del cliente con {} commits de muestra…",
+    "No history to compare with.": "No hay historia con la que comparar.",
     # --- neutralising a copy of production ---
     "Check whether a database can act on the outside. Reads only.":
         "Comprueba si una base de datos puede actuar hacia fuera. Solo lee.",

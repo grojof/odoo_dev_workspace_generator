@@ -16,9 +16,12 @@ import json
 import re
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from .i18n import tf
+
+if TYPE_CHECKING:
+    from .intake import IntakeRecord
 
 # Workspace/client name: a short lowercase identifier reused for dirs, DB names,
 # and instance names, so it must be filesystem- and PostgreSQL-safe.
@@ -955,12 +958,47 @@ class MigrationEnv:
     # filled by hand, and whether a module is ported to a step's version — a
     # fact the branch states — is answered by whoever last copied something in.
     oca_repos: list[str] = field(default_factory=list)
+    # What taking in a client copy established (``intake.json``), loaded by the
+    # workflow — this module does no I/O. None: the source is official Odoo at the
+    # branch head, as for a demo seed.
+    intake: IntakeRecord | None = None
 
     # --- derived ----------------------------------------------------------
 
     @property
     def root(self) -> Path:
         return Path(self.base_dir).expanduser() / f"{odoo_major(self.source)}-to-{odoo_major(self.target)}"
+
+    @property
+    def intake_file(self) -> Path:
+        return self.root / "intake.json"
+
+    @property
+    def client_src_dir(self) -> Path:
+        """Where the client's add-ons archive is unpacked, read-only, as delivered."""
+        return self.root / "client-src"
+
+    @property
+    def data_dir(self) -> Path:
+        """Odoo's ``data_dir`` for this environment's databases: the filestore lives
+        in ``filestore/<database>`` under it."""
+        return self.root / "data"
+
+    @property
+    def history_dir(self) -> Path:
+        """Blobless histories of Odoo and OCB, shared by every environment: trees
+        without file contents, enough to compare a client's core by content hash."""
+        return self.repos_dir / "history"
+
+    @property
+    def source_clone_dir(self) -> Path:
+        """The source Odoo: the core the intake identified, pinned at its commit
+        (the directory name carries the commit, so nothing moves it), else plain
+        Odoo at the branch head."""
+        if self.intake is not None and self.intake.core is not None:
+            core = self.intake.core
+            return self.repos_dir / f"{core.flavour}-{self.source}-{core.commit[:12]}"
+        return self.odoo_clone_dir(self.source)
 
     @property
     def repos_dir(self) -> Path:
@@ -1021,7 +1059,7 @@ class MigrationEnv:
         12.0 at all, so the seed's precondition failed on a path that could never
         exist — while the clone it needed was right there.
         """
-        return self.odoo_clone_dir(self.source) / "odoo-bin"
+        return self.source_clone_dir / "odoo-bin"
 
     @property
     def source_addons_path(self) -> str:
@@ -1033,7 +1071,12 @@ class MigrationEnv:
         there is no OpenUpgrade branch at all — the 12 to 13 step runs OpenUpgrade
         13. A seed needs the plain clone.
         """
-        odoo = self.odoo_clone_dir(self.source)
+        odoo = self.source_clone_dir
+        if self.intake is not None and self.intake.core is not None:
+            # What the client runs: their directories in their order, then the core.
+            archive = self.root / self.intake.archive_root
+            client = tuple(archive / d for d in self.intake.addons_dirs)
+            return ",".join(str(p) for p in (*client, odoo / "addons", odoo / "odoo" / "addons"))
         parts = (
             self.addons_custom_dir(self.source),
             *self.oca_dirs(self.source),
