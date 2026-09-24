@@ -654,8 +654,10 @@ def main() -> int:
                 f"{{'name': 'x', 'external_dependencies': {{'python': {deps}}}}}")
         apriori = Path(tmp) / "apriori.py"
         apriori.write_text("renamed_modules = {'renamed_old': 'renamed_new'}\n")
+        lenient = Path(tmp) / "odoo16_module.py"
+        lenient.write_text("# no packaging fallback\n")
         script = (templates._render_python_deps_helper()
-                  + f"\npython_deps_step 13.0 {sys.executable} {apriori} {src}\n")
+                  + f"\npython_deps_step 13.0 {sys.executable} {apriori} {lenient} {src}\n")
         run = subprocess.run(
             ["bash", "-c", script], capture_output=True, text=True,
             env={**os.environ, "ODWG_MODULES_TSV": "needs_missing\tA\nneeds_newer\tB\n"
@@ -668,6 +670,25 @@ def main() -> int:
                   f"{importlib.metadata.version('pytest')} installed",
                   "[python] renamed_new needs surely_not_installed_odwg for 13.0: not installed",
               ], run.stderr)
+        # Odoo 18 reads a versioned requirement with `packaging` and fails without
+        # it; the first client's 18.0 step stopped on `paramiko<4.0.0` that way.
+        strict = Path(tmp) / "odoo18_module.py"
+        strict.write_text("msg = f'Package `packaging` is required to parse `{pydep}`'\n")
+        bare = Path(tmp) / "python-without-site"
+        bare.write_text(f'#!/bin/bash\nexec {sys.executable} -S "$@"\n')
+        bare.chmod(0o755)
+        (src / "versioned").mkdir()
+        (src / "versioned" / "__manifest__.py").write_text(
+            "{'name': 'x', 'external_dependencies': {'python': ['json<999', 'json']}}")
+        script = (templates._render_python_deps_helper()
+                  + f"\npython_deps_step 18.0 {bare} {apriori} {strict} {src}\n")
+        run = subprocess.run(["bash", "-c", script], capture_output=True, text=True,
+                             env={**os.environ, "ODWG_MODULES_TSV": "versioned\tA\n"})
+        lines = [line for line in run.stderr.splitlines() if line.startswith("[python]")]
+        check("an Odoo that needs packaging to read a versioned requirement is checked as it reads",
+              run.returncode == 1 and lines == [
+                  "[python] versioned needs json<999 for 18.0: packaging is not installed, "
+                  "and this Odoo needs it to read it"], run.stderr)
 
     if failures:
         print("\n".join(["", "FAILED:"] + failures))

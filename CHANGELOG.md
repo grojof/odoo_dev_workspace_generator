@@ -165,6 +165,9 @@ All notable changes to this project are documented here. The format is based on
   generating with an intake, the tool offers to install each step's libraries. They are read from
   that step's manifests and held to what the venv has. The driver checks them before each step with
   the step's own interpreter, as Odoo does, and stops in seconds, naming the module and the library.
+  Odoo 18 reads a requirement with a version or a marker through `packaging` and does not list it, so
+  the first client's 18.0 step stopped on `paramiko<4.0.0`. A step whose Odoo says so in its own
+  `odoo/modules/module.py` now gets `packaging`, and the check reads that file too.
 - **The preflight predicts what the chain installs by itself.** The first client's 13.0 step installed
   two OCA glue modules with no code at 14.0, and the driver stopped there. The preflight now lists, per
   step, the new dependencies and the `auto_install` modules that follow. It uses the rule that step's own

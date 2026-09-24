@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import shlex
+from pathlib import Path
 from xml.sax.saxutils import escape
 
 from . import egress, neutralise, tester
@@ -874,7 +875,8 @@ def _render_step_preconditions(env: MigrationEnv, version: str) -> str:
     lines.append(
         f'  ODWG_MODULES_TSV="$step_modules" python_deps_step {version} '
         f"{shlex.quote(str(env.venv_dir(version) / 'bin' / 'python'))} "
-        f"{shlex.quote(str(env.apriori_file(version)))} {sources} "
+        f"{shlex.quote(str(env.apriori_file(version)))} "
+        f"{shlex.quote(str(odoo_module_file(env, version)))} {sources} "
         f'|| die "{version}: its modules need Python libraries its venv lacks (see [python] '
         f'lines above) — regenerating the environment offers to install them"\n'
     )
@@ -943,6 +945,11 @@ def _render_preflight_host(env: MigrationEnv) -> str:
     return "\n".join(lines)
 
 
+def odoo_module_file(env: MigrationEnv, version: str) -> Path:
+    """The step's own ``odoo/modules/module.py``: how it reads external dependencies."""
+    return Path(env.odoo_bin(version)).parent / "odoo" / "modules" / "module.py"
+
+
 def _render_python_deps_helper() -> str:
     """``python_deps_step``: what the step's modules declare, checked in its own venv.
 
@@ -953,11 +960,17 @@ def _render_python_deps_helper() -> str:
     the module and the library."""
     return "\n".join([
         "python_deps_step() {",
-        '  local version="$1" py="$2" apriori="$3"; shift 3',
-        "  \"$py\" - \"$version\" \"$apriori\" \"$@\" <<'PYDEPS'",
+        '  local version="$1" py="$2" apriori="$3" odoo_module="$4"; shift 4',
+        "  \"$py\" - \"$version\" \"$apriori\" \"$odoo_module\" \"$@\" <<'PYDEPS'",
         "import ast, importlib, os, re, sys, warnings",
         "warnings.simplefilter('ignore')  # pkg_resources' deprecation, on every lookup",
-        "version, apriori, *sources = sys.argv[1:]",
+        "version, apriori, odoo_module, *sources = sys.argv[1:]",
+        "# Odoo 18 parses a dependency with a version or a marker with `packaging`, and",
+        "# fails on it when `packaging` is missing: read from the step's own Odoo.",
+        "try:",
+        "    strict = 'Package `packaging` is required' in open(odoo_module, encoding='utf-8').read()",
+        "except OSError:",
+        "    strict = False",
         "renames = {}",
         "try:",
         "    tree = ast.parse(open(apriori, encoding='utf-8').read())",
@@ -996,6 +1009,11 @@ def _render_python_deps_helper() -> str:
         "            continue",
         "    return None",
         "def problem(dep):",
+        r"    if strict and not re.fullmatch(r'[\w\-]+', dep):",
+        "        try:",
+        "            importlib.import_module('packaging.requirements')",
+        "        except Exception:",
+        "            return 'packaging is not installed, and this Odoo needs it to read it'",
         "    text, _, marker = dep.partition(';')",
         "    markers = packaging('markers')",
         "    if marker.strip() and markers is not None:",

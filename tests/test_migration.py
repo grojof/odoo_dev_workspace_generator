@@ -519,3 +519,29 @@ def test_a_steps_hooks_wrap_it_and_run_before_its_checkpoint(monkeypatch, tmp_pa
         post = driver.index(f'step_hook "{version}" post')
         assert pre < driver.index(f"step {version} failed") < post
         assert post < driver.index(f'checkpoint "{version}"', post)
+
+
+def test_a_step_whose_odoo_needs_packaging_to_read_a_version_gets_it(monkeypatch, tmp_path):
+    """Odoo 18 reads a requirement with a version through `packaging` and does not
+    list it; the first client's 18.0 step stopped on `paramiko<4.0.0`."""
+    from pathlib import Path
+
+    from odoo_dwg import preflight
+    from odoo_dwg.workflows.migration import step_python_requirements
+
+    monkeypatch.setattr(MigrationEnv, "base_dir", str(tmp_path))
+    env = MigrationEnv(source="12.0", target="14.0")
+    for version in env.chain():
+        path = preflight.apriori_path(env, version)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("renamed_modules = {}\nmerged_modules = {}\n")
+        module = env.addons_oca_dir(version) / "backup"
+        module.mkdir(parents=True)
+        (module / "__manifest__.py").write_text(
+            "{'name': 'x', 'external_dependencies': {'python': ['paramiko<4.0.0']}}")
+    preflight._APRIORI_CACHE.clear()
+    reader = templates.odoo_module_file(env, "14.0")
+    Path(reader).parent.mkdir(parents=True)
+    Path(reader).write_text("msg = 'Package `packaging` is required to parse'\n")
+    assert step_python_requirements(env, ["backup"]) == {
+        "13.0": ["paramiko<4.0.0"], "14.0": ["paramiko<4.0.0", "packaging"]}

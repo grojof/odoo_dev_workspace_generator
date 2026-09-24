@@ -114,9 +114,16 @@ def step_python_requirements(env: MigrationEnv, installed: list[str]) -> dict[st
                 break
             if renames.get(name):
                 carried[module] = renames[name]
-        requirements = pip_requirements(declared)
+        requirements = list(pip_requirements(declared))
+        # Odoo 18 needs `packaging` to read a requirement with a version or a
+        # marker, and does not list it: read from the step's own Odoo.
+        module_py = _read_text(templates.odoo_module_file(env, version)) or ""
+        if ("Package `packaging` is required" in module_py
+                and any(not re.fullmatch(r"[\w\-]+", r) for r in requirements)
+                and "packaging" not in requirements):
+            requirements.append("packaging")
         if requirements:
-            out[version] = list(requirements)
+            out[version] = requirements
     return out
 
 
