@@ -705,3 +705,41 @@ def archive_top(archive: Path | str) -> str | None:
     proc.kill()
     proc.wait()
     return first.removeprefix("./").split("/")[0] or None
+
+
+def github_org_repos(org: str, timeout: float = 30.0) -> list[str] | None:
+    """Every public repository of a GitHub organisation, or None when the listing fails.
+
+    Unauthenticated: sixty requests an hour, and an organisation of a few hundred
+    repositories takes three. Paginated until a page comes back empty."""
+    import urllib.error
+    import urllib.request
+
+    from .intake import parse_repo_page
+
+    names: list[str] = []
+    for page in range(1, 20):
+        url = f"https://api.github.com/orgs/{org}/repos?per_page=100&type=public&page={page}"
+        request = urllib.request.Request(url, headers={"User-Agent": "odoo-dwg",
+                                                       "Accept": "application/vnd.github+json"})
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                batch = parse_repo_page(response.read().decode("utf-8"))
+        except (urllib.error.URLError, OSError, ValueError):
+            return None
+        if batch is None:
+            return None
+        if not batch:
+            return sorted(set(names))
+        names += batch
+    return sorted(set(names))
+
+
+def tree_modules(repo: Path | str) -> set[str]:
+    """Module directories at the top of a git tree (manifest by either name), read from
+    the tree alone — the trees are fetched without file contents."""
+    from .intake import MANIFESTS
+
+    listing = git_output(repo, "ls-tree", "-r", "--name-only", "HEAD") or ""
+    return {path.split("/")[0] for path in listing.splitlines()
+            if path.count("/") == 1 and path.split("/")[1] in MANIFESTS}

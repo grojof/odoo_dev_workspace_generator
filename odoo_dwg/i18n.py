@@ -712,6 +712,21 @@ _ES: dict[str, str] = {
     "Build the client's source": "Montar el origen del cliente",
     "Copy the reference to a working database": "Copiar la referencia a una base de trabajo",
     "Show the intake": "Mostrar la recepción",
+    "Fetch the OCA {} tree(s) for {}": "Descargar el árbol de OCA {} para {}",
+    "Could not tell what the reference can act on; nothing recorded.":
+        "No se pudo saber qué puede hacer la referencia hacia fuera; no se anota nada.",
+    "No apriori.py read for: {}": "No se leyó ningún apriori.py para: {}",
+    "The scanner fails its own control for: {}. No result is reported.":
+        "El escáner falla su propio control en: {}. No se informa ningún resultado.",
+    "Could not list OCA's repositories: gaps are provisional.":
+        "No se pudieron listar los repositorios de la OCA: los huecos son provisionales.",
+    "{} OCA tree(s) to fetch for the steps with gaps: {}":
+        "{} árbol(es) de la OCA por descargar para los pasos con huecos: {}",
+    "Survey what the copy can act on": "Sondear qué puede hacer la copia hacia fuera",
+    "Check each installed module along the chain":
+        "Comprobar cada módulo instalado a lo largo de la cadena",
+    "Scan the client's own code for network calls":
+        "Buscar llamadas de red en el código propio del cliente",
     "Install the client's modules' Python dependencies for {}":
         "Instalar las dependencias Python de los módulos del cliente para {}",
     "Comparing the client's core with {} sampled commits…":

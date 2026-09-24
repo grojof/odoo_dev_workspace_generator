@@ -200,6 +200,28 @@ CATALOGUE: tuple[Rule, ...] = (
          (("value", "'True'"),), requires=("key",), label="key"),
 )
 
+#: How much harm each rule guards against from a copy: what a survey of a copy
+#: ranks its findings by. Declared here, once, so the survey invents nothing.
+SEVERITY: dict[str, str] = {
+    "crons": "high", "queued-jobs": "high",
+    "sii-oca": "critical", "sii-odoo": "critical", "ticketbai": "critical",
+    "edi-proxy": "critical", "peppol-mode": "critical",
+    "payment-provider": "critical", "payment-acquirer-state": "critical",
+    "payment-acquirer-environment": "critical",
+    "delivery-environment": "high", "delivery-external": "high", "oauth": "high",
+    "google-calendar-users": "high", "google-calendar-settings": "high",
+    "microsoft-calendar-users": "high", "microsoft-calendar-settings": "high",
+    "webhooks": "high",
+    "iap": "medium", "mail-template-server": "medium", "website-domain": "medium",
+    "website-cdn": "medium", "base-url": "medium", "base-url-freeze": "medium",
+    "database-uuid": "low", "neutralised-flag": "info", "neutralised-banner": "info",
+}
+
+
+def severity(rule_id: str) -> str:
+    return SEVERITY[rule_id]
+
+
 INSERTS: tuple[Insert, ...] = (
     Insert("neutralised-flag-insert", _ODOO_NEUTRALIZE.format("16.0-19.0", "odoo/addons/base"),
            "database.is_neutralized", "True"),

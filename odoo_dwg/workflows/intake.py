@@ -18,7 +18,7 @@ from pathlib import Path
 
 from .. import findings as fl
 from .. import intake as it
-from .. import planners
+from .. import neutralise, planners, preflight
 from ..i18n import t, tf
 from ..models import DB_NAME_RE, Command, MigrationEnv
 from ..planners import write_text_file_command
@@ -27,6 +27,7 @@ from ..system import (
     archive_top,
     git_output,
     git_raw_log,
+    github_org_repos,
     psql_rows,
     psql_scalar,
     read_text,
@@ -34,9 +35,10 @@ from ..system import (
     run,
     scan_manifests,
     tree_blobs,
+    tree_modules,
 )
 from ..ui import level_text, render_table
-from .common import apply_if_confirmed
+from .common import apply_if_confirmed, armed_state, mail_state
 
 #: Commits compared per history before refining between the best sample's
 #: neighbours. A tree listing costs a few hundredths of a second, so a whole
@@ -432,6 +434,203 @@ def copy_reference(env: MigrationEnv) -> None:
         apply_if_confirmed(planners.plan_copy_database(env, record.reference_database, copy))
 
 
+def _read_tsv(env: MigrationEnv, name: str) -> list[list[str]]:
+    text = read_text(str(env.findings_data_dir / name)) or ""
+    return [line.split("\t") for line in text.splitlines()[1:] if line.strip()]
+
+
+def survey_outbound(env: MigrationEnv) -> None:
+    """What the reference can act on, read as its owner, recorded as findings."""
+    record = _current(env)
+    if record is None:
+        return
+    ref = record.reference_database
+    armed = armed_state(ref, env.db_host, env.db_port, env.db_user)
+    mail = mail_state(ref, env.db_host, env.db_port, env.db_user)
+    if armed is None or mail is None:
+        print(level_text("ERROR", t("Could not tell what the reference can act on; nothing "
+                                    "recorded.")))
+        return
+    rows: dict[str, list[list[str]]] = {}
+    for key, sql in it.SURVEY_SQL.items():
+        exists = psql_scalar(f"SELECT to_regclass('{it.SURVEY_TABLES[key]}') IS NOT NULL", ref,
+                             env.db_host, env.db_port, env.db_user)
+        rows[key] = (psql_rows(sql, ref, env.db_host, env.db_port, env.db_user) or []
+                     if exists == "t" else [])
+    found = [_finding(f"intake-armed-{a.rule}", neutralise.severity(a.rule), a.rule,
+                      f"{a.count} row(s) can act on the outside through '{a.rule}'"
+                      f"{': ' + a.sample if a.sample else ''}.",
+                      {"rule": a.rule, "rows": a.count, "sample": a.sample},
+                      f"odoo-dwg neutralise check --database {ref}",
+                      "neutralise every working copy") for a in armed]
+    if mail.escaping:
+        found.append(_finding("intake-armed-mail", "high", "ir_mail_server",
+                              f"{len(mail.escaping)} active mail server(s) point outside.",
+                              {"servers": [f"{s.host}:{s.port}" for s in mail.escaping]},
+                              f"odoo-dwg mail check --database {ref}", "capture the mail"))
+    overdue = it.overdue_crons(rows["crons"])
+    if overdue:
+        found.append(_finding("intake-crons-overdue", "high", "ir_cron",
+                              f"{len(overdue)} active cron(s) are past their next call: every one "
+                              "fires at the first start.", {"crons": len(overdue)},
+                              "findings/data/intake-crons.tsv", "neutralise before any start"))
+    for queue in it.read_mail_queue(rows["mail"]):
+        if queue.state == "exception":
+            found.append(_finding("intake-mail-failed", "high", "mail_mail",
+                                  f"{queue.count} outgoing mail(s) failed, from {queue.first} to "
+                                  f"{queue.last}; a retry would send them.",
+                                  {"count": queue.count, "first": queue.first, "last": queue.last},
+                                  "select state, count(*) from mail_mail group by 1",
+                                  "ask the client whether to purge them before any working SMTP"))
+    _record(env, record, found, {
+        "intake-crons.tsv": [["cron", "every", "next_call", "days_overdue"], *rows["crons"]],
+        "intake-queue.tsv": [["channel", "state", "jobs"], *rows["queue"]],
+        "intake-mail-queue.tsv": [["state", "mails", "first", "last"], *rows["mail"]],
+        "intake-armed.tsv": [["rule", "severity", "rows", "sample"],
+                             *[[a.rule, neutralise.severity(a.rule), str(a.count), a.sample]
+                               for a in armed]],
+    })
+
+
+def _installed_origins(env: MigrationEnv, record: it.IntakeRecord) -> dict[str, tuple[str, str]]:
+    remotes = {row[0]: row[1] for row in _read_tsv(env, "intake-repos.tsv") if len(row) > 1}
+    prefix = f"{record.core_dir}/" if record.core_dir else ""
+    core = {f"{prefix}odoo/addons", f"{prefix}addons"}
+    out = {}
+    for row in _read_tsv(env, "intake-installed.tsv"):
+        if len(row) < 2 or row[1] == "MISSING":
+            continue
+        origin = it.module_origin(row[1], core, remotes)
+        out[row[0]] = (origin, it.oca_repo(remotes.get(row[1], "")) or "")
+    return out
+
+
+def _step_modules(env: MigrationEnv, step: str, repos: set[str] | None) -> dict[str, str]:
+    """``{module: "core" | repo}`` at a step: the core first, then OCA trees."""
+    core = env.openupgrade_clone_dir(step) if env.uses_legacy_layout(step) \
+        else env.odoo_clone_dir(step)
+    found = {m: "core" for _d, m, _f in scan_manifests(core, ["addons", "odoo/addons"])}
+    trees = env.repos_dir / "oca-trees"
+    for tree in sorted(trees.glob(f"*-{step}")):
+        repo = tree.name[: -len(step) - 1]
+        if tree.is_dir() and (repos is None or repo in repos):
+            for module in tree_modules(tree):
+                found.setdefault(module, repo)
+    return found
+
+
+def check_availability(env: MigrationEnv) -> None:
+    """Each installed Odoo/OCA module at each step; all of OCA where gaps remain."""
+    record = _current(env)
+    if record is None:
+        return
+    installed = _installed_origins(env, record)
+    if not installed:
+        print(level_text("INFO", t("Classify the client's add-ons archive first.")))
+        return
+    steps = env.chain()
+    client_repos = {repo for origin, repo in installed.values() if origin == "oca" and repo}
+    missing = {r: [v for v in steps if not planners.oca_tree_dir(env, r, v).exists()
+                   and not Path(f"{planners.oca_tree_dir(env, r, v)}.absent").exists()]
+               for r in client_repos}
+    missing = {r: v for r, v in missing.items() if v}
+    if missing and not apply_if_confirmed(planners.plan_oca_trees(env, missing)):
+        return
+    modules = sorted(m for m, (origin, _r) in installed.items() if origin != "custom")
+    fates, unread = preflight.chain_fates(modules, [(v, env.apriori_file(v)) for v in steps])
+    if unread:
+        print(level_text("WARN", tf("No apriori.py read for: {}", ", ".join(unread))))
+    found = {v: _step_modules(env, v, client_repos) for v in steps}
+    rows = it.availability(installed, fates, steps, found)
+    gap_steps = sorted({steps[i] for r in rows for i in r.gaps})
+    if gap_steps:
+        listing = github_org_repos("OCA")
+        if listing is None:
+            print(level_text("WARN", t("Could not list OCA's repositories: gaps are provisional.")))
+        else:
+            wanted = {r: [v for v in gap_steps if not planners.oca_tree_dir(env, r, v).exists()
+                          and not Path(f"{planners.oca_tree_dir(env, r, v)}.absent").exists()]
+                      for r in listing}
+            wanted = {r: v for r, v in wanted.items() if v}
+            print(level_text("INFO", tf("{} OCA tree(s) to fetch for the steps with gaps: {}",
+                                        str(sum(len(v) for v in wanted.values())),
+                                        ", ".join(gap_steps))))
+            if wanted and not apply_if_confirmed(planners.plan_oca_trees(env, wanted)):
+                return
+            found = {v: _step_modules(env, v, None) for v in steps}
+            rows = it.availability(installed, fates, steps, found)
+    gaps = [r for r in rows if r.gaps]
+    moved = [r for r in rows if r.moved]
+    port = [r.module for r in rows if r.origin == "custom"]
+    found_list = [_finding(
+        "intake-availability", "info", "installed modules along the chain",
+        f"{len(rows)} installed modules: {len(gaps)} with gaps, {len(moved)} moved repository, "
+        f"{len(port)} custom to port.", {"gaps": len(gaps), "moved": len(moved),
+                                        "custom": len(port)},
+        "findings/data/intake-availability.tsv", "decide per gap: replace, drop or port")]
+    if gaps:
+        found_list.append(_finding(
+            "intake-gaps", "high", "OCA modules",
+            "Installed modules whose code is found in no OCA repository at some step.",
+            {r.module: [steps[i] for i in r.gaps] for r in gaps},
+            "findings/data/intake-availability.tsv (MISSING)",
+            "per module: replace, uninstall before the chain, or port the missing step"))
+    if moved:
+        found_list.append(_finding(
+            "intake-moved", "info", "OCA modules", "Modules found in another OCA repository at "
+            "a later step: the chain must clone that repository.",
+            {r.module: sorted({w for w in r.where if w not in ("core", "MISSING")})
+             for r in moved}, "findings/data/intake-availability.tsv",
+            "add those repositories to the environment"))
+    _record(env, record, found_list, {"intake-availability.tsv": [
+        ["module", "origin", "source_repo", "merged_at", *steps],
+        *[[r.module, r.origin, r.source_repo, r.merged_at, *r.where] for r in rows]]})
+
+
+def scan_custom(env: MigrationEnv) -> None:
+    """The client's own installed modules, scanned for network calls — once the
+    scanner has shown it matches what it looks for."""
+    record = _current(env)
+    if record is None:
+        return
+    broken = it.scanner_self_test()
+    if broken:
+        print(level_text("ERROR", tf("The scanner fails its own control for: {}. No result is "
+                                     "reported.", ", ".join(broken))))
+        return
+    installed = _installed_origins(env, record)
+    loads = {row[0]: row[1] for row in _read_tsv(env, "intake-installed.tsv") if len(row) > 1}
+    archive = env.root / record.archive_root
+    hits: list[list[str]] = []
+    files = 0
+    custom = sorted(m for m, (origin, _r) in installed.items() if origin == "custom")
+    for module in custom:
+        base = archive / loads[module] / module
+        for path in sorted(base.rglob("*.py")):
+            rel = str(path.relative_to(base))
+            if it.scan_skipped(rel):
+                continue
+            files += 1
+            for number, pattern, line in it.scan_source(read_text(str(path)) or ""):
+                hits.append([module, rel, str(number), pattern, line])
+    found = [_finding(
+        "intake-custom-scan", "info", "custom modules",
+        f"Scanned {len(custom)} custom module(s), {files} Python file(s), the scanner passing its "
+        f"control first: {len(hits)} line(s) read as network calls or processes.",
+        {"modules": len(custom), "files": files, "hits": len(hits)},
+        "findings/data/intake-custom-scan.tsv",
+        "read every hit; none found means no pattern matched, not that the code is safe")]
+    for module in sorted({h[0] for h in hits}):
+        mine = [h for h in hits if h[0] == module]
+        found.append(_finding(
+            f"intake-network-{module.replace('_', '-').lower()}", "high", module,
+            f"{len(mine)} line(s) of {module} read as network calls or processes.",
+            {"hits": [f"{h[1]}:{h[2]} {h[3]}" for h in mine[:20]]},
+            "findings/data/intake-custom-scan.tsv", "read them; neutralise what they reach"))
+    _record(env, record, found, {"intake-custom-scan.tsv": [
+        ["module", "file", "line", "pattern", "text"], *hits]})
+
+
 def show_intake(env: MigrationEnv) -> None:
     record = _current(env)
     if record is not None:
@@ -448,6 +647,9 @@ def intake_menu(env: MigrationEnv) -> None:
         "Unpack the client's filestore": unpack_filestore,
         "Build the client's source": build_source,
         "Copy the reference to a working database": copy_reference,
+        "Survey what the copy can act on": survey_outbound,
+        "Check each installed module along the chain": check_availability,
+        "Scan the client's own code for network calls": scan_custom,
         "Show the intake": show_intake,
     }
     while True:

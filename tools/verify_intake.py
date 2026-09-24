@@ -239,6 +239,58 @@ def main() -> int:
         check("a file no commit ever had is a local patch, by path",
               local.flavour == "patched" and local.patched == ("addons/web/a.py",), local)
 
+        # --- modules along the chain, on real OCA-like repositories ----------------------
+        org = root / "OCA"
+        layout = {  # repo -> version -> modules
+            "web": {"13.0": ["web_moved", "web_kept"], "14.0": ["web_kept"]},
+            "web-extra": {"14.0": ["web_moved"]},
+            "account-invoicing": {"12.0": ["never_ported"]},   # no 13.0 or 14.0 branch
+        }
+        for repo, versions in layout.items():
+            work = root / "work" / repo
+            work.mkdir(parents=True)
+            subprocess.run(["git", "init", "-q", str(work)], check=True)
+            for version, modules in versions.items():
+                subprocess.run(["git", "-C", str(work), "checkout", "-q", "--orphan", version],
+                               check=True)
+                subprocess.run(["git", "-C", str(work), "rm", "-rqf", "--ignore-unmatch", "."],
+                               check=True, capture_output=True)
+                for module in modules:
+                    (work / module).mkdir(exist_ok=True)
+                    (work / module / "__manifest__.py").write_text("{}\n")
+                subprocess.run(["git", "-C", str(work), "add", "-A"], check=True)
+                subprocess.run(["git", "-C", str(work), "commit", "-qm", version], check=True,
+                               env={**os.environ, **git})
+            subprocess.run(["git", "clone", "-q", "--bare", str(work), str(org / f"{repo}.git")],
+                           check=True)
+        want = {"web": ["13.0", "14.0"], "web-extra": ["13.0", "14.0"],
+                "account-invoicing": ["13.0", "14.0"]}
+        for command in planners.plan_oca_trees(env, want, base=f"file://{org}"):
+            run = _bash(command.command)
+            check(f"tree plan: {command.description}", run.returncode == 0, run.stderr)
+        absent = planners.oca_tree_dir(env, "account-invoicing", "13.0")
+        check("a branch that does not exist is remembered as absent, not cloned",
+              Path(f"{absent}.absent").exists() and not absent.exists())
+        found = {v: {} for v in ("13.0", "14.0")}
+        for repo in layout:
+            for version in found:
+                tree = planners.oca_tree_dir(env, repo, version)
+                if tree.is_dir():
+                    for module in system.tree_modules(tree):
+                        found[version].setdefault(module, repo)
+        rows = {r.module: r for r in intake.availability(
+            {"web_moved": ("oca", "web"), "never_ported": ("oca", "account-invoicing")},
+            [], ["13.0", "14.0"], found)}
+        check("a module that moved repository is found at every step, and marked moved",
+              rows["web_moved"].where == ("web", "web-extra") and rows["web_moved"].moved)
+        check("a module no repository ports is a gap at every step",
+              rows["never_ported"].gaps == (0, 1))
+        broken = planners.plan_oca_trees(env, {"web": ["15.0"]}, base="file:///nonexistent/OCA")
+        failed = _bash(broken[0].command)
+        check("an unreachable remote stops the step instead of being taken for an absent branch",
+              failed.returncode != 0 and not Path(f"{planners.oca_tree_dir(env, 'web', '15.0')}"
+                                                  ".absent").exists(), failed.returncode)
+
         # --- the filestore ---------------------------------------------------------------
         store = root / "fs-src" / "whatever" / "ACME"
         # As Odoo lays it out: the buckets, and checklist/ with as many buckets of

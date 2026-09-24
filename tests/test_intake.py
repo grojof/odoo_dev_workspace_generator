@@ -312,3 +312,79 @@ def test_the_source_venv_gets_the_clients_python_dependencies():
     assert "uv pip install --python" in text and "pyOpenSSL zeep" in text
     # Never upgrades what Odoo pinned: constrained to what the venv holds.
     assert "uv pip freeze" in text and '-c "$held"' in text
+
+
+# --- survey, availability, scan (spec 3b) -----------------------------------------------
+
+def test_the_survey_only_reads_and_its_rows_are_read():
+    import re
+    writes = re.compile(r"\b(INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|TRUNCATE)\b", re.I)
+    for sql in it.SURVEY_SQL.values():  # whole words: create_date is a column, not a statement
+        assert not writes.search(sql), sql
+    queue = it.read_mail_queue([["exception", "12", "2022-01-03", "2026-09-01"], ["bad"]])
+    assert queue == [it.MailQueue("exception", 12, "2022-01-03", "2026-09-01")]
+    crons = it.overdue_crons([["Mail queue", "1 hours", "2026-09-21 11:00", "3"], ["x"]])
+    assert crons == [["Mail queue", "1 hours", "2026-09-21 11:00", "3"]]
+
+
+def test_origin_comes_from_the_recorded_remote():
+    remotes = {"web": "https://github.com/OCA/web.git", "custom": "https://github.com/acme/x.git",
+               "tools": "git@github.com:OCA/server-tools"}
+    assert it.oca_repo(remotes["tools"]) == "server-tools"
+    assert it.module_origin("core/addons", {"core/addons"}, remotes) == "odoo"
+    assert it.module_origin("web", set(), remotes) == "oca"
+    assert it.module_origin("custom", set(), remotes) == "custom"
+
+
+class _Fate:
+    def __init__(self, module, kind, successor, version):
+        self.module, self.kind, self.successor, self.version = module, kind, successor, version
+
+
+STEPS = ["13.0", "14.0", "15.0"]
+
+
+def test_availability_follows_moves_merges_and_gaps():
+    installed = {"web_moved": ("oca", "web"), "old_sale": ("oca", "sale-workflow"),
+                 "never_ported": ("oca", "account-invoicing"), "acme_custom": ("custom", ""),
+                 "sale": ("odoo", "")}
+    fates = [_Fate("old_sale", "merged", "sale", "14.0")]
+    found = {"13.0": {"web_moved": "web", "old_sale": "sale-workflow", "sale": "core"},
+             "14.0": {"web_moved": "web-extra", "sale": "core"},
+             "15.0": {"web_moved": "web-extra", "sale": "core"}}
+    rows = {r.module: r for r in it.availability(installed, fates, STEPS, found)}
+    assert rows["web_moved"].where == ("web", "web-extra", "web-extra") and rows["web_moved"].moved
+    assert rows["web_moved"].gaps == ()
+    merged = rows["old_sale"]
+    assert merged.names == ("old_sale", "sale", "sale") and merged.merged_at == "14.0"
+    assert merged.where == ("sale-workflow", "core", "core") and merged.gaps == ()
+    assert rows["never_ported"].gaps == (0, 1, 2) and not rows["never_ported"].moved
+    assert rows["acme_custom"].where == ("port", "port", "port") and rows["acme_custom"].gaps == ()
+    assert rows["sale"].where == ("core", "core", "core")
+
+
+def test_the_scanner_works_before_it_is_believed(monkeypatch):
+    assert it.scanner_self_test() == []
+    code = "import requests\n# requests.get(x) in a comment\nr = requests.post(url, json=d)\n"
+    assert it.scan_source(code) == [(3, "requests", "r = requests.post(url, json=d)")]
+    assert it.scan_skipped("acme/tests/test_x.py") and it.scan_skipped("acme/migrations/1/p.py")
+    assert not it.scan_skipped("acme/models/x.py")
+    broken = (("requests", r"\brequestz\.", "r = requests.post(url)"), *it.NETWORK_PATTERNS[1:])
+    monkeypatch.setattr(it, "NETWORK_PATTERNS", broken)
+    assert it.scanner_self_test() == ["requests"]
+
+
+def test_the_org_listing_page_is_read():
+    page = json.dumps([{"name": "web"}, {"name": "server-tools"}, {"name": "x;rm"}, {"id": 3}])
+    assert it.parse_repo_page(page) == ["web", "server-tools"]
+    assert it.parse_repo_page("[]") == [] and it.parse_repo_page("{") is None
+    assert it.parse_repo_page('{"message": "API rate limit exceeded"}') is None
+
+
+def test_oca_trees_are_blobless_and_an_absent_branch_is_remembered():
+    plan = planners.plan_oca_trees(_env(), {"web": ["13.0", "14.0"], "bad;name": ["13.0"]})
+    assert len(plan) == 1
+    command = plan[0].command
+    assert command.count("--filter=blob:none --no-checkout") == 2
+    assert "ls-remote --exit-code --heads https://github.com/OCA/web.git 13.0" in command
+    assert "[ $code -eq 2 ]" in command and "web-14.0.absent" in command

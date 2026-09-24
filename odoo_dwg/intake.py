@@ -504,3 +504,169 @@ def best_commit(client: dict[str, str],
         if best is None or diff < best.differences:
             best = CommitMatch(commit, diff, only)
     return best
+
+
+# --- surveying what the copy can act on -------------------------------------------------
+
+#: Read-only queries of the survey. Each names only columns every version from 12.0
+#: to 18.0 has; the workflow runs a query only where its table exists.
+SURVEY_SQL = {
+    "crons": ("SELECT coalesce(cron_name, ''), interval_number || ' ' || interval_type, "
+              "to_char(nextcall, 'YYYY-MM-DD HH24:MI'), "
+              "greatest(0, floor(extract(epoch FROM now() - nextcall) / 86400))::int "
+              "FROM ir_cron WHERE active ORDER BY nextcall"),
+    "queue": ("SELECT coalesce(channel, ''), state, count(*) FROM queue_job "
+              "GROUP BY 1, 2 ORDER BY 1, 2"),
+    "mail": ("SELECT state, count(*), coalesce(min(create_date)::date::text, ''), "
+             "coalesce(max(create_date)::date::text, '') FROM mail_mail GROUP BY 1 ORDER BY 1"),
+}
+SURVEY_TABLES = {"crons": "ir_cron", "queue": "queue_job", "mail": "mail_mail"}
+
+
+@dataclass(frozen=True)
+class MailQueue:
+    state: str
+    count: int
+    first: str
+    last: str
+
+
+def read_mail_queue(rows: list[list[str]]) -> list[MailQueue]:
+    out = []
+    for row in rows:
+        if len(row) >= 4 and row[1].isdigit():
+            out.append(MailQueue(row[0], int(row[1]), row[2], row[3]))
+    return out
+
+
+def overdue_crons(rows: list[list[str]]) -> list[list[str]]:
+    """``[name, every, next call, days overdue]`` for the active crons past their call."""
+    return [row[:4] for row in rows if len(row) >= 4 and row[3].isdigit() and int(row[3]) >= 0]
+
+
+# --- modules along the chain ----------------------------------------------------------
+
+_OCA_REMOTE_RE = re.compile(r"github\.com[:/]OCA/([A-Za-z0-9._-]+?)(?:\.git)?/?$")
+
+
+def oca_repo(remote: str) -> str | None:
+    """The OCA repository a remote URL names, or None when it is not OCA's."""
+    match = _OCA_REMOTE_RE.search(remote.strip())
+    return match.group(1) if match else None
+
+
+def module_origin(directory: str, core_dirs: set[str], remotes: dict[str, str]) -> str:
+    """``odoo`` from the core, ``oca`` from an OCA repository, ``custom`` otherwise."""
+    if directory in core_dirs:
+        return "odoo"
+    return "oca" if oca_repo(remotes.get(directory, "")) else "custom"
+
+
+@dataclass(frozen=True)
+class Availability:
+    module: str
+    origin: str                      # "odoo" | "oca" | "custom"
+    source_repo: str                 # the OCA repository at the source version, or ""
+    names: tuple[str, ...]           # the name looked for at each step
+    where: tuple[str, ...]           # "core", an OCA repository, "MISSING" or "port"
+    merged_at: str = ""
+
+    @property
+    def gaps(self) -> tuple[int, ...]:
+        return tuple(i for i, w in enumerate(self.where) if w == "MISSING")
+
+    @property
+    def moved(self) -> bool:
+        return bool(self.source_repo) and any(
+            w not in (self.source_repo, "MISSING", "core") for w in self.where)
+
+
+def availability(installed: dict[str, tuple[str, str]], fates: list, steps: list[str],
+                 found: dict[str, dict[str, str]]) -> list[Availability]:
+    """Where each installed module's code is at each step, following its fate.
+
+    ``installed`` is ``{module: (origin, source repository)}``; ``fates`` are
+    ``preflight.ModuleFate``; ``found`` is ``{step: {module name: "core" | repo}}``.
+    A merged module is looked for under its successor's name from the step of the
+    merge; a custom module is not looked for — it is ported, not found."""
+    hops: dict[str, list] = {}
+    for fate in fates:
+        if fate.kind in ("renamed", "merged"):
+            hops.setdefault(fate.module, []).append(fate)
+    rows = []
+    for module, (origin, repo) in sorted(installed.items()):
+        if origin == "custom":
+            rows.append(Availability(module, origin, "", tuple(module for _ in steps),
+                                     tuple("port" for _ in steps)))
+            continue
+        name, merged_at, names, where = module, "", [], []
+        for step in steps:
+            for hop in hops.get(module, []):
+                if hop.version == step:
+                    name = hop.successor
+                    if hop.kind == "merged" and not merged_at:
+                        merged_at = step
+            names.append(name)
+            where.append(found.get(step, {}).get(name, "MISSING"))
+        rows.append(Availability(module, origin, repo, tuple(names), tuple(where), merged_at))
+    return rows
+
+
+# --- the client's own code, scanned ---------------------------------------------------
+
+#: ``(name, pattern, control)``: each pattern must match its control line before any
+#: scan is believed. A scan that found nothing because its pattern was broken would
+#: read exactly like a clean one.
+NETWORK_PATTERNS: tuple[tuple[str, str, str], ...] = (
+    ("requests", r"\brequests\.(get|post|put|patch|delete|head|request|Session)\b",
+     "r = requests.post(url, data=payload)"),
+    ("urllib", r"\burllib(\.request|2)?\b", "from urllib.request import urlopen"),
+    ("http.client", r"\bhttp\.client\b|\bhttplib\b", "import http.client"),
+    ("smtplib", r"\bsmtplib\b", "server = smtplib.SMTP(host)"),
+    ("ftplib", r"\bftplib\b", "from ftplib import FTP"),
+    ("paramiko", r"\bparamiko\b|\bpysftp\b", "client = paramiko.SSHClient()"),
+    ("soap", r"\bzeep\b|\bsuds\b", "from zeep import Client"),
+    ("socket", r"\bsocket\.(socket|create_connection)\b", "s = socket.create_connection(addr)"),
+    ("subprocess", r"\bsubprocess\b|\bos\.(system|popen)\b", "subprocess.run(['ls'])"),
+    ("rpc", r"\bxmlrpc\b|\bjsonrpc\b", "import xmlrpc.client"),
+    ("job-queue", r"\.with_delay\(", "record.with_delay().send()"),
+    ("iap", r"\biap_jsonrpc\b|\biap_tools\b", "iap_tools.iap_jsonrpc(url, params=p)"),
+)
+
+
+def scanner_self_test() -> list[str]:
+    """The patterns that fail to match their own control line. Empty means working."""
+    return [name for name, pattern, control in NETWORK_PATTERNS
+            if not re.search(pattern, control)]
+
+
+def scan_skipped(relpath: str) -> bool:
+    """Tests reach mocks and migrations run once: not what the module does."""
+    parts = relpath.split("/")
+    return "tests" in parts or "migrations" in parts
+
+
+def scan_source(text: str) -> list[tuple[int, str, str]]:
+    """``(line number, pattern name, line)`` for every line reading as a network call."""
+    hits = []
+    for number, line in enumerate(text.splitlines(), 1):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        for name, pattern, _control in NETWORK_PATTERNS:
+            if re.search(pattern, line):
+                hits.append((number, name, stripped[:160]))
+                break
+    return hits
+
+
+def parse_repo_page(text: str) -> list[str] | None:
+    """Repository names from one page of GitHub's organisation listing, or None."""
+    try:
+        page = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(page, list):
+        return None
+    return [r["name"] for r in page if isinstance(r, dict) and isinstance(r.get("name"), str)
+            and _NAME_RE.fullmatch(r["name"])]

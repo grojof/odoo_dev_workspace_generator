@@ -1654,3 +1654,36 @@ def plan_copy_database(env: MigrationEnv, reference: str, copy: str) -> list[Com
             raise ValueError(tf("Invalid database name: {}", name))
     return [Command(tf("Copy {} to {}", reference, copy),
                     f"createdb {_pg(env)} -T {shlex.quote(reference)} {shlex.quote(copy)}")]
+
+
+def oca_tree_dir(env: MigrationEnv, repo: str, version: str) -> Path:
+    return env.repos_dir / "oca-trees" / f"{repo}-{version}"
+
+
+def plan_oca_trees(env: MigrationEnv, repos: dict[str, list[str]],
+                   base: str = "https://github.com/OCA") -> list[Command]:
+    """Blobless, one-commit trees of OCA repositories, per version: ``{repo: [versions]}``.
+
+    A branch that does not exist leaves ``<tree>.absent`` so it is not asked again;
+    ``git ls-remote --exit-code`` answers 2 for exactly that, and any other failure
+    (the network) stops the step instead of being taken for an absent branch."""
+    q = shlex.quote
+    commands: list[Command] = []
+    for repo, versions in sorted(repos.items()):
+        if not DB_NAME_RE.fullmatch(repo) or not versions:
+            continue
+        url = f"{base}/{repo}.git"
+        lines = []
+        for version in versions:
+            dest = oca_tree_dir(env, repo, version)
+            lines.append(
+                f"if git ls-remote --exit-code --heads {q(url)} {q(version)} >/dev/null 2>&1; then "
+                f"git clone -q --depth 1 --filter=blob:none --no-checkout -b {q(version)} "
+                f"{q(url)} {q(str(dest))}; else code=$?; "
+                f"if [ $code -eq 2 ]; then touch {q(str(dest))}.absent; else exit $code; fi; fi"
+            )
+        commands.append(Command(
+            tf("Fetch the OCA {} tree(s) for {}", repo, ", ".join(versions)),
+            f"mkdir -p {q(str(env.repos_dir / 'oca-trees'))} && " + " && ".join(lines),
+        ))
+    return commands

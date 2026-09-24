@@ -186,3 +186,13 @@ def test_generation_writes_the_neutralisation_and_the_guarded_start():
     opener = templates.render_open_for_testing_sh(env)
     assert "--max-cron-threads=0" in opener and "--http-interface=127.0.0.1" in opener
     assert opener.index(templates.NEUTRAL_CHECK_FILE) < opener.index("exec ")
+
+
+def test_every_rule_declares_a_severity_as_the_spec_tables_it():
+    assert set(nz.SEVERITY) == {r.id for r in nz.CATALOGUE}
+    assert set(nz.SEVERITY.values()) <= {"critical", "high", "medium", "low", "info"}
+    for rid in ("sii-oca", "sii-odoo", "ticketbai", "edi-proxy", "payment-provider"):
+        assert nz.severity(rid) == "critical", rid
+    for rid in ("crons", "queued-jobs", "webhooks", "oauth", "delivery-external"):
+        assert nz.severity(rid) == "high", rid
+    assert nz.severity("iap") == "medium" and nz.severity("neutralised-flag") == "info"
