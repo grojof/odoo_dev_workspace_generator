@@ -12,5 +12,5 @@
       rows naming the OCA repository from the cached trees; the brace message; tests
 - [x] 1.7 `step_hook` around every step (pre; post before the checkpoint), one transaction, named and
       recorded; a unit test for the placement, and the driver verification (order, and a failing hook)
-- [ ] 2.1 Regenerate the first client's chain with the tool, preflight it from the menu, and rehearse
+- [x] 2.1 Regenerate the first client's chain with the tool, preflight it from the menu, and rehearse: done, 12 -> 18 completed and checked against the source
 - [x] 2.2 Docs: `docs/migration.md`, `CHANGELOG.md`, `docs/roadmap.md`
