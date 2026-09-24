@@ -33,6 +33,10 @@ DECISIONS = ("pending", "accepted", "act", "declined")
 PHASE_STATES = ("pending", "in-progress", "done")
 
 _ID_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+_FINDING_KEYS = frozenset({
+    "id", "found", "phase", "severity", "category", "audience", "subject", "summary", "evidence",
+    "query", "action", "decision", "history", "client", "tables",
+})
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _TABLE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.tsv$")
 _URL_RE = re.compile(r"https?://[^\s)\]>|\"']+")
@@ -199,6 +203,10 @@ def parse_finding(raw: object, where: str, problems: list[str]) -> Finding | Non
     if not (isinstance(fid, str) and _ID_RE.fullmatch(fid)):
         problems.append(f"{where}.id: expected lower-case kebab-case, got {fid!r}")
     where = f"finding {fid}" if isinstance(fid, str) else where
+    # The ledger is rewritten by the tool: a key it validated but does not model
+    # would be dropped on the next write.
+    for key in sorted(set(raw) - _FINDING_KEYS):
+        problems.append(f"{where}.{key}: not a key a finding has")
     problems += _date_problems(raw.get("found"), f"{where}.found")
     problems += _choice_problems(raw.get("severity"), SEVERITIES, f"{where}.severity")
     problems += _choice_problems(raw.get("audience"), AUDIENCES, f"{where}.audience")

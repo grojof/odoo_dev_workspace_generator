@@ -119,6 +119,14 @@ def test_every_problem_is_reported_not_only_the_first():
     assert len(problems) == 3
 
 
+def test_a_key_the_ledger_does_not_know_is_refused_not_dropped():
+    """It validated, and the next write through the tool would have lost it."""
+    raw = _raw()
+    raw["findings"][0]["links"] = ["https://github.com/OCA/OpenUpgrade/issues/5336"]
+    assert [p for p in _problems(raw) if "links" in p] == [
+        "finding sii-pending.links: not a key a finding has"]
+
+
 def test_a_duplicate_id_is_refused():
     raw = _raw()
     raw["findings"].append(copy.deepcopy(raw["findings"][0]))

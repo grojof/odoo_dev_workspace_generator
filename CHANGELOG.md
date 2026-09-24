@@ -133,6 +133,8 @@ All notable changes to this project are documented here. The format is based on
   coverage treat this project's own module as Odoo's dropped code.
 
 ### Fixed
+- **The findings ledger no longer accepts a key it does not model.** A finding with an unknown key
+  validated, and the next write through the tool dropped it. Validation now names the key.
 - **The read-only role can read where a sequence stands.** A wizard leaves no rows, so its id sequence is
   the only trace that it was ever opened; the role could not read it. It now has `SELECT` on sequences
   (`nextval` is still refused). An existing role gets it with
