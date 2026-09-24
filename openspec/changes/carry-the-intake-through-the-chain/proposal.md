@@ -18,6 +18,10 @@ exposed six gaps between the client intake and the chain:
 5. **The chain's step configurations ignored the intake's `data_dir`**, so the steps would have looked for
    the client's attachments in Odoo's default location.
 6. **The driver gave the working database no filestore.**
+8. **The chain installs modules the source never had.** OpenUpgrade's 13.0 step installed two OCA glue
+   modules with no code at 14.0, and the driver stopped there. The preflight could not see them. The
+   preflight also never showed the unmet dependencies it computed, so it said "passed" for a chain its own
+   driver stopped. And a message with literal braces made it crash when the addons layout was missing.
 7. **The chain's venvs lacked the Python libraries the client's modules declare**, so step 13.0 stopped
    four minutes in on `unidecode`. Only the source's venv had been given them.
 

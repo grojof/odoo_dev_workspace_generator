@@ -157,6 +157,14 @@ All notable changes to this project are documented here. The format is based on
   generating with an intake, the tool offers to install each step's libraries. They are read from
   that step's manifests and held to what the venv has. The driver checks them before each step with
   the step's own interpreter, as Odoo does, and stops in seconds, naming the module and the library.
+- **The preflight predicts what the chain installs by itself.** The first client's 13.0 step installed
+  two OCA glue modules with no code at 14.0, and the driver stopped there. The preflight now lists, per
+  step, the new dependencies and the `auto_install` modules that follow. It uses the rule that step's own
+  OpenUpgrade applies: a broad selection at 13.0 and from 18.0, Odoo's own rule between them. It checks
+  them at every later step. Unmet dependencies are now MISSING rows, where before they were computed and
+  never shown, so the menu said "passed" for a chain its driver stopped. When a cached OCA tree has the
+  missing module, the preflight names the repository. It no longer crashes when the addons layout is
+  missing.
 - **The findings ledger no longer accepts a key it does not model.** A finding with an unknown key
   validated, and the next write through the tool dropped it. Validation now names the key.
 - **The read-only role can read where a sequence stands.** A wizard leaves no rows, so its id sequence is

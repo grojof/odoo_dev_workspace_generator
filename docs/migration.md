@@ -269,6 +269,14 @@ driver verify right after its initial restore (it aborts before step 1 on any fa
 coverage looks in the OpenUpgrade fork itself: its `addons` and `odoo/addons`, and its renames in
 `odoo/addons/openupgrade_records/lib/apriori.py`.
 
+**What the chain installs by itself.** A step installs modules the source never had: dependencies an
+upgraded module now declares, then `auto_install` glue modules. OpenUpgrade's 13.0 loader and its
+framework from 18.0 install every glue module whose requirements are met; between them Odoo installs one
+only when something it needs is new. The preflight reads which rule each step's checkout applies,
+lists the modules as *Installed by the chain (13.0)*, and checks them at every later step. A dependency
+no source has is a **MISSING** row. When the intake's cached OCA trees have it, the preflight names the
+repository to add (`account_statement_base (16.0): OCA has it in account-reconcile`).
+
 ## Running the migration
 
 The driver **works on a copy, never production**. Take a custom-format dump of the source database (plain

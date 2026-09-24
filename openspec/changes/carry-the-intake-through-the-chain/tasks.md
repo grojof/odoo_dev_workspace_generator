@@ -7,5 +7,8 @@
       restore; tests, the driver verification (hard links, once) and ShellCheck over the intake variant
 - [x] 1.5 `pip_requirements`; `step_python_requirements` per step under its names; `plan_step_python_deps`
       held to the venv; the driver's `python_deps_step`; tests, and the helper run on a real interpreter
+- [x] 1.6 Predict what each step installs (dependencies, then auto_install by the step's own rule read
+      from OpenUpgrade), check it at later steps with its manifest's author; unmet dependencies as MISSING
+      rows naming the OCA repository from the cached trees; the brace message; tests
 - [ ] 2.1 Regenerate the first client's chain with the tool, preflight it from the menu, and rehearse
 - [x] 2.2 Docs: `docs/migration.md`, `CHANGELOG.md`, `docs/roadmap.md`

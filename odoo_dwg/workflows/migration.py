@@ -38,6 +38,7 @@ from ..system import (
     preview_commands,
     psql_rows,
     psql_scalar,
+    tree_modules,
 )
 from ..ui import level_text, render_table, title
 from .common import (
@@ -270,6 +271,34 @@ def _read_decisions(path: Path) -> list[ModuleDecision]:
     return decisions_from_json(text) if text else []
 
 
+def oca_homes(env: MigrationEnv, wanted: dict[str, set[str]]) -> dict[tuple[str, str], list[str]]:
+    """``{(module, version): [OCA repository]}`` for modules no step source has,
+    from the one-commit OCA trees the intake cached: where to find the code a
+    dependency needs, instead of only saying it resolves nowhere."""
+    base = env.repos_dir / "oca-trees"
+    homes: dict[tuple[str, str], list[str]] = {}
+    for version, modules in wanted.items():
+        suffix = f"-{version}"
+        for tree in sorted(list_dirs(base) if base.is_dir() else []):
+            if not tree.endswith(suffix):
+                continue
+            found = tree_modules(base / tree) & modules
+            for module in found:
+                homes.setdefault((module, version), []).append(tree.removesuffix(suffix))
+    return homes
+
+
+def _print_oca_homes(env: MigrationEnv, coverage: preflight.Coverage | None) -> None:
+    wanted: dict[str, set[str]] = {}
+    for version, unmet in (coverage.unmet if coverage else {}).items():
+        for missing in unmet.values():
+            wanted.setdefault(version, set()).update(missing)
+    for (module, version), repos in sorted(oca_homes(env, wanted).items()):
+        print(level_text("INFO", tf("{} ({}): OCA has it in {} — add that repository when "
+                                    "generating the environment", module, version,
+                                    ", ".join(repos))))
+
+
 def _preflight_check() -> None:
     env = _ask_env()
     if env is None:
@@ -302,6 +331,7 @@ def _preflight_check() -> None:
         host, db_facts, coverage, customs, custom_dir_for=env.addons_custom_dir
     )
     _print_preflight(rows)
+    _print_oca_homes(env, coverage)
     if any(state == "MISSING" for state, _check, _detail in rows):
         print(level_text("WARN", t("Resolve the MISSING checks before running the migration.")))
     else:

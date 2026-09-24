@@ -477,3 +477,80 @@ def test_a_decision_needed_at_one_step_is_not_stale_where_the_code_exists(tmp_pa
     (env.addons_oca_dir("13.0") / "gap_at_13").mkdir()  # ported since: now truly stale
     coverage = preflight.gather_coverage(env, ["gap_at_13"], decisions=[decision])
     assert set(coverage.stale) == {"13.0", "14.0"} and coverage.decided == {}
+
+
+# --- what a step installs by itself ---------------------------------------------
+
+def _module(src: Path, name: str, **manifest) -> None:
+    (src / name).mkdir(parents=True, exist_ok=True)
+    (src / name / "__manifest__.py").write_text(repr({"name": name, **manifest}))
+
+
+def test_odoo_installs_a_glue_module_only_when_something_it_needs_is_new(tmp_path):
+    """Odoo's must_install: one requirement at least must be about to be installed."""
+    src = tmp_path / "addons"
+    _module(src, "sale", depends=["new_dep"])
+    _module(src, "new_dep")
+    _module(src, "glue_new", depends=["sale", "new_dep"], auto_install=True)
+    _module(src, "glue_old", depends=["sale"], auto_install=True)
+    assert preflight.auto_installs({"sale"}, [src]) == ["glue_new", "new_dep"]
+
+
+def test_openupgrade_installs_every_glue_module_whose_needs_are_met(tmp_path):
+    """The first client's 13.0 step installed two glue modules this way, with no
+    code at 14.0, and the driver stopped there."""
+    src = tmp_path / "addons"
+    _module(src, "sale")
+    _module(src, "glue_old", depends=["sale"], auto_install=True)
+    _module(src, "l10n_xx_glue", depends=["sale"], auto_install=True)
+    _module(src, "l10n_only_there", depends=["sale"], auto_install=True, countries=["xx"])
+    _module(src, "broken", depends=["sale"], auto_install=True, installable=False)
+    assert preflight.auto_installs({"sale"}, [src], selects_all=True) == [
+        "glue_old", "l10n_xx_glue"]
+    assert preflight.auto_installs({"sale"}, [src], selects_all=True, skips_l10n=True) == [
+        "glue_old"]
+
+
+def test_which_rule_a_step_follows_is_read_from_its_openupgrade(tmp_path):
+    env = MigrationEnv(source="12.0", target="18.0")
+    assert preflight.openupgrade_auto_install(env, "14.0") == (False, False)
+    loader = env.openupgrade_clone_dir("13.0") / "odoo" / "openupgrade" / "openupgrade_loading.py"
+    loader.parent.mkdir(parents=True)
+    loader.write_text('logger.info("Selecting autoinstallable modules %s", x)')
+    patch = (env.openupgrade_clone_dir("18.0") / "openupgrade_framework" / "odoo_patch" / "odoo"
+             / "addons" / "base" / "models" / "ir_module.py")
+    patch.parent.mkdir(parents=True)
+    patch.write_text('[("auto_install", "=", True), ("name", "not like", "l10n_%")]')
+    assert preflight.openupgrade_auto_install(env, "13.0") == (True, False)
+    assert preflight.openupgrade_auto_install(env, "18.0") == (True, True)
+
+
+def test_a_module_the_chain_installs_is_checked_at_every_later_step(tmp_path):
+    env = MigrationEnv(source="12.0", target="14.0")
+    for version in env.chain():
+        _write_apriori(preflight.apriori_path(env, version),
+                       "renamed_modules = {}\nmerged_modules = {}\n")
+        _module(env.addons_oca_dir(version), "sale")
+    loader = env.openupgrade_clone_dir("13.0") / "odoo" / "openupgrade" / "openupgrade_loading.py"
+    loader.parent.mkdir(parents=True)
+    loader.write_text("Selecting autoinstallable modules")
+    _module(env.addons_oca_dir("13.0"), "glue", depends=["sale"], auto_install=True,
+            author="Someone, Odoo Community Association (OCA)")
+    _module(env.addons_oca_dir("13.0"), "core_glue", depends=["sale"], auto_install=True)
+    coverage = preflight.gather_coverage(env, ["sale"])
+    assert coverage.auto_installed == {"13.0": ["core_glue", "glue"]}
+    assert coverage.blocking == {"14.0": ["glue"]}       # somebody else's: stops the run
+    assert coverage.warnings == {"14.0": ["core_glue"]}  # no author: Odoo's own default
+    rows = preflight.preflight_rows(preflight.HostFacts(),
+                                   preflight.DbFacts("12.0", "12.0.1.3", ["sale"]), coverage)
+    assert any(check == "Installed by the chain (13.0)" for _s, check, _d in rows)
+
+
+def test_an_unmet_dependency_is_a_missing_row_not_a_pass():
+    """Computed all along and never shown: the menu said "passed" for a chain its
+    own driver stopped on."""
+    coverage = preflight.Coverage(unmet={"16.0": {"statement_import": ["statement_base"]}})
+    rows = preflight.preflight_rows(preflight.HostFacts(),
+                                   preflight.DbFacts("12.0", "12.0.1.3", ["sale"]), coverage)
+    assert ("MISSING", "Dependencies (16.0)",
+            "statement_import needs statement_base — no source of this step has them") in rows
