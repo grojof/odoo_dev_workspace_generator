@@ -147,6 +147,10 @@ All notable changes to this project are documented here. The format is based on
   coverage treat this project's own module as Odoo's dropped code.
 
 ### Fixed
+- **A module whose author spans several lines no longer stops the chain.** The driver lists installed
+  modules one per line, with their author. An OCA manifest that spread its author over two lines at 16.0
+  split its row, and step 17.0 stopped on "Odoo Community Association (OCA) missing". The author is now
+  flattened in the driver's two queries and in the preflight's.
 - **The chain carries the client intake through every step.** The first client's 12 → 18 rehearsal
   showed six gaps. Generation now proposes every OCA repository the intake's availability check finds a
   module in, at any step. That includes the one a core module moves into later, and such a module now

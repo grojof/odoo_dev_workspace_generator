@@ -122,7 +122,8 @@ def gather_db_facts(env: MigrationEnv, db: str) -> DbFacts:
     # the operator owes the migration. Tab-separated: an author may contain a
     # comma ("Odoo Community Association (OCA), Tecnativa").
     authors_raw = system.psql_scalar(
-        "SELECT string_agg(name || E'\\t' || coalesce(author, ''), E'\\n' ORDER BY name) "
+        "SELECT string_agg(name || E'\\t' || regexp_replace(coalesce(author, ''), '[\\n\\r\\t]+', ' ', 'g'), "
+        "E'\\n' ORDER BY name) "
         "FROM ir_module_module WHERE state='installed'",
         db, env.db_host, env.db_port, env.db_user,
     )

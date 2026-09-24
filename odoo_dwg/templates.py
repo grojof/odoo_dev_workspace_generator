@@ -845,7 +845,10 @@ def _render_step_preconditions(env: MigrationEnv, version: str) -> str:
     # repository at 19.0 — installed, with no code, and nothing had asked.
     sources = " ".join(shlex.quote(str(path)) for path in env.coverage_dirs(version))
     query = (
-        "SELECT name || E'\\t' || coalesce(author, '') FROM ir_module_module "
+        # An author spread over lines in its manifest split its row in two, and
+        # the second line was checked as a module (16.0 web_search_with_and).
+        "SELECT name || E'\\t' || regexp_replace(coalesce(author, ''), '[\\n\\r\\t]+', ' ', 'g') "
+        "FROM ir_module_module "
         "WHERE state='installed' ORDER BY name"
     )
     lines.append(
@@ -1216,7 +1219,7 @@ def _render_preflight_db(env: MigrationEnv) -> str:
         '  base_ver=$(psql -X -d "$DB" -tAc "SELECT latest_version FROM ir_module_module WHERE name=\'base\'") '
         '|| fail "could not query the restored database \'$DB\'"',
         f'  case "$base_ver" in {source_major}.*) ;; *) fail "database base version \'$base_ver\' does not match declared source {env.source}";; esac',
-        '  modules_tsv=$(psql -X -d "$DB" -tAc "SELECT name || E\'\\t\' || coalesce(author, \'\') FROM ir_module_module WHERE state=\'installed\' ORDER BY name") '
+        '  modules_tsv=$(psql -X -d "$DB" -tAc "SELECT name || E\'\\t\' || regexp_replace(coalesce(author, \'\'), \'[\\n\\r\\t]+\', \' \', \'g\') FROM ir_module_module WHERE state=\'installed\' ORDER BY name") '
         '|| fail "could not list the installed modules of \'$DB\'"',
         '  : > "$LOGS/known-modules.txt"',
     ]
