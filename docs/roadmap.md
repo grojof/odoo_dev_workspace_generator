@@ -208,8 +208,8 @@ items are host-dependent.
   per-module use since a date, survival in a migrated database, and prints from an access log.
 
   Then the chain's core (change `choose-the-chain-core`): the steps from 14.0 run on official Odoo or
-  OCB, following the client's core by default. Still to do on the host: the first client's second
-  rehearsal on OCB.
+  OCB, following the client's core by default. The first client's second rehearsal ran on OCB: the
+  modules OCB keeps from auto-installing were gone, and the journal code constraint was added.
 
   Then bank statement lines imported twice (change `find-bank-lines-imported-twice`): proven from the
   bank's own balances, for a source up to 13.0, with a guarded SQL for the first step's pre hook.
