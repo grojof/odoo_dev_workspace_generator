@@ -504,3 +504,18 @@ def test_the_driver_checks_each_steps_libraries_in_its_own_venv_before_it(monkey
     assert driver.count("python_deps_step() {") == 1
     for version in env.chain():
         assert f'python_deps_step {version} {env.venv_dir(version)}/bin/python' in driver
+
+
+def test_a_steps_hooks_wrap_it_and_run_before_its_checkpoint(monkeypatch, tmp_path):
+    """The first client's 14.0 step stopped on deprecated accounts a migration
+    script needed for a moment; what to do is a decision about that client's
+    data, so it is the operator's SQL, run around the step."""
+    monkeypatch.setattr(MigrationEnv, "base_dir", str(tmp_path))
+    env = MigrationEnv(source="12.0", target="14.0")
+    driver = templates.render_run_migration_sh(env)
+    assert driver.count("step_hook() {") == 1 and f"{env.hooks_dir}/" in driver
+    for version in env.chain():
+        pre = driver.index(f'step_hook "{version}" pre')
+        post = driver.index(f'step_hook "{version}" post')
+        assert pre < driver.index(f"step {version} failed") < post
+        assert post < driver.index(f'checkpoint "{version}"', post)

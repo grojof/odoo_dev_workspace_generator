@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Operator SQL around a migration step.** The driver runs `hooks/<version>-pre.sql` before a step, and
+  `hooks/<version>-post.sql` after it and before its checkpoint. Each file runs in one transaction and
+  is named in the log. This is for client data a migration script does not expect. The first client's
+  14.0 step needed bank journals' deprecated accounts usable for a moment, and deprecated again after.
 - **Rehearse uninstalling modules on a copy.** A new step in Take in a client copy, for modules with no
   code at some step of the chain. OpenUpgrade documents no procedure for them, and an uninstall deletes
   what a module owns, drops its tables and columns with `CASCADE`, and takes its dependents along. The step

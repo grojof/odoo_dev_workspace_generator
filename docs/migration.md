@@ -386,6 +386,23 @@ With the [outbound firewall](egress-control.md) installed, `odoo-bin` is rejecte
 anything in that window is a step reaching for the outside — worth knowing before that code reaches
 production.
 
+### When the client's data breaks a migration script: step hooks
+
+A migration script can meet data it does not expect. The first client's 14.0 step stopped because
+OpenUpgrade gives every bank statement line a journal entry, and some lines belonged to closed banks
+whose accounts were deprecated. What to do is a decision about the client's data, so it is yours, in
+the environment:
+
+- `hooks/<version>-pre.sql` runs before that step;
+- `hooks/<version>-post.sql` runs after the step succeeds, and before its checkpoint, so the checkpoint
+  holds what the post-step hook restored.
+
+Each file runs in one transaction and stops at its first error. The driver prints `[hook] 14.0 pre: …`
+and records it in `logs/steps.tsv`. A failing hook stops the run before the step. Keep a pre-step change
+reversible and have the post-step hook undo exactly it. For example, record which deprecated accounts
+you make usable in a table of your own, and deprecate exactly those again. Record the decision in the
+findings ledger too.
+
 ### When a module has no code anywhere: `decisions.json`
 
 Coverage stops a run when an installed module resolves in no source of a step and OpenUpgrade declares no

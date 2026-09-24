@@ -767,6 +767,30 @@ def render_migration_conf(env: MigrationEnv, version: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _render_step_hook(env: MigrationEnv) -> str:
+    """``step_hook``: the operator's SQL around one step, when there is some.
+
+    A client's data can break a migration script no source anticipates: the first
+    client's 14.0 step stopped because OpenUpgrade gives every bank statement line
+    a journal entry, and some lines belonged to closed banks whose account is
+    deprecated. What to do about it is a decision about that client's data, so it
+    lives in the environment (``hooks/<version>-pre.sql``, ``-post.sql``), runs in
+    one transaction, and is named in the log and the step record. A step with no
+    file runs as before."""
+    hooks = shlex.quote(str(env.hooks_dir))
+    return (
+        "# The operator's SQL around a step, from hooks/<version>-pre.sql and -post.sql.\n"
+        "step_hook() {\n"
+        f'  local file={hooks}/"$1-$2.sql"\n'
+        '  [ -f "$file" ] || return 0\n'
+        '  psql -X -q -1 -v ON_ERROR_STOP=1 -d "$DB" -f "$file" >/dev/null \\\n'
+        '    || die "$1: the $2-step hook $file failed"\n'
+        '  echo "[hook] $1 $2: $file"\n'
+        '  mark "$1" "hook-$2" "$file"\n'
+        "}\n"
+    )
+
+
 def _render_driver_filestore(env: MigrationEnv) -> str:
     """``give_filestore``: the working database's attachments, before any step.
 
@@ -1302,6 +1326,7 @@ neutralise() {{
 
 preflight_host
 {_render_driver_filestore(env)}
+{_render_step_hook(env)}
 restore_ck() {{
   echo "[init] restoring checkpoint $1 into working DB '$DB'"
   dropdb --if-exists "$DB"
@@ -1374,7 +1399,8 @@ if have_ck "{version}"; then
 else
   echo "[step] upgrading to {version} ({layout})"
   mark "{version}" start
-{_render_step_preconditions(env, version)}  code=0
+{_render_step_preconditions(env, version)}  step_hook "{version}" pre
+  code=0
   {_native_step_command(env, version)} || code=$?
   # `|| code=$?`, not `if ! cmd; then code=$?`: inside the negation `$?` is the
   # status of *not having failed*, which is 0, so every failure was recorded as
@@ -1383,6 +1409,7 @@ else
     mark "{version}" fail "$code"
     die "step {version} failed — see {env.logs_dir}/{version}.log"
   fi
+  step_hook "{version}" post
   neutralise "{version}"
   checkpoint "{version}"
   mark "{version}" ok

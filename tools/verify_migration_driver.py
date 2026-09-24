@@ -614,6 +614,34 @@ def main() -> int:
               and working.stat().st_ino == (store / "abcd").stat().st_ino
               and run.stdout.count("[filestore]") == 1, run.stdout + run.stderr)
 
+    # --- the operator's SQL around a step ----------------------------------------
+    # Before the step, and after it succeeds but before its checkpoint, so the
+    # checkpoint holds what the post-step hook restored.
+    with tempfile.TemporaryDirectory(prefix="odwg-hooks-") as tmp:
+        hooked_root = Path(tmp)
+        hooked, hooked_env = _build(hooked_root)
+        step = hooked_env.chain()[0]
+        Path(hooked_env.hooks_dir).mkdir(parents=True, exist_ok=True)
+        for when in ("pre", "post"):
+            (Path(hooked_env.hooks_dir) / f"{step}-{when}.sql").write_text("SELECT 1;\n")
+        ran = _run(hooked_root, hooked)
+        out = ran.stdout
+        order = [out.find(f"[step] upgrading to {step}"), out.find(f"[hook] {step} pre"),
+                 out.find(f"[hook] {step} post"), out.find(f"[checkpoint] {step}")]
+        check("a step's hooks run before it, and after it before its checkpoint",
+              ran.returncode == 0 and -1 not in order and order == sorted(order)
+              and f"[hook] {hooked_env.chain()[1]}" not in out, out[-600:])
+        psql = hooked_root / "bin" / "psql"
+        psql.rename(psql.with_name("psql.real"))
+        _stub(psql, f'if [[ "$*" == *hooks/* ]]; then exit 3; fi; exec {psql}.real "$@"')
+        for dump in Path(hooked_env.checkpoints_dir).glob("*"):
+            dump.unlink()
+        broken = _run(hooked_root, hooked)
+        check("a failing hook stops the run before the step, naming the file",
+              broken.returncode != 0 and f"{step}: the pre-step hook" in broken.stderr
+              and not (Path(hooked_env.checkpoints_dir) / f"{step}.dump").exists(),
+              broken.stderr[-400:])
+
     # --- the step's libraries, checked by its own interpreter --------------------
     with tempfile.TemporaryDirectory(prefix="odwg-pydeps-") as tmp:
         src = Path(tmp) / "addons"

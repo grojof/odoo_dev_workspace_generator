@@ -22,6 +22,10 @@ exposed six gaps between the client intake and the chain:
    modules with no code at 14.0, and the driver stopped there. The preflight could not see them. The
    preflight also never showed the unmet dependencies it computed, so it said "passed" for a chain its own
    driver stopped. And a message with literal braces made it crash when the addons layout was missing.
+9. **A client's data broke a migration script.** At 14.0, OpenUpgrade gives every bank statement line a
+   journal entry, and lines of closed banks sit on deprecated accounts that Odoo refuses. There was no
+   place for the operator's fix. The driver now runs `hooks/<version>-pre.sql` and `-post.sql` around a
+   step.
 7. **The chain's venvs lacked the Python libraries the client's modules declare**, so step 13.0 stopped
    four minutes in on `unidecode`. Only the source's venv had been given them.
 
@@ -43,7 +47,9 @@ exposed six gaps between the client intake and the chain:
 ### Modified Capabilities
 
 - `migration-environment`: repositories proposed from the intake; `data_dir` and the filestore.
-- `migration-preflight`: dependency names per step; stale decisions; repositories read back.
+- `migration-preflight`: dependency names per step; stale decisions; repositories read back; what the chain
+  installs.
+- `migration-run`: the operator's SQL around a step.
 
 ## Impact
 

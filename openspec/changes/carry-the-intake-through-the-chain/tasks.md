@@ -10,5 +10,7 @@
 - [x] 1.6 Predict what each step installs (dependencies, then auto_install by the step's own rule read
       from OpenUpgrade), check it at later steps with its manifest's author; unmet dependencies as MISSING
       rows naming the OCA repository from the cached trees; the brace message; tests
+- [x] 1.7 `step_hook` around every step (pre; post before the checkpoint), one transaction, named and
+      recorded; a unit test for the placement, and the driver verification (order, and a failing hook)
 - [ ] 2.1 Regenerate the first client's chain with the tool, preflight it from the menu, and rehearse
 - [x] 2.2 Docs: `docs/migration.md`, `CHANGELOG.md`, `docs/roadmap.md`
