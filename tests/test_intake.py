@@ -535,3 +535,49 @@ def test_each_steps_venv_gets_its_own_modules_libraries_held_to_what_it_has():
     assert "uv pip freeze --python" in plan[0].command and '-c "$held"' in plan[0].command
     assert "odoo13/bin/python" in plan[0].command and "unidecode" in plan[0].command
     assert " schwifty==2024.4.0 'c<39';" in plan[1].command  # a < is quoted for the shell
+
+
+# --- auditing the client's own modules -------------------------------------------------
+
+def test_the_audit_queries_take_only_module_names_and_dates():
+    assert "IN ('acme_a', 'acme_b')" in it.audit_models_sql(["acme_b", "acme_a"])
+    with pytest.raises(it.IntakeError):
+        it.audit_fields_sql(["x'); DROP"])
+    with pytest.raises(it.IntakeError):
+        it.audit_field_sql("res_partner", "name", "2025-01-01'; DROP", True)
+    sql = it.audit_field_sql("res_partner", "vat", "2025-01-01", True)
+    assert "NOT IN ('false', '')" in sql and "write_date >= '2025-01-01'" in sql
+    assert "write_date" not in it.audit_field_sql("res_partner", "vat", "2025-01-01", False)
+
+
+def test_a_documents_pdf_name_is_read_from_its_literal_start_only():
+    assert it.print_name_prefix("'ACME invoice - %s' % (object.name)") == "ACME invoice - "
+    assert it.print_name_prefix("(object._get_report_base_filename())") == ""
+    assert it.print_name_prefix("'X - %s' % object.name") == ""  # too short to tell apart
+
+
+def test_prints_are_counted_from_either_access_log_format():
+    """Odoo stores nothing when a document is printed; a proxy's log does."""
+    log = "\n".join([
+        '2026-02-01 10:00:01,120 12 INFO db werkzeug: 10.0.0.1 - - '
+        '"GET /report/pdf/acme.invoice/42 HTTP/1.1" 200 -',
+        '10.0.0.1 - - [03/Mar/2026:10:00:00 +0100] "GET /report/pdf/acme.invoice/43?x=1 '
+        'HTTP/1.0" 200 1',
+        '10.0.0.1 - - [03/Mar/2024:10:00:00 +0100] "GET /report/html/acme.slip/1 HTTP/1.0" 200 1',
+        'no date "GET /report/pdf/acme.slip/2 HTTP/1.1"',
+        '10.0.0.1 - - [03/Mar/2026:10:00:00 +0100] "GET /web/content/1 HTTP/1.0" 200 1',
+    ])
+    assert it.report_prints(log, "2025-01-01") == {"acme.invoice": (2, 0), "acme.slip": (0, 1)}
+
+
+@pytest.mark.parametrize("rows, label", [
+    ([it.AuditRow("m", "field", "a.b", "5", "0", "2024-07-31")], "not used since 2025-01-01"),
+    ([it.AuditRow("m", "field", "a.b", "5", "2", "2026-01-01")], "in use"),
+    ([it.AuditRow("m", "wizard", "a.w", "1530")], "in use, undated"),
+    ([it.AuditRow("m", "m2m", "a.c", "42")], "in use, undated"),
+    ([it.AuditRow("m", "document", "m.r", "3", "1")], "in use"),
+    ([it.AuditRow("m", "field", "a.b", "0", "0"), it.AuditRow("m", "wizard", "a.w", "0")],
+     "no data"),
+])
+def test_a_module_is_labelled_from_its_evidence_alone(rows, label):
+    assert it.audit_label(rows, "2025-01-01") == label

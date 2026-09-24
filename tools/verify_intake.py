@@ -50,6 +50,42 @@ SOURCE_DB = """
     INSERT INTO res_partner (name) VALUES ('ACME');
 """
 
+# The audit's fixture: a client module "acme" with a field on partners, a model of its own,
+# a wizard opened twice, a dependent, and a document registered under "account".
+AUDIT_DB = """
+    CREATE TABLE ir_model (id serial, model varchar, transient boolean);
+    CREATE TABLE ir_model_data (id serial, module varchar, name varchar, model varchar, res_id int);
+    CREATE TABLE ir_model_fields (id serial, model varchar, name varchar, ttype varchar,
+                                  store boolean, related varchar, relation_table varchar);
+    CREATE TABLE ir_module_module (id serial, name varchar, state varchar);
+    CREATE TABLE ir_module_module_dependency (id serial, module_id int, name varchar);
+    CREATE TABLE ir_act_report_xml (id serial, report_name varchar, model varchar,
+                                    binding_model_id int, print_report_name varchar);
+    CREATE TABLE ir_attachment (id serial, name varchar, create_date timestamp);
+    CREATE TABLE res_partner (id serial, acme_flag boolean, acme_note varchar,
+                              write_date timestamp);
+    CREATE TABLE acme_thing (id serial, name varchar, write_date timestamp);
+    CREATE SEQUENCE acme_wizard_id_seq;
+    SELECT nextval('acme_wizard_id_seq'); SELECT nextval('acme_wizard_id_seq');
+    INSERT INTO ir_model (model, transient) VALUES ('acme.thing', false), ('acme.wizard', true);
+    INSERT INTO ir_model_data (module, name, model, res_id) VALUES
+        ('acme', 'model_acme_thing', 'ir.model', 1), ('acme', 'model_acme_wizard', 'ir.model', 2),
+        ('acme', 'f1', 'ir.model.fields', 1), ('acme', 'f2', 'ir.model.fields', 2),
+        ('account', 'report_acme_invoice', 'ir.actions.report', 1);
+    INSERT INTO ir_model_fields (model, name, ttype, store) VALUES
+        ('res.partner', 'acme_flag', 'boolean', true), ('res.partner', 'acme_note', 'char', true);
+    INSERT INTO res_partner (acme_flag, acme_note, write_date) VALUES
+        (true, 'x', '2026-02-01'), (false, '', '2026-02-01'), (true, NULL, '2023-05-01');
+    INSERT INTO acme_thing (name, write_date) VALUES ('a', '2022-01-01');
+    INSERT INTO ir_module_module (name, state) VALUES ('acme', 'installed'),
+        ('acme_extra', 'installed');
+    INSERT INTO ir_module_module_dependency (module_id, name) VALUES (2, 'acme');
+    INSERT INTO ir_act_report_xml (report_name, model, binding_model_id, print_report_name)
+        VALUES ('acme.invoice', 'account.invoice', 7, $$'ACME invoice - %s' % (object.name)$$);
+    INSERT INTO ir_attachment (name, create_date) VALUES
+        ('ACME invoice - INV1.pdf', '2026-03-01'), ('ACME invoice - INV0.pdf', '2021-01-01');
+"""
+
 
 def _bash(command: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["bash", "-c", command], capture_output=True, text=True,
@@ -246,6 +282,25 @@ def main() -> int:
             check("a dropped column with a value, and a row beyond what was owned, are data lost",
                   lost == {("purchase_order", "note_x"): 1, ("aeat_model_export_config", ""): 3},
                   lost)
+
+            # --- the audit of the client's own modules, on a real database --------------------
+            cluster.sql("CREATE DATABASE audit")
+            cluster.value(AUDIT_DB + " SELECT 1", "audit")
+            from odoo_dwg.workflows import intake as wf_audit  # noqa: PLC0415
+            audited = wf_audit._audit_module_rows(env, "audit", ["acme"], "2025-01-01", None) or []
+            got = {(r.kind, r.subject): (r.total, r.since, r.last) for r in audited}
+            check("the audit counts values (not false, not ''), use since the date, and the last",
+                  got.get(("field", "res.partner.acme_flag")) == ("2", "1", "2026-02-01")
+                  and got.get(("field", "res.partner.acme_note")) == ("1", "1", "2026-02-01")
+                  and got.get(("model", "acme.thing")) == ("1", "0", "2022-01-01"), got)
+            check("a wizard's openings come from its sequence; a dependent and a document's "
+                  "attachments are found",
+                  got.get(("wizard", "acme.wizard"), ("",))[0] == "2"
+                  and got.get(("dependent", "acme_extra")) == ("", "", "")
+                  and got.get(("document", "acme.invoice")) == ("2", "1", ""), got)
+            trap = next((r.note for r in audited if r.kind == "document"), "")
+            check("a document registered under another module's namespace is flagged",
+                  "registered as account.*" in trap, trap)
 
             # --- the uninstall command, against a stub interpreter ---------------------------
             record = intake.IntakeRecord("ACME_original", "acme_reader", "client-src/acme",

@@ -786,6 +786,146 @@ def record_uninstall(env: MigrationEnv, record: it.IntakeRecord, copy: str, scra
                                 scratch)))
 
 
+def _audit_module_rows(env: MigrationEnv, db: str, modules: list[str], since: str,
+                       target: str | None) -> list[it.AuditRow] | None:
+    """Every piece of evidence about the modules, read from ``db`` (and ``target``)."""
+    q = {"host": env.db_host, "port": env.db_port, "user": env.db_user}
+    reads = [psql_rows(sql, db, **q) for sql in (
+        it.audit_models_sql(modules), it.audit_fields_sql(modules), it.audit_reports_sql(modules),
+        it.audit_dependents_sql(modules), it.UNINSTALL_COLUMNS_SQL)]
+    if any(r is None for r in reads):
+        return None
+    models, fields, reports, dependents, columns = reads
+    cols = it.parse_columns(columns)
+    target_cols = (it.parse_columns(psql_rows(it.UNINSTALL_COLUMNS_SQL, target, **q) or [])
+                   if target else set())
+    rows: list[it.AuditRow] = []
+
+    def one(sql: str, database: str = db) -> list[str]:
+        got = psql_rows(sql, database, **q)
+        return got[0] if got else ["?", "", ""]
+
+    def survived(table: str, column: str, sql: str) -> str:
+        if not target:
+            return ""
+        if (table, column) not in target_cols:
+            return "not in the migrated database"
+        return f"migrated: {one(sql, target)[0]}"
+
+    for module, dependent in (r for r in dependents if len(r) > 1):
+        rows.append(it.AuditRow(module, "dependent", dependent))
+    for module, model, transient in (r for r in models if len(r) > 2):
+        table = it.model_table(model)
+        if transient == "t":
+            seq = psql_rows(f"SELECT last_value, is_called FROM {table}_id_seq", db, **q) or []
+            opened = seq[0][0] if seq and seq[0][1] == "t" else "0"
+            rows.append(it.AuditRow(module, "wizard", model, opened, note="times opened, ever"))
+        elif (table, "id") in cols:
+            dated = (table, "write_date") in cols
+            total, recent, last = one(it.audit_table_sql(table, since, dated))
+            rows.append(it.AuditRow(module, "model", model, total, recent, last,
+                                    survived(table, "id", it.audit_table_sql(table, since, False))))
+    # A wizard's own fields and links hold only what its vacuumed rows held: its use is
+    # the times it was opened, recorded above, and listing them only adds zeros.
+    transient = {r[1] for r in models if len(r) > 2 and r[2] == "t"}
+    for module, model, name, ttype, store, related, relation in (r for r in fields if len(r) > 6):
+        table = it.model_table(model)
+        if model in transient or store != "t" or (table, name) not in cols and ttype != "many2many":
+            continue
+        if ttype == "many2many":
+            if relation and (relation, "id") not in cols and any(t == relation for t, _ in cols):
+                total = one(f'SELECT count(*), \'\', \'\' FROM public."{relation}"')[0]
+                rows.append(it.AuditRow(module, "m2m", f"{model}.{name}", total, note=relation))
+            continue
+        if related:
+            rows.append(it.AuditRow(module, "related", f"{model}.{name}", note=related))
+            continue
+        dated = (table, "write_date") in cols
+        total, recent, last = one(it.audit_field_sql(table, name, since, dated))
+        rows.append(it.AuditRow(module, "field", f"{model}.{name}", total, recent, last,
+                                survived(table, name,
+                                         it.audit_field_sql(table, name, since, False))))
+    for module, report, model, menu, namespace, printed in (r for r in reports if len(r) > 5):
+        prefix = it.print_name_prefix(printed)
+        total = recent = ""
+        if prefix:
+            like = prefix.replace("'", "''").replace("%", "").replace("_", "\\_")
+            total, recent, _last = one(
+                f"SELECT count(*), count(*) FILTER (WHERE create_date >= '{since}'), '' "
+                f"FROM ir_attachment WHERE name LIKE '{like}%'")
+        notes = [f"on {model}", "in the Print menu" if menu == "t" else "not in the Print menu"]
+        if namespace and namespace != module:
+            notes.append(f"registered as {namespace}.*: updating {namespace} can remove it")
+        rows.append(it.AuditRow(module, "document", report, total, recent, note="; ".join(notes)))
+    return rows
+
+
+def audit_own_modules(env: MigrationEnv) -> None:
+    """What each of the client's own modules stores, who uses it, and since when."""
+    record = _current(env)
+    if record is None:
+        return
+    own = sorted(m for m, (origin, _repo) in _installed_origins(env, record).items()
+                 if origin == "custom")
+    extra = ask_text("Other modules to audit (comma-separated, optional)", "", required=False)
+    modules = sorted(set(own) | {m.strip() for m in extra.split(",") if m.strip()})
+    bad = [m for m in modules if not MODULE_NAME_RE.fullmatch(m)]
+    if not modules or bad:
+        print(level_text("ERROR", tf("Invalid module names: {}", ", ".join(bad) or "?")))
+        return
+    since = ask_text("Count use since (YYYY-MM-DD)", f"{date.today().year - 1}-01-01")
+    target = ask_text("Migrated database to check survival in (optional)", "", required=False)
+    log_path = ask_text("Web access log to count prints from (optional)", "", required=False)
+    if not it._DATE_RE.fullmatch(since) or target and not DB_NAME_RE.fullmatch(target):
+        print(level_text("ERROR", t("Not a date, or not a database name.")))
+        return
+    rows = _audit_module_rows(env, record.reference_database, modules, since, target or None)
+    if rows is None:
+        print(level_text("ERROR", tf("Could not read database {}; nothing recorded.",
+                                     record.reference_database)))
+        return
+    if log_path:
+        text = read_text(str(Path(log_path).expanduser()))
+        if text is None:
+            print(level_text("ERROR", tf("Could not read {}; nothing recorded.", log_path)))
+            return
+        prints = it.report_prints(text, since)
+        rows = [replace(r, since=str(prints.get(r.subject, (0, 0))[0]),
+                        note=r.note + f"; prints since {since} in the log: "
+                        f"{prints.get(r.subject, (0, 0))[0]}"
+                        + (f" (+{prints[r.subject][1]} undated)"
+                           if prints.get(r.subject, (0, 0))[1] else ""))
+                if r.kind == "document" else r for r in rows]
+    published = {}
+    for tree in sorted((env.repos_dir / "oca-trees").glob(f"*-{env.target}")):
+        for module in tree_modules(tree) & set(modules):
+            published.setdefault(module, tree.name.removesuffix(f"-{env.target}"))
+    labels = {m: it.audit_label([r for r in rows if r.module == m], since) for m in modules}
+    summary = [[m, labels[m], published.get(m, ""),
+                ", ".join(r.subject for r in rows if r.module == m and r.kind == "dependent")]
+               for m in modules]
+    print(render_table(["Module", "Evidence", f"OCA {env.target}", "Required by"], summary))
+    counts: dict[str, int] = {}
+    for label in labels.values():
+        key = label.split(" since")[0].replace(",", "")
+        counts[key] = counts.get(key, 0) + 1
+    found = [_finding(
+        _next_run_id(env, "own-modules-audit"), "info", f"{len(modules)} client-own modules",
+        f"Evidence per module since {since}: " + ", ".join(f"{n} {k}" for k, n in
+                                                            sorted(counts.items())) + ".",
+        {"since": since, "labels": labels, "published_by_oca": published,
+         "migrated_database": target or "", "access_log": bool(log_path)},
+        "findings/data/own-modules-audit.tsv, own-modules-summary.tsv",
+        "decide per module from its code: drop, replace or port")]
+    _record(env, record, found, {
+        "own-modules-summary.tsv": [["module", "evidence", f"oca_{env.target}", "required_by"],
+                                    *summary],
+        "own-modules-audit.tsv": [["module", "kind", "subject", "total", f"since_{since}", "last",
+                                   "note"],
+                                  *[[r.module, r.kind, r.subject, r.total, r.since, r.last, r.note]
+                                    for r in rows]]})
+
+
 def show_intake(env: MigrationEnv) -> None:
     record = _current(env)
     if record is not None:
@@ -806,6 +946,7 @@ def intake_menu(env: MigrationEnv) -> None:
         "Check each installed module along the chain": check_availability,
         "Scan the client's own code for network calls": scan_custom,
         "Rehearse uninstalling modules on a copy": rehearse_uninstall,
+        "Audit the client's own modules": audit_own_modules,
         "Show the intake": show_intake,
     }
     while True:

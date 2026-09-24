@@ -7,6 +7,17 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Audit the client's own modules.** A new step in Take in a client copy, reading the reference only.
+  For each module the intake classified as the client's own, it records:
+  - who depends on it;
+  - the rows and values it created, and how many were written since a date;
+  - how often its wizards were opened;
+  - its documents: whether they are in the Print menu, whether they are registered under another
+    module's namespace, and the attachments named after them;
+  - whether OCA publishes it.
+  Given a migrated database, it also checks that each field survived. Given a web access log, it
+  counts prints per document. Each module gets a label from the evidence. The decision stays the
+  operator's.
 - **Operator SQL around a migration step.** The driver runs `hooks/<version>-pre.sql` before a step, and
   `hooks/<version>-post.sql` after it and before its checkpoint. Each file runs in one transaction and
   is named in the log. This is for client data a migration script does not expect. The first client's
