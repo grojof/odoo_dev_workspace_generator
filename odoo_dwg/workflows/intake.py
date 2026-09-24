@@ -9,6 +9,7 @@ in English: the client-facing text is the operator's to write.
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
 import shlex
@@ -20,7 +21,7 @@ from .. import findings as fl
 from .. import intake as it
 from .. import neutralise, planners, preflight
 from ..i18n import t, tf
-from ..models import DB_NAME_RE, Command, MigrationEnv
+from ..models import DB_NAME_RE, MODULE_NAME_RE, Command, MigrationEnv
 from ..planners import write_text_file_command
 from ..prompts import ask_text, choose, confirm_with_phrase
 from ..system import (
@@ -631,6 +632,160 @@ def scan_custom(env: MigrationEnv) -> None:
         ["module", "file", "line", "pattern", "text"], *hits]})
 
 
+def _neutral(env: MigrationEnv, database: str) -> bool:
+    armed = armed_state(database, env.db_host, env.db_port, env.db_user)
+    mail = mail_state(database, env.db_host, env.db_port, env.db_user)
+    if armed is None or mail is None:
+        print(level_text("ERROR", tf("Could not tell whether {} is neutralised.", database)))
+        return False
+    if armed or mail.escaping:
+        print(level_text("ERROR", tf("{} can still act on the outside: run 'Neutralise a "
+                                     "database' on it first.", database)))
+        return False
+    return True
+
+
+def _snapshot(env: MigrationEnv, database: str) -> tuple | None:
+    """Exact rows per table, columns and installed modules; None if unreadable."""
+    reads = [psql_rows(sql, database, env.db_host, env.db_port, env.db_user)
+             for sql in (it.UNINSTALL_ROWS_SQL, it.UNINSTALL_COLUMNS_SQL,
+                         it.UNINSTALL_INSTALLED_SQL)]
+    if any(r is None for r in reads):
+        return None
+    rows, columns, installed = reads
+    return (it.parse_counts(rows), it.parse_columns(columns),
+            {r[0] for r in installed if r})
+
+
+def _compare_uninstall(env: MigrationEnv, copy: str, scratch: str,
+                       modules: list[str]) -> tuple[list, list[str]] | None:
+    before, after = _snapshot(env, copy), _snapshot(env, scratch)
+    if before is None or after is None:
+        return None
+    along = it.taken_along(modules, before[2], after[2])
+    q = {"db": copy, "host": env.db_host, "port": env.db_port, "user": env.db_user}
+    owned = psql_rows(it.owned_rows_sql(modules + along), **q)
+    transient = psql_rows(it.UNINSTALL_TRANSIENT_SQL, **q)
+    related = psql_rows(it.UNINSTALL_RELATED_SQL, **q)
+    gone = sorted(c for c in before[1] - after[1] if c[0] in after[0])
+    values = psql_rows(it.column_values_sql(gone), **q) if gone else []
+    if None in (owned, transient, related, values):
+        return None
+    changes = it.diff_uninstall(
+        before[0], after[0], before[1], after[1], it.parse_counts(owned),
+        {r[0] for r in transient if r}, {(r[0], r[1]) for r in related if len(r) > 1},
+        {(r[0], r[1]): int(r[2]) for r in values if len(r) > 2 and r[2].isdigit()})
+    return changes, along
+
+
+def rehearse_uninstall(env: MigrationEnv) -> None:
+    """Uninstall modules on a throwaway clone of a neutralised copy, and name every
+    difference it made to the client's data."""
+    record = _current(env)
+    if record is None:
+        return
+    ref = record.reference_database
+    copy = ask_text("Neutralised working copy", f"{ref.removesuffix('_original')}_test")
+    if not DB_NAME_RE.fullmatch(copy) or copy == ref:
+        print(level_text("ERROR", tf("Not a working copy: {}", copy)))
+        return
+    if _database_exists(env, copy) is not True or not _neutral(env, copy):
+        return
+    modules = sorted({m.strip() for m in ask_text("Modules to uninstall (comma-separated)",
+                                                   required=True).split(",") if m.strip()})
+    bad = [m for m in modules if not MODULE_NAME_RE.fullmatch(m)]
+    installed = psql_rows(it.UNINSTALL_INSTALLED_SQL, copy, env.db_host, env.db_port,
+                          env.db_user)
+    if bad or installed is None:
+        print(level_text("ERROR", tf("Invalid module names: {}", ", ".join(bad) or "?")))
+        return
+    missing = sorted(set(modules) - {r[0] for r in installed if r})
+    if missing:
+        print(level_text("ERROR", tf("Not installed in {}: {}", copy, ", ".join(missing))))
+        return
+    dependents = psql_rows(it.dependents_sql(modules), copy, env.db_host, env.db_port,
+                           env.db_user)
+    if dependents is None:
+        print(level_text("ERROR", tf("Could not read database {}.", copy)))
+        return
+    if dependents:
+        print(level_text("WARN", tf("Uninstalling these also uninstalls: {}",
+                                    ", ".join(r[0] for r in dependents if r))))
+    scratch = ask_text("Throwaway database", f"{copy}_uninstall")
+    if not DB_NAME_RE.fullmatch(scratch) or scratch in (ref, copy):
+        print(level_text("ERROR", tf("Invalid database name: {}", scratch)))
+        return
+    if _database_exists(env, scratch) is not False:
+        print(level_text("ERROR", tf("Database {} exists (or cannot be checked); it is not "
+                                     "replaced.", scratch)))
+        return
+    if not confirm_with_phrase(tf("{} will be created from {}, and {} uninstalled on it. {} "
+                                  "itself is not modified.", scratch, copy,
+                                  ", ".join(modules), copy), "REHEARSE"):
+        return
+    if not apply_if_confirmed(planners.plan_uninstall_rehearsal(env, copy, scratch, modules)):
+        return
+    record_uninstall(env, record, copy, scratch, modules)
+
+
+def _next_run_id(env: MigrationEnv, prefix: str) -> str:
+    """A fresh id per rehearsal: the same modules rehearsed again are a new run,
+    and an id once withdrawn is never reused."""
+    text = read_text(str(env.findings_ledger))
+    taken = set()
+    if text is not None:
+        ledger = fl.parse_ledger(text)
+        taken = {f.id for f in ledger.findings} | {c.withdrawn for c in ledger.corrections}
+    n = 1
+    while f"{prefix}-{n}" in taken:
+        n += 1
+    return f"{prefix}-{n}"
+
+
+def record_uninstall(env: MigrationEnv, record: it.IntakeRecord, copy: str, scratch: str,
+                     modules: list[str]) -> None:
+    """Compare a working copy with its uninstalled clone, and record the result."""
+    compared = _compare_uninstall(env, copy, scratch, modules)
+    if compared is None:
+        print(level_text("ERROR", t("Could not compare the two databases; nothing recorded.")))
+        return
+    changes, along = compared
+    by_kind: dict[str, int] = {}
+    for c in changes:
+        by_kind[c.kind] = by_kind.get(c.kind, 0) + (c.before - c.after if not c.column
+                                                    else c.before)
+    lost = [c for c in changes if c.kind == "data lost"]
+    print(render_table(["Table", "Column", "Kind", "Before", "After", "Owned"],
+                       [[c.table, c.column, c.kind, str(c.before), str(c.after), str(c.owned)]
+                        for c in changes if c.kind in ("data lost", "recomputed", "grew")]
+                       or [["-", "-", t("no client data lost"), "", "", ""]]))
+    if along:
+        print(level_text("WARN", tf("The uninstall took along: {}", ", ".join(along))))
+    fid = _next_run_id(
+        env, f"uninstall-rehearsal-{hashlib.sha1(','.join(modules).encode()).hexdigest()[:8]}")
+    name = f"{fid}.tsv"
+    lost_text = "; ".join(f"{c.table}{'.' + c.column if c.column else ''} "
+                          f"({c.before - c.after if not c.column else c.before} rows)"
+                          for c in lost)
+    found = [_finding(
+        fid, "high" if lost else "info", ", ".join(modules),
+        (f"Uninstalling on a copy loses client data: {lost_text}." if lost else
+         "Uninstalling on a copy lost no client data: "
+         + ", ".join(f"{n} {k}" for k, n in sorted(by_kind.items())) + ".")
+        + (f" It took along: {', '.join(along)}." if along else ""),
+        {"modules": modules, "taken_along": along, "copy": copy, "throwaway": scratch,
+         "rows_by_kind": by_kind, "data_lost": [c.table + ("." + c.column if c.column else "")
+                                                for c in lost]},
+        f"findings/data/{name}; row counts and columns of {copy} against {scratch}",
+        "review the tables named data lost before uninstalling" if lost
+        else "uninstall these modules before the chain")]
+    _record(env, record, found, {name: [["table", "column", "kind", "before", "after", "owned"],
+                                        *[[c.table, c.column, c.kind, str(c.before),
+                                           str(c.after), str(c.owned)] for c in changes]]})
+    print(level_text("INFO", tf("{} is left in place for inspection; drop it when done.",
+                                scratch)))
+
+
 def show_intake(env: MigrationEnv) -> None:
     record = _current(env)
     if record is not None:
@@ -650,6 +805,7 @@ def intake_menu(env: MigrationEnv) -> None:
         "Survey what the copy can act on": survey_outbound,
         "Check each installed module along the chain": check_availability,
         "Scan the client's own code for network calls": scan_custom,
+        "Rehearse uninstalling modules on a copy": rehearse_uninstall,
         "Show the intake": show_intake,
     }
     while True:

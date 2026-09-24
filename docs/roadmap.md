@@ -189,6 +189,15 @@ items are host-dependent.
   - per-step availability across all OCA repositories, fetched only for the steps with gaps;
   - the custom-code network scan, with its positive control.
 
+  Then, from deciding what to do with modules missing at some step (change `rehearse-module-uninstall`,
+  **done** 2026-09-24):
+  - an uninstall rehearsed on a throwaway clone of a neutralised copy, with every table compared by exact
+    row count and columns, and each difference named (module data, wizard, metadata, recomputed, empty,
+    data lost);
+  - the read-only role reads where a sequence stands (a wizard's only trace), and never advances it;
+  - the ledger refuses a finding key it does not know, instead of dropping it on the next write;
+  - read-only commands never prompt for the language.
+
 - ~~The operator surface has a spec~~ — **done** (2026-09-20, change `name-the-operator-surface`).
   The twelve capabilities all described what the tool does to the *host*; nothing described what the
   operator touches, and "previewed and confirmed" was restated in six of them with no one place

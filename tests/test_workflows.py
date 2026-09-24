@@ -458,9 +458,43 @@ def test_the_language_is_settled_before_the_parser_is_built(monkeypatch, argv, e
     assert (early or "en").lower().startswith(expected)
 
 
+@pytest.mark.parametrize("argv", [
+    ["egress", "check"],
+    ["mail", "check", "--database", "x"],
+    ["neutralise", "check", "--database", "x"],
+    ["migrate", "report", "--source", "12.0", "--target", "18.0"],
+    ["migrate", "findings", "validate", "--source", "12.0", "--target", "18.0"],
+])
+def test_a_read_only_command_never_asks_for_the_language(monkeypatch, argv):
+    """It is run from scripts and pipes: a language prompt there reads EOF and
+    fails the command before it answers anything."""
+    monkeypatch.delenv("ODWG_LANG", raising=False)
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: True, raising=False)
+    monkeypatch.setattr(cli, "choose", lambda *_a, **_k: pytest.fail("prompted"))
+    chosen = []
+    monkeypatch.setattr(cli, "set_language", chosen.append)
+    assert cli._is_read_only(cli._build_parser().parse_args(argv))
+    cli._select_language(None, ask=False)
+    assert chosen == ["en"]
+
+
+def test_the_menu_still_asks_for_the_language_but_not_without_a_terminal(monkeypatch):
+    monkeypatch.delenv("ODWG_LANG", raising=False)
+    assert not cli._is_read_only(cli._build_parser().parse_args(["migrate"]))
+    chosen = []
+    monkeypatch.setattr(cli, "set_language", chosen.append)
+    monkeypatch.setattr(cli, "choose", lambda *_a, **_k: "Español")
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: True, raising=False)
+    cli._select_language(None)
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: False, raising=False)
+    cli._select_language(None)
+    cli._select_language("es", ask=False)  # an explicit choice always wins
+    assert chosen == ["es", "en", "es"]
+
+
 def test_verbose_comes_from_either_the_flag_or_the_environment(monkeypatch):
     monkeypatch.delenv("ODWG_VERBOSE", raising=False)
-    monkeypatch.setattr(cli, "_select_language", lambda *_a: None)
+    monkeypatch.setattr(cli, "_select_language", lambda *_a, **_k: None)
     monkeypatch.setattr(cli, "workspace_menu", lambda: None)
     seen = []
     monkeypatch.setattr(cli, "set_verbose", lambda value: seen.append(value))

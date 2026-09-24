@@ -7,6 +7,16 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Rehearse uninstalling modules on a copy.** A new step in Take in a client copy, for modules with no
+  code at some step of the chain. OpenUpgrade documents no procedure for them, and an uninstall deletes
+  what a module owns, drops its tables and columns with `CASCADE`, and takes its dependents along. The step
+  clones a neutralised working copy to a throwaway database and uninstalls there with the source
+  version's own Odoo. It then re-neutralises the clone and compares every table of the two databases.
+  Each difference is named: module data, wizard, metadata, recomputed, empty, or **data lost**. The
+  working copy is never modified. The result is a data table and one finding, `high` when any client data
+  is lost. Before the plan, the step names every installed module that depends on those asked for, since
+  the uninstall takes them along. On the first client it found one of the client's own modules
+  that the static analysis had missed.
 - **The intake surveys what a copy can act on, where each module's code is, and what the client's own
   code calls.** Three steps are added to Take in a client copy:
   - **A survey of the reference**, read as its owner. Each armed neutralisation rule becomes a finding,
@@ -133,6 +143,16 @@ All notable changes to this project are documented here. The format is based on
   coverage treat this project's own module as Odoo's dropped code.
 
 ### Fixed
+- **The findings ledger no longer accepts a key it does not model.** A finding with an unknown key
+  validated, and the next write through the tool dropped it. Validation now names the key.
+- **The read-only role can read where a sequence stands.** A wizard leaves no rows, so its id sequence is
+  the only trace that it was ever opened; the role could not read it. It now has `SELECT` on sequences
+  (`nextval` is still refused). An existing role gets it with
+  `GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO <role>;`, run as the database owner.
+- **A read-only command no longer asks for the language.** `egress check`, `mail check`,
+  `neutralise check`, `migrate report`, `migrate probes` and `migrate findings …` used to prompt when
+  neither `--lang` nor `ODWG_LANG` was given, and failed from a script or a pipe. They now use English;
+  so does the menu when stdin is not a terminal.
 - **A generated file over 128 KiB could not be written.** The file travelled in a heredoc inside
   `bash -lc`, and Linux refuses a single argument over 128 KiB. A findings ledger or a table of
   twenty thousand rows failed with "Argument list too long" before bash started. An over-long command

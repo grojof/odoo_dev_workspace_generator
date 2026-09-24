@@ -29,6 +29,9 @@ in English SHALL be left in English, and the sentence around them translated.
 The UI language SHALL be taken from `--lang`, else `ODWG_LANG`, else a prompt at startup, and SHALL be
 settled before the help text is built, so `--help` is shown in the chosen language too.
 
+A read-only command SHALL NOT prompt for the language, and neither SHALL anything run without a terminal
+on stdin: with no `--lang` and no `ODWG_LANG`, both SHALL use English.
+
 **Generated artifacts SHALL NOT be translated.** Every file the tool writes — configs, scripts, editor
 files, READMEs, the migration driver, staging reports and scaffolds — SHALL be English whatever the UI
 language is: they are technical, they are read by other tools, and they outlive the session that wrote them.

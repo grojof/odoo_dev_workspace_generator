@@ -70,6 +70,10 @@ A finding MAY carry client-facing text, per language:
 
 A finding MAY attach tables from `findings/data/`, each marked for the client or internal.
 
+A finding SHALL hold no key besides these, `history` and `client`. A key the ledger does not know SHALL be a
+validation problem that names it: the ledger is rewritten by the tool, and a key it validated but does not
+model would be dropped on the next write.
+
 #### Scenario: A finding without a query
 
 - **WHEN** a finding is added with evidence but no re-deriving query
@@ -79,6 +83,11 @@ A finding MAY attach tables from `findings/data/`, each marked for the client or
 
 - **WHEN** a finding is added whose id is already in the ledger, or belongs to a withdrawn finding
 - **THEN** it is refused, and the ledger is unchanged
+
+#### Scenario: A key the ledger does not know
+
+- **WHEN** a finding carries a key outside its declared fields
+- **THEN** validation names the finding and the key, and the ledger is not accepted
 
 ### Requirement: Decisions are recorded, and earlier ones are kept
 

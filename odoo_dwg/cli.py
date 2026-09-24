@@ -30,14 +30,30 @@ def _configure_utf8_console() -> None:
             reconfigure(encoding="utf-8", errors="replace")
 
 
-def _select_language(preferred: str | None = None) -> None:
-    """Pick the UI language: explicit arg > ``ODWG_LANG`` > interactive prompt."""
+def _select_language(preferred: str | None = None, *, ask: bool = True) -> None:
+    """Pick the UI language: explicit arg > ``ODWG_LANG`` > interactive prompt.
+
+    With nobody to ask — a read-only command, or no terminal on stdin — the
+    prompt is skipped for English, the canonical language."""
     candidate = (preferred or os.environ.get(_LANG_ENV, "")).strip().lower()
     if candidate in {"en", "es"}:
         set_language(candidate)
         return
+    if not ask or not sys.stdin.isatty():
+        set_language("en")
+        return
     lang = choose("Idioma / Language", ["English", "Español"], default_index=0)
     set_language("es" if lang == "Español" else "en")
+
+
+_READ_ONLY_MIGRATE_ACTIONS = frozenset({"report", "probes", "findings"})
+
+
+def _is_read_only(args: argparse.Namespace) -> bool:
+    """A command that answers without a menu: it must never prompt, not even for the language."""
+    if args.section in {"egress", "mail", "neutralise"}:
+        return True
+    return args.section == "migrate" and getattr(args, "action", None) in _READ_ONLY_MIGRATE_ACTIONS
 
 
 def _print_banner() -> None:
@@ -233,7 +249,7 @@ def main(argv: list[str] | None = None) -> int:
         _select_language(lang)
         return interactive_menu()
 
-    _select_language(lang)
+    _select_language(lang, ask=not _is_read_only(args))
     try:
         if args.section == "workspace":
             workspace_menu()

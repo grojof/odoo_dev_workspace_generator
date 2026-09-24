@@ -894,6 +894,56 @@ _ES: dict[str, str] = {
     "Corrections": "Correcciones",
     "Withdrawn": "Retirado",
     "Reason": "Motivo",
+    'Rehearse uninstalling modules on a copy':
+        'Ensayar la desinstalación de módulos en una copia',
+    'Invalid module names: {}':
+        'Nombres de módulo no válidos: {}',
+    'No intake: {}':
+        'No hay intake: {}',
+    "Give {} a filestore of hard links to {}'s":
+        'Dar a {} un filestore de hard links al de {}',
+    'Uninstall {} on {} with Odoo {}':
+        'Desinstalar {} en {} con Odoo {}',
+    'Check that {} cannot act on the outside':
+        'Comprobar que {} no puede actuar hacia fuera',
+    'Neutralised working copy':
+        'Copia de trabajo neutralizada',
+    'Throwaway database':
+        'Base de datos desechable',
+    'Table':
+        'Tabla',
+    'Column':
+        'Columna',
+    'Kind':
+        'Tipo',
+    'Before':
+        'Antes',
+    'After':
+        'Después',
+    'Owned':
+        'Propias',
+    '{} will be created from {}, and {} uninstalled on it. {} itself is not modified.':
+        'Se creará {} a partir de {} y se desinstalará {} en ella. {} no se modifica.',
+    '{} is left in place for inspection; drop it when done.':
+        '{} se deja para revisarla; bórrala cuando termines.',
+    'Could not tell whether {} is neutralised.':
+        'No se pudo saber si {} está neutralizada.',
+    "{} can still act on the outside: run 'Neutralise a database' on it first.":
+        "{} todavía puede actuar hacia fuera: ejecuta antes 'Neutralizar una base de datos' sobre ella.",
+    'Not a working copy: {}':
+        'No es una copia de trabajo: {}',
+    'Not installed in {}: {}':
+        'No instalados en {}: {}',
+    'Could not compare the two databases; nothing recorded.':
+        'No se pudieron comparar las dos bases de datos; no se registra nada.',
+    'The uninstall took along: {}':
+        'La desinstalación se llevó también: {}',
+    'Modules to uninstall (comma-separated)':
+        'Módulos a desinstalar (separados por comas)',
+    'no client data lost':
+        'no se pierden datos del cliente',
+    'Uninstalling these also uninstalls: {}':
+        'Desinstalar estos desinstala también: {}',
 }
 
 # Runtime lookup: English (the in-code source) → Spanish.

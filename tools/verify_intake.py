@@ -154,10 +154,145 @@ def main() -> int:
                   "permission denied" in reader(
                       "SET default_transaction_read_only = off; BEGIN READ WRITE; "
                       "UPDATE res_partner SET name = 'x'; COMMIT").stderr)
+            check("it reads where a sequence stands (a wizard's only trace)",
+                  reader("SELECT is_called FROM res_partner_id_seq").stdout.strip() == "t",
+                  reader("SELECT 1 FROM res_partner_id_seq").stderr)
+            check("it cannot advance a sequence",
+                  "permission denied" in reader("SELECT nextval('res_partner_id_seq')").stderr)
             again = planners.plan_reader_role(env, "ACME_original", "acme_reader", grants, True)
             _bash(again[0].command, env_run)  # a second creation fails: the role exists
             check("a second run leaves one .pgpass line for the role",
                   pgpass.read_text().count("acme_reader") == 1)
+
+            # --- the uninstall comparison, on two real databases -----------------------------
+            cluster.sql("CREATE DATABASE ub")
+            cluster.value("""
+                CREATE TABLE ir_model (id serial, model varchar, transient boolean);
+                CREATE TABLE ir_model_data (id serial, module varchar, model varchar, res_id int);
+                CREATE TABLE ir_model_fields (id serial, model varchar, name varchar,
+                                              store boolean, related varchar);
+                CREATE TABLE ir_module_module (id serial, name varchar, state varchar);
+                CREATE TABLE ir_ui_view (id serial, name varchar);
+                CREATE TABLE aeat_model_export_config (id serial, name varchar);
+                CREATE TABLE invoice_merge (id serial);
+                CREATE TABLE purchase_order (id serial, commercial_partner_id int, note_x int,
+                                             flag boolean DEFAULT false);
+                INSERT INTO ir_model (model, transient) VALUES ('invoice.merge', true);
+                INSERT INTO ir_model_data (module, model, res_id) VALUES
+                  ('mod_a', 'aeat.model.export.config', 1), ('mod_a', 'aeat.model.export.config', 2);
+                INSERT INTO ir_model_fields (model, name, store, related) VALUES
+                  ('purchase.order', 'commercial_partner_id', true, 'partner_id.commercial_partner_id');
+                INSERT INTO ir_module_module (name, state) VALUES ('base', 'installed'),
+                  ('mod_a', 'installed'), ('mod_dep', 'installed'), ('mod_c', 'installed');
+                INSERT INTO ir_ui_view (name) SELECT 'v' FROM generate_series(1, 5);
+                INSERT INTO aeat_model_export_config (name) VALUES ('a'), ('b'), ('user');
+                INSERT INTO invoice_merge DEFAULT VALUES;
+                INSERT INTO purchase_order (commercial_partner_id, note_x) VALUES (1, 7), (2, NULL);
+                SELECT 1""", "ub")
+            cluster.sql("CREATE DATABASE ua TEMPLATE ub")
+            cluster.value("""
+                DELETE FROM aeat_model_export_config WHERE name IN ('a', 'b');
+                DROP TABLE invoice_merge;
+                DELETE FROM ir_ui_view WHERE id > 3;
+                ALTER TABLE purchase_order DROP COLUMN commercial_partner_id, DROP COLUMN flag;
+                UPDATE ir_module_module SET state = 'uninstalled' WHERE name IN ('mod_a', 'mod_dep');
+                SELECT 1""", "ua")
+            cluster.value("""
+                CREATE TABLE ir_module_module_dependency (id serial, module_id int, name varchar);
+                INSERT INTO ir_module_module_dependency (module_id, name)
+                  SELECT id, 'mod_a' FROM ir_module_module WHERE name = 'mod_dep';
+                INSERT INTO ir_module_module (name, state) VALUES ('mod_dep2', 'installed'),
+                  ('mod_gone', 'uninstalled');
+                INSERT INTO ir_module_module_dependency (module_id, name)
+                  SELECT id, 'mod_dep' FROM ir_module_module WHERE name IN ('mod_dep2', 'mod_gone');
+                SELECT 1""", "ub")
+            deps = system.psql_rows(intake.dependents_sql(["mod_a"]), "ub", str(cluster.sock),
+                                    cluster.port, "postgres")
+            check("the dependents are found before any uninstall, transitively, installed only",
+                  deps == [["mod_dep"], ["mod_dep2"]], deps)
+            cluster.value("DELETE FROM ir_module_module WHERE name = 'mod_dep2'; SELECT 1", "ub")
+            from odoo_dwg.workflows import intake as wf_intake  # noqa: PLC0415
+            compared = wf_intake._compare_uninstall(env, "ub", "ua", ["mod_a"])
+            kinds = {(c.table, c.column): c.kind for c in (compared or ([], []))[0]}
+            check("the comparison reads both databases and names every difference",
+                  compared is not None and kinds == {
+                      ("aeat_model_export_config", ""): "module data",
+                      ("invoice_merge", ""): "wizard", ("ir_ui_view", ""): "metadata",
+                      ("purchase_order", "commercial_partner_id"): "recomputed",
+                      ("purchase_order", "flag"): "empty",  # a false is no value
+                      ("ir_module_module", ""): "metadata",
+                      ("ir_module_module_dependency", ""): "metadata"}, kinds)
+            check("it names the dependent the uninstall took along",
+                  compared is not None and compared[1] == ["mod_dep"], compared)
+            cluster.value("ALTER TABLE purchase_order DROP COLUMN note_x; "
+                          "DELETE FROM aeat_model_export_config; SELECT 1", "ua")
+            compared = wf_intake._compare_uninstall(env, "ub", "ua", ["mod_a"])
+            lost = {(c.table, c.column): c.before for c in (compared or ([], []))[0]
+                    if c.kind == "data lost"}
+            check("a dropped column with a value, and a row beyond what was owned, are data lost",
+                  lost == {("purchase_order", "note_x"): 1, ("aeat_model_export_config", ""): 3},
+                  lost)
+
+            # --- the uninstall command, against a stub interpreter ---------------------------
+            record = intake.IntakeRecord("ACME_original", "acme_reader", "client-src/acme",
+                                         ("custom",), intake.Core("ocb", "a" * 40))
+            with_intake = MigrationEnv(source="12.0", target="18.0", db_host=str(cluster.sock),
+                                       db_port=cluster.port, db_user="postgres", intake=record)
+            stub = with_intake.venv_dir("12.0") / "bin" / "python"
+            stub.parent.mkdir(parents=True, exist_ok=True)
+            stub.write_text(f'#!/bin/bash\nprintf "%s\\n" "$@" > {root}/args\n'
+                            f"cat > {root}/script.py\n")
+            stub.chmod(0o755)
+            plan = planners.plan_uninstall_rehearsal(with_intake, "ub", "ub_uninstall",
+                                                     ["mod_a", "mod_c"])
+            ran = _bash(plan[2].command)
+            args = (root / "args").read_text().split("\n") if (root / "args").exists() else []
+            script = (root / "script.py").read_text() if (root / "script.py").exists() else ""
+            check("odoo-bin shell gets the throwaway database, no HTTP, no cron thread",
+                  ran.returncode == 0 and "shell" in args and "ub_uninstall" in args
+                  and "--no-http" in args and "--max-cron-threads=0" in args, (ran.stderr, args))
+            check("the script reaches its stdin intact",
+                  script == planners.uninstall_script(["mod_a", "mod_c"]), script)
+
+            class _Mods(list):
+                def mapped(self, _field):
+                    return list(self)
+
+                def button_immediate_uninstall(self):
+                    calls.append(sorted(self))
+
+            class _Cr:
+                def __init__(self, left):
+                    self.left = left
+
+                def commit(self):
+                    calls.append("commit")
+
+                def execute(self, *_a):
+                    pass
+
+                def fetchall(self):
+                    return [(n,) for n in self.left]
+
+            def run_script(installed, left):
+                shell_env = type("Env", (), {"cr": _Cr(left)})()
+                shell_env.__class__.__getitem__ = lambda _s, _m: type(
+                    "Model", (), {"search": staticmethod(lambda _d: _Mods(installed))})()
+                try:
+                    exec(script, {"env": shell_env})  # noqa: S102 — the script under test
+                except SystemExit as stop:
+                    return str(stop)
+                return "ok"
+
+            calls: list = []
+            check("the script uninstalls, commits, and confirms",
+                  run_script(["mod_a", "mod_c"], []) == "ok"
+                  and calls == [["mod_a", "mod_c"], "commit"], calls)
+            calls = []
+            check("a module that is not installed stops it before any uninstall",
+                  "not installed: mod_c" in run_script(["mod_a"], []) and calls == [], calls)
+            check("a module still installed after is a failure",
+                  "still installed: mod_c" in run_script(["mod_a", "mod_c"], ["mod_c"]))
         finally:
             cluster.stop()
 

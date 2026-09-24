@@ -1656,6 +1656,71 @@ def plan_copy_database(env: MigrationEnv, reference: str, copy: str) -> list[Com
                     f"createdb {_pg(env)} -T {shlex.quote(reference)} {shlex.quote(copy)}")]
 
 
+def uninstall_script(modules: list[str]) -> str:
+    """The Python ``odoo-bin shell`` runs: the Apps screen's own uninstall, then a
+    check that every module asked for is gone. Any failure exits non-zero."""
+    names = sorted(modules)
+    if not names or not all(MODULE_NAME_RE.fullmatch(m) for m in names):
+        raise ValueError(tf("Invalid module names: {}", ", ".join(names)))
+    return (
+        f"names = {names!r}\n"
+        "mods = env['ir.module.module'].search([('name', 'in', names), ('state', '=', 'installed')])\n"
+        "missing = sorted(set(names) - set(mods.mapped('name')))\n"
+        "if missing:\n"
+        "    raise SystemExit('not installed: ' + ', '.join(missing))\n"
+        "mods.button_immediate_uninstall()\n"
+        "env.cr.commit()\n"
+        "env.cr.execute(\"SELECT name FROM ir_module_module WHERE name IN %s "
+        "AND state <> 'uninstalled'\", (tuple(names),))\n"
+        "left = [r[0] for r in env.cr.fetchall()]\n"
+        "if left:\n"
+        "    raise SystemExit('still installed: ' + ', '.join(left))\n"
+        "print('[uninstalled] ' + ', '.join(names))\n"
+    )
+
+
+def plan_uninstall_rehearsal(env: MigrationEnv, copy: str, scratch: str,
+                             modules: list[str]) -> list[Command]:
+    """Uninstall modules on a throwaway clone of a neutralised working copy.
+
+    The working copy is never modified, so what the uninstall removed can still be
+    read there. The clone gets a hard-linked filestore, as a copy opened for testing
+    does; the source version's own Odoo uninstalls, with no HTTP service and no cron
+    thread; and the clone is neutralised again after, because the uninstall reloads
+    the registry."""
+    if env.intake is None:
+        raise ValueError(tf("No intake: {}", str(env.intake_file)))
+    q = shlex.quote
+    reference = env.intake.reference_database
+    data = env.data_dir
+    python = env.venv_dir(env.source) / "bin" / "python"
+    local_url = f"http://127.0.0.1:{templates.OPEN_HTTP_PORT}"
+    return [
+        *plan_copy_database(env, copy, scratch),
+        Command(
+            tf("Give {} a filestore of hard links to {}'s", scratch, reference),
+            f"mkdir -p {q(str(data / 'filestore'))} && "
+            f"if [ -d {q(str(data / 'filestore' / reference))} ] && "
+            f"[ ! -e {q(str(data / 'filestore' / scratch))} ]; then "
+            f"cp -al {q(str(data / 'filestore' / reference))} "
+            f"{q(str(data / 'filestore' / scratch))}; fi",
+        ),
+        Command(
+            tf("Uninstall {} on {} with Odoo {}", ", ".join(sorted(modules)), scratch, env.source),
+            f"{q(str(python))} {q(str(env.source_odoo_bin))} shell "
+            f"-c {q(str(env.config_file(env.source)))} -d {q(scratch)} "
+            f"--data-dir={q(str(data))} --no-http --max-cron-threads=0 --log-level=warn "
+            f"<<'ODWG_UNINSTALL'\n{uninstall_script(modules)}ODWG_UNINSTALL",
+        ),
+        *plan_neutralise(scratch, env.db_host, env.db_port, env.db_user, local_url),
+        Command(
+            tf("Check that {} cannot act on the outside", scratch),
+            _psql(scratch, env.db_host, env.db_port, env.db_user,
+                  templates.render_neutral_check_sql()),
+        ),
+    ]
+
+
 def oca_tree_dir(env: MigrationEnv, repo: str, version: str) -> Path:
     return env.repos_dir / "oca-trees" / f"{repo}-{version}"
 
