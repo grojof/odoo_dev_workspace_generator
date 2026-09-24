@@ -887,3 +887,150 @@ def taken_along(asked: list[str], installed_before: set[str],
                 installed_after: set[str]) -> list[str]:
     """Modules the uninstall removed beyond the ones asked for: their dependents."""
     return sorted((installed_before - installed_after) - set(asked))
+
+
+# --- auditing the client's own modules -------------------------------------------------
+
+def _module_list(modules: list[str]) -> str:
+    names = sorted(m for m in modules if MODULE_NAME_RE.fullmatch(m))
+    if not names:
+        raise IntakeError(["no module name to audit"])
+    return ", ".join(f"'{m}'" for m in names)
+
+
+def audit_models_sql(modules: list[str]) -> str:
+    """``module, model, transient``: the models each module created (its first
+    ``ir_model_data`` row), which is what its removal would take away."""
+    return ("SELECT d.module, m.model, m.transient FROM ir_model m JOIN LATERAL (SELECT module "
+            "FROM ir_model_data WHERE model = 'ir.model' AND res_id = m.id ORDER BY id LIMIT 1) d "
+            f"ON true WHERE d.module IN ({_module_list(modules)}) ORDER BY 1, 2")
+
+
+def audit_fields_sql(modules: list[str]) -> str:
+    """``module, model, field, type, stored, related, relation table`` for the fields each
+    module created, magic fields left out."""
+    return ("SELECT d.module, f.model, f.name, f.ttype, f.store, coalesce(f.related, ''), "
+            "coalesce(f.relation_table, '') FROM ir_model_fields f JOIN LATERAL (SELECT module "
+            "FROM ir_model_data WHERE model = 'ir.model.fields' AND res_id = f.id ORDER BY id "
+            f"LIMIT 1) d ON true WHERE d.module IN ({_module_list(modules)}) AND f.name NOT IN "
+            "('id', 'create_uid', 'create_date', 'write_uid', 'write_date', 'display_name', "
+            "'__last_update') ORDER BY 1, 2, 3")
+
+
+def audit_reports_sql(modules: list[str]) -> str:
+    """``module, report, model, in the Print menu, namespace, print name``: documents whose
+    QWeb template belongs to a module, and the namespace their action is registered under."""
+    return ("SELECT split_part(r.report_name, '.', 1), r.report_name, r.model, "
+            "r.binding_model_id IS NOT NULL, coalesce(d.module, ''), coalesce(r.print_report_name, "
+            "'') FROM ir_act_report_xml r LEFT JOIN ir_model_data d ON d.model = "
+            "'ir.actions.report' AND d.res_id = r.id WHERE split_part(r.report_name, '.', 1) IN "
+            f"({_module_list(modules)}) ORDER BY 1, 2")
+
+
+def audit_dependents_sql(modules: list[str]) -> str:
+    """``module, installed dependent``."""
+    return ("SELECT d.name, m.name FROM ir_module_module_dependency d JOIN ir_module_module m "
+            f"ON m.id = d.module_id WHERE d.name IN ({_module_list(modules)}) AND m.state IN "
+            "('installed', 'to upgrade') ORDER BY 1, 2")
+
+
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def audit_field_sql(table: str, column: str, since: str, dated: bool) -> str:
+    """``filled, filled since, last``: rows holding a value (not ``false``, not ``''``),
+    those written since the date, and the last such write."""
+    if not (_NAME_RE.fullmatch(table) and re.fullmatch(r"[A-Za-z0-9_]+", column)
+            and _DATE_RE.fullmatch(since)):
+        raise IntakeError([f"not a table, column or date: {table}.{column} {since}"])
+    value = f"{_ident(column)} IS NOT NULL AND {_ident(column)}::text NOT IN ('false', '')"
+    if not dated:
+        return f"SELECT count(*) FILTER (WHERE {value}), '', '' FROM public.{_ident(table)}"
+    return (f"SELECT count(*) FILTER (WHERE {value}), count(*) FILTER (WHERE {value} AND "
+            f"write_date >= '{since}'), coalesce(max(write_date) FILTER (WHERE {value})::date"
+            f"::text, '') FROM public.{_ident(table)}")
+
+
+def audit_table_sql(table: str, since: str, dated: bool) -> str:
+    """``rows, rows written since, last write``."""
+    if not (_NAME_RE.fullmatch(table) and _DATE_RE.fullmatch(since)):
+        raise IntakeError([f"not a table or date: {table} {since}"])
+    if not dated:
+        return f"SELECT count(*), '', '' FROM public.{_ident(table)}"
+    return (f"SELECT count(*), count(*) FILTER (WHERE write_date >= '{since}'), "
+            f"coalesce(max(write_date)::date::text, '') FROM public.{_ident(table)}")
+
+
+def print_name_prefix(expression: str) -> str:
+    """The literal a document's PDF name starts with, from its ``print_report_name``
+    (``'ACME invoice - %s' % (object.name)`` gives ``ACME invoice - ``); "" when the
+    expression does not start with one, so no attachment is attributed by guesswork."""
+    match = re.match(r"""\s*(['"])([^'"%]{6,})""", expression or "")
+    return match.group(2) if match else ""
+
+
+#: A request for a document, in an Odoo (werkzeug) or a proxy (combined) access log.
+_PRINT_RE = re.compile(r'"(?:GET|POST) /report/(?:pdf|html)/([A-Za-z0-9_.]+)/')
+_ODOO_DATE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}) ")
+_COMBINED_DATE_RE = re.compile(r"\[(\d{2})/([A-Za-z]{3})/(\d{4}):")
+_MONTHS = {m: i for i, m in enumerate(
+    ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"), 1)}
+
+
+def report_prints(log: str, since: str) -> dict[str, tuple[int, int]]:
+    """``{document: (prints since the date, undated prints)}`` from an access log.
+
+    Odoo stores nothing when a document is printed, and a production log at
+    ``log_level = warn`` records no request; a proxy's access log does. A line whose
+    date cannot be read is counted apart rather than guessed."""
+    out: dict[str, list[int]] = {}
+    for line in log.splitlines():
+        match = _PRINT_RE.search(line)
+        if not match:
+            continue
+        counts = out.setdefault(match.group(1), [0, 0])
+        odoo = _ODOO_DATE_RE.match(line)
+        combined = _COMBINED_DATE_RE.search(line)
+        if odoo:
+            day = odoo.group(1)
+        elif combined and combined.group(2) in _MONTHS:
+            day = f"{combined.group(3)}-{_MONTHS[combined.group(2)]:02d}-{combined.group(1)}"
+        else:
+            counts[1] += 1
+            continue
+        if day >= since:
+            counts[0] += 1
+    return {name: (c[0], c[1]) for name, c in out.items()}
+
+
+@dataclass(frozen=True)
+class AuditRow:
+    module: str
+    kind: str       # field, model, wizard, m2m, related, document, dependent
+    subject: str
+    total: str = ""
+    since: str = ""
+    last: str = ""
+    note: str = ""
+
+
+def audit_label(rows: list[AuditRow], since: str) -> str:
+    """What a module's evidence alone says about its use:
+
+    - *in use*: a value, a row or a print dated since the date;
+    - *in use, undated*: no dated use, but a wizard was opened or a many2many link is set.
+      A sequence counts openings, not when, and a link table has no dates; hidden menus
+      set years ago are in effect today;
+    - *not used since <date>*: it holds data, none of it written since;
+    - *no data*: nothing it created holds anything. Files its code writes as attachments,
+      rather than through a document, are not attributed to it."""
+    def some(value: str) -> bool:
+        return value not in ("", "0")
+
+    if any(r.kind in ("field", "model", "document") and some(r.since) for r in rows):
+        return "in use"
+    if any(r.kind in ("wizard", "m2m") and some(r.total) for r in rows):
+        return "in use, undated"
+    if any(r.kind in ("field", "model", "document") and some(r.total) for r in rows):
+        return f"not used since {since}"
+    return "no data"

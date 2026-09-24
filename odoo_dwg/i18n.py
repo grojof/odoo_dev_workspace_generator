@@ -956,6 +956,26 @@ _ES: dict[str, str] = {
         'Dependencias ({})',
     '{} — no source of this step has them':
         '{} — ninguna fuente de este paso las tiene',
+    "Audit the client's own modules":
+        'Auditar los módulos propios del cliente',
+    'Other modules to audit (comma-separated, optional)':
+        'Otros módulos a auditar (separados por comas, opcional)',
+    'Count use since (YYYY-MM-DD)':
+        'Contar el uso desde (AAAA-MM-DD)',
+    'Migrated database to check survival in (optional)':
+        'Base de datos migrada donde comprobar que los datos siguen (opcional)',
+    'Web access log to count prints from (optional)':
+        'Log de accesos web para contar impresiones (opcional)',
+    'Module':
+        'Módulo',
+    'Required by':
+        'Lo necesitan',
+    'Not a date, or not a database name.':
+        'No es una fecha, o no es un nombre de base de datos.',
+    'Could not read database {}; nothing recorded.':
+        'No se pudo leer la base de datos {}; no se registra nada.',
+    'Could not read {}; nothing recorded.':
+        'No se pudo leer {}; no se registra nada.',
 }
 
 # Runtime lookup: English (the in-code source) → Spanish.

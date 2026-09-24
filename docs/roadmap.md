@@ -204,6 +204,9 @@ items are host-dependent.
   - the preflight and the driver agree on renamed modules' dependencies, and stale decisions;
   - `data_dir` and a hard-linked filestore for every step of the chain.
 
+  Then the audit of the client's own modules from their data (change `audit-client-modules`):
+  per-module use since a date, survival in a migrated database, and prints from an access log.
+
   Not done yet: a client's own module whose manifest declares Odoo S.A. as its author is reported
   "dropped by Odoo; OpenUpgrade removes it". With an intake, where the module loads from is known, and
   that should decide it rather than the author.
