@@ -7,6 +7,16 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Rehearse uninstalling modules on a copy.** A new step in Take in a client copy, for modules with no
+  code at some step of the chain. OpenUpgrade documents no procedure for them, and an uninstall deletes
+  what a module owns, drops its tables and columns with `CASCADE`, and takes its dependents along. The step
+  clones a neutralised working copy to a throwaway database and uninstalls there with the source
+  version's own Odoo. It then re-neutralises the clone and compares every table of the two databases.
+  Each difference is named: module data, wizard, metadata, recomputed, empty, or **data lost**. The
+  working copy is never modified. The result is a data table and one finding, `high` when any client data
+  is lost. Before the plan, the step names every installed module that depends on those asked for, since
+  the uninstall takes them along. On the first client it found one of the client's own modules
+  that the static analysis had missed.
 - **The intake surveys what a copy can act on, where each module's code is, and what the client's own
   code calls.** Three steps are added to Take in a client copy:
   - **A survey of the reference**, read as its owner. Each armed neutralisation rule becomes a finding,

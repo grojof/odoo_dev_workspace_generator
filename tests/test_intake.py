@@ -390,3 +390,107 @@ def test_oca_trees_are_blobless_and_an_absent_branch_is_remembered():
     assert command.count("--filter=blob:none --no-checkout") == 2
     assert "ls-remote --exit-code --heads https://github.com/OCA/web.git 13.0" in command
     assert "[ $code -eq 2 ]" in command and "web-14.0.absent" in command
+
+
+# --- rehearsing an uninstall -----------------------------------------------------------
+
+def _diff(**over):
+    args = {
+        "before_rows": {"aeat_model_export_config": 4, "res_partner": 10, "invoice_merge": 2,
+                        "ir_ui_view": 900, "purchase_order": 5, "account_overdue_term": 0,
+                        "res_groups_users_rel": 30},
+        "after_rows": {"aeat_model_export_config": 2, "res_partner": 10, "ir_ui_view": 880,
+                       "purchase_order": 5, "res_groups_users_rel": 30},
+        "before_cols": {("purchase_order", "commercial_partner_id"), ("purchase_order", "id"),
+                        ("res_partner", "vat_checked"), ("res_partner", "id")},
+        "after_cols": {("purchase_order", "id"), ("res_partner", "id")},
+        "owned": {"aeat.model.export.config": 2},
+        "transient": {"invoice.merge"},
+        "related": {("purchase.order", "commercial_partner_id")},
+        "column_values": {("purchase_order", "commercial_partner_id"): 5,
+                          ("res_partner", "vat_checked"): 0},
+    }
+    args.update(over)
+    return {(c.table, c.column): c for c in it.diff_uninstall(**args)}
+
+
+def test_an_uninstall_that_takes_only_what_the_modules_owned_loses_no_client_data():
+    changes = _diff()
+    assert changes[("aeat_model_export_config", "")].kind == "module data"
+    assert changes[("invoice_merge", "")].kind == "wizard"
+    assert changes[("ir_ui_view", "")].kind == "metadata"
+    assert changes[("account_overdue_term", "")].kind == "empty"
+    assert changes[("purchase_order", "commercial_partner_id")].kind == "recomputed"
+    assert changes[("res_partner", "vat_checked")].kind == "empty"
+    assert ("res_partner", "") not in changes  # unchanged tables are not listed
+    assert not [c for c in changes.values() if c.kind == "data lost"]
+
+
+def test_a_dropped_column_that_held_values_is_data_lost():
+    changes = _diff(column_values={("res_partner", "vat_checked"): 3,
+                                   ("purchase_order", "commercial_partner_id"): 5})
+    lost = changes[("res_partner", "vat_checked")]
+    assert (lost.kind, lost.before) == ("data lost", 3)
+
+
+def test_a_table_losing_more_rows_than_the_modules_owned_is_data_lost():
+    changes = _diff(after_rows={"aeat_model_export_config": 1, "res_partner": 10,
+                                "ir_ui_view": 880, "purchase_order": 5,
+                                "res_groups_users_rel": 25})
+    assert changes[("aeat_model_export_config", "")].kind == "data lost"  # 3 gone, 2 owned
+    assert changes[("res_groups_users_rel", "")].kind == "data lost"  # a cascade owns nothing
+
+
+def test_the_modules_the_uninstall_took_along_are_named():
+    assert it.taken_along(["a"], {"a", "b", "c", "base"}, {"c", "base"}) == ["b"]
+
+
+def test_the_snapshot_reads_exact_counts_and_the_value_count_quotes_identifiers():
+    assert "query_to_xml" in it.UNINSTALL_ROWS_SQL and "reltuples" not in it.UNINSTALL_ROWS_SQL
+    sql = it.column_values_sql([("res_partner", "vat_checked")])
+    assert sql == ('SELECT \'res_partner\', \'vat_checked\', count(*) FILTER (WHERE '
+                   '"vat_checked" IS NOT NULL AND "vat_checked"::text NOT IN (\'false\', \'\'))'
+                   '::text FROM public."res_partner"')
+    assert "'x'); DROP" not in it.owned_rows_sql(["a", "x'); DROP"])
+    with pytest.raises(it.IntakeError):
+        it.owned_rows_sql(["x'); DROP"])
+    assert it.parse_counts([["a", "3"], ["b", ""], ["c"]]) == {"a": 3}
+
+
+def test_the_rehearsal_plan_never_touches_the_copy_and_ends_neutralised():
+    record = it.IntakeRecord("ACME_original", "acme_reader", "client-src/acme", ("custom",),
+                             it.Core("ocb", COMMIT))
+    env = _env(record)
+    plan = planners.plan_uninstall_rehearsal(env, "ACME_test", "ACME_test_uninstall",
+                                             ["mod_b", "mod_a"])
+    text = [c.command for c in plan]
+    assert "-T ACME_test ACME_test_uninstall" in text[0]
+    assert "cp -al" in text[1] and "filestore/ACME_original" in text[1]
+    shell = text[2]
+    assert " shell -c " in shell and "-d ACME_test_uninstall" in shell
+    assert "--no-http --max-cron-threads=0" in shell and "ACME_test " not in shell
+    assert "names = ['mod_a', 'mod_b']" in shell and "button_immediate_uninstall" in shell
+    assert any("Neutralise database ACME_test_uninstall" in c.description for c in plan)
+    assert "ACME_test_uninstall" in text[-1] and "RAISE" in text[-1].upper()
+    assert all("-d ACME_test " not in c and "-d ACME_test\n" not in c for c in text)
+    with pytest.raises(ValueError):
+        planners.uninstall_script(["ok", "bad name"])
+
+
+def test_a_wizards_relation_and_the_tools_own_record_are_not_client_data():
+    """The first real rehearsal named both as data lost: a transient model's
+    many2many table, and the neutralisation record its own re-run wrote to."""
+    changes = _diff(before_rows={"purchase_batch_invoicing_purchase_order_rel": 2,
+                                 "odwg_neutralisation_rule": 108},
+                    after_rows={"odwg_neutralisation_rule": 135},
+                    transient={"purchase.batch_invoicing"})
+    assert changes[("purchase_batch_invoicing_purchase_order_rel", "")].kind == "wizard"
+    assert changes[("odwg_neutralisation_rule", "")].kind == "metadata"
+
+
+def test_the_dependents_are_asked_for_before_the_uninstall():
+    sql = it.dependents_sql(["purchase_commercial_partner"])
+    assert "WITH RECURSIVE" in sql and "'purchase_commercial_partner'" in sql
+    assert "state IN ('installed', 'to upgrade')" in sql
+    with pytest.raises(it.IntakeError):
+        it.dependents_sql(["x'; DROP"])
