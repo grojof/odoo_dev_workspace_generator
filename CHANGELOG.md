@@ -7,6 +7,16 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **The intake surveys what a copy can act on, where each module's code is, and what the client's own
+  code calls.** Three steps are added to Take in a client copy:
+  - **A survey of the reference**, read as its owner. Each armed neutralisation rule becomes a finding,
+    ranked by a severity the catalogue now declares per rule. Overdue crons, queued jobs and the mail
+    queue are recorded too, with failed mail that a retry would send as a finding of its own.
+  - **An availability check** of every installed Odoo and OCA module at every step of the chain. It
+    follows each module's OpenUpgrade fate, looks in the client's OCA repositories and then, only for
+    the steps with gaps, in every OCA repository, with blobless trees cached per host.
+  - **A scan of the client's own modules** for network calls and processes. It refuses to report unless
+    every pattern first matches its own control line.
 - **A client's copy is taken in by the tool, and the source version is what the client runs.**
   Menu → Migration → Take in a client copy has the following steps:
   - restores the dump into a reference database nothing modifies, and classifies every `pg_restore`

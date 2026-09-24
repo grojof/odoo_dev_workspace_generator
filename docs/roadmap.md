@@ -184,10 +184,10 @@ items are host-dependent.
   - the filestore;
   - the source built from that core with the client's add-ons, started guarded.
 
-  **Still to do (spec 3b):**
-  - the outbound inventory written as findings;
-  - per-step availability across *all* OCA repositories;
-  - a scan of custom code for network calls with a positive control.
+  The rest was spec 3b, **done** (2026-09-24, change `survey-a-client-copy`):
+  - the outbound survey as findings, ranked by the catalogue's declared severities;
+  - per-step availability across all OCA repositories, fetched only for the steps with gaps;
+  - the custom-code network scan, with its positive control.
 
 - ~~The operator surface has a spec~~ — **done** (2026-09-20, change `name-the-operator-surface`).
   The twelve capabilities all described what the tool does to the *host*; nothing described what the

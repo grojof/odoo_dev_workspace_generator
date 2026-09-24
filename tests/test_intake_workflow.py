@@ -163,3 +163,92 @@ def test_the_exact_commit_between_two_samples_is_found(env, monkeypatch, written
     wi.identify_core(env)
     record = it.parse_intake(_files(written[-1])[str(env.intake_file)])
     assert record.core == it.Core("ocb", exact)
+
+
+# --- spec 3b: survey, availability, scan -----------------------------------------------
+
+from odoo_dwg import egress  # noqa: E402
+from odoo_dwg import neutralise as nz  # noqa: E402
+
+
+def _data(env: MigrationEnv, name: str, rows: list[list[str]]) -> None:
+    env.findings_data_dir.mkdir(parents=True, exist_ok=True)
+    (env.findings_data_dir / name).write_text("\n".join("\t".join(r) for r in rows) + "\n")
+
+
+def _ledger_of(plans) -> fl.Ledger:
+    return fl.parse_ledger(next(v for k, v in _files(plans[-1]).items()
+                                if k.endswith("findings.json")))
+
+
+def test_the_survey_ranks_what_is_armed_by_the_catalogue(env, monkeypatch, written):
+    monkeypatch.setattr(wi, "armed_state", lambda *a: [nz.Armed("sii-oca", 1, "ACME"),
+                                                       nz.Armed("crons", 4, "Mail queue")])
+    monkeypatch.setattr(wi, "mail_state", lambda *a: egress.MailState())
+    monkeypatch.setattr(wi, "psql_scalar", lambda *a, **k: "t")
+    rows = {"crons": [["Mail queue", "1 hours", "2026-09-21 11:00", "3"]], "queue": [],
+            "mail": [["exception", "15", "2022-01-01", "2026-09-01"]]}
+    monkeypatch.setattr(wi, "psql_rows", lambda sql, *a, **k: next(
+        v for key, v in rows.items() if it.SURVEY_SQL[key] == sql))
+    _answers(monkeypatch, "ACME")
+    wi.survey_outbound(env)
+    found = {f.id: f for f in _ledger_of(written).findings}
+    assert found["intake-armed-sii-oca"].severity == "critical"
+    assert found["intake-armed-crons"].severity == "high"
+    assert found["intake-crons-overdue"].evidence == {"crons": 1}
+    assert found["intake-mail-failed"].evidence["count"] == 15
+
+
+def test_availability_fetches_all_of_oca_only_for_the_steps_with_gaps(env, monkeypatch, written,
+                                                                      tmp_path):
+    monkeypatch.setattr(MigrationEnv, "chain", lambda self: ["13.0", "14.0"])
+    _data(env, "intake-installed.tsv", [["module", "loads_from"], ["web_kept", "web"],
+                                        ["gone", "web"], ["acme_x", "custom"]])
+    _data(env, "intake-repos.tsv", [["dir", "remote"], ["web", "https://github.com/OCA/web.git"],
+                                    ["custom", "https://github.com/acme/x.git"]])
+    trees = env.repos_dir / "oca-trees"
+    for name in ("web-13.0", "web-14.0", "web-extra-14.0"):
+        (trees / name).mkdir(parents=True)
+    contents = {"web-13.0": {"web_kept", "gone"}, "web-14.0": {"web_kept"},
+                "web-extra-14.0": {"gone"}}
+    monkeypatch.setattr(wi, "tree_modules", lambda tree: contents.get(tree.name, set()))
+    monkeypatch.setattr(wi, "scan_manifests", lambda *a, **k: [])
+    listed = []
+    monkeypatch.setattr(wi, "github_org_repos", lambda org: listed.append(org) or
+                        ["web", "web-extra"])
+    plans: list = []
+
+    def apply(commands):
+        plans.append(commands)
+        return True
+    monkeypatch.setattr(wi, "apply_if_confirmed", apply)
+    _answers(monkeypatch, "ACME")
+    wi.check_availability(env)
+    assert listed == ["OCA"]  # the client's web had a gap at 14.0: all of OCA was asked
+    fetched = " ".join(c.command for p in plans[:-1] for c in p)
+    assert "web-extra-13.0" not in fetched  # only the step with the gap is fetched
+    ledger = _ledger_of(plans)
+    ids = {f.id for f in ledger.findings}
+    assert "intake-moved" in ids and "intake-gaps" not in ids  # 'gone' moved to web-extra
+    table = _files(plans[-1])[str(env.findings_data_dir / "intake-availability.tsv")]
+    assert "gone\toca\tweb\t\tweb\tweb-extra" in table and "acme_x\tcustom" in table
+
+
+def test_the_scan_reports_hits_and_refuses_with_a_broken_scanner(env, monkeypatch, written,
+                                                                 capsys):
+    _data(env, "intake-installed.tsv", [["module", "loads_from"], ["acme_x", "custom"]])
+    _data(env, "intake-repos.tsv", [["dir", "remote"], ["custom", "https://github.com/acme/x"]])
+    base = env.root / "client-src" / "acme" / "custom" / "acme_x"
+    (base / "models").mkdir(parents=True)
+    (base / "tests").mkdir()
+    (base / "models" / "sync.py").write_text("import requests\nrequests.post(url, json=d)\n")
+    (base / "tests" / "test_sync.py").write_text("requests.post(fake)\n")
+    _answers(monkeypatch, "ACME")
+    wi.scan_custom(env)
+    ledger = _ledger_of(written)
+    hit = next(f for f in ledger.findings if f.id == "intake-network-acme-x")
+    assert hit.evidence == {"hits": ["models/sync.py:2 requests"]}  # tests/ skipped
+    monkeypatch.setattr(it, "NETWORK_PATTERNS", (("requests", r"nope", "requests.post(x)"),))
+    before = len(written)
+    wi.scan_custom(env)
+    assert len(written) == before and "fails its own control" in capsys.readouterr().out
