@@ -474,3 +474,33 @@ def test_actions_after_generation_know_the_oca_repositories_it_linked(monkeypatc
         (env.addons_oca_dir(version) / repo).symlink_to(target)
     (env.addons_oca_dir("13.0") / "not_a_link").mkdir()
     assert linked_oca_repos(env) == ["l10n-spain", "web"]
+
+
+def test_a_steps_requirements_come_from_its_own_manifests_under_its_names(monkeypatch, tmp_path):
+    """The first client's chain stopped at 13.0 on a library only the source's
+    venv had been given."""
+    from odoo_dwg import preflight
+    from odoo_dwg.workflows.migration import step_python_requirements
+
+    monkeypatch.setattr(MigrationEnv, "base_dir", str(tmp_path))
+    env = MigrationEnv(source="12.0", target="14.0")
+    for version, apriori in (("13.0", "{'old_mod': 'new_mod'}"), ("14.0", "{}")):
+        path = preflight.apriori_path(env, version)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"renamed_modules = {apriori}\nmerged_modules = {{}}\n")
+        preflight._APRIORI_CACHE.clear()
+    for version, deps in (("13.0", "['unidecode', 'OpenSSL']"), ("14.0", "['cryptography<39']")):
+        module = env.addons_oca_dir(version) / "new_mod"
+        module.mkdir(parents=True)
+        (module / "__manifest__.py").write_text(
+            f"{{'name': 'x', 'external_dependencies': {{'python': {deps}}}}}")
+    assert step_python_requirements(env, ["old_mod", "gone"]) == {
+        "13.0": ["pyOpenSSL", "unidecode"], "14.0": ["cryptography<39"]}
+
+
+def test_the_driver_checks_each_steps_libraries_in_its_own_venv_before_it(monkeypatch, tmp_path):
+    env = MigrationEnv(source="12.0", target="14.0")
+    driver = templates.render_run_migration_sh(env)
+    assert driver.count("python_deps_step() {") == 1
+    for version in env.chain():
+        assert f'python_deps_step {version} {env.venv_dir(version)}/bin/python' in driver

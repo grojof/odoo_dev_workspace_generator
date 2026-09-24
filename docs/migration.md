@@ -715,6 +715,12 @@ The chain carries the same `data_dir`: every step's configuration names it. Befo
 after any resume from a checkpoint, the driver gives its working database a filestore of hard links to the
 reference's (`[filestore] … hard links to …`).
 
+Each step's venv also needs what the client's modules declare in `external_dependencies`, at that
+step's version. After generating with an intake, the tool lists them per step and offers to install
+them, held to what each venv has. Before each step the driver checks them with that step's interpreter,
+as Odoo would, and stops naming the module and the library (`[python] … needs … for 13.0: not
+installed`) instead of failing minutes into the step.
+
 ## Recording what the migration finds
 
 A client migration finds things long before it runs a step: a tax-reporting module in production mode with

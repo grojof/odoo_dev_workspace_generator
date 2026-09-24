@@ -17,7 +17,7 @@ from pathlib import Path
 
 from .. import analysis, egress, planners, preflight, runlog, templates, tester
 from ..i18n import t, tf
-from ..intake import repos_from_availability
+from ..intake import manifest_python_imports, pip_requirements, repos_from_availability
 from ..models import (
     DB_NAME_RE,
     MODULE_NAME_RE,
@@ -89,6 +89,49 @@ def linked_oca_repos(env: MigrationEnv) -> list[str]:
         found.update(entry.name for entry in directory.iterdir()
                      if entry.is_symlink() and OCA_REPO_RE.fullmatch(entry.name))
     return sorted(found)
+
+
+def step_python_requirements(env: MigrationEnv, installed: list[str]) -> dict[str, list[str]]:
+    """What the installed modules declare at each step, as pip requirements: read
+    from each step's own manifests, under the name the step knows each module by."""
+    carried = {module: module for module in installed}
+    out: dict[str, list[str]] = {}
+    for version in env.chain():
+        renames = preflight.read_apriori(preflight.apriori_path(env, version))
+        sources = preflight.coverage_sources(env, version)
+        declared: list[str] = []
+        for module in installed:
+            name = carried[module]
+            for candidate in (name, renames.get(name)):
+                found = next((s / candidate for s in sources
+                              if candidate and (s / candidate).is_dir()), None)
+                if found is None:
+                    continue
+                text = _read_text(found / "__manifest__.py") or _read_text(
+                    found / "__openerp__.py") or ""
+                declared += manifest_python_imports(text) or []
+                break
+            if renames.get(name):
+                carried[module] = renames[name]
+        requirements = pip_requirements(declared)
+        if requirements:
+            out[version] = list(requirements)
+    return out
+
+
+def _offer_step_python_deps(env: MigrationEnv) -> None:
+    """After generation with an intake: the client's modules' libraries, per step."""
+    if env.intake is None:
+        return
+    table = _read_text(env.findings_data_dir / "intake-installed.tsv") or ""
+    installed = [line.split("\t")[0] for line in table.splitlines()[1:] if line.strip()]
+    requirements = step_python_requirements(env, installed)
+    if not requirements:
+        return
+    print(level_text("INFO", t("The client's modules declare Python libraries at these steps:")))
+    for version, wanted in requirements.items():
+        print(f"  {version}: {', '.join(wanted)}")
+    apply_if_confirmed(planners.plan_step_python_deps(env, requirements))
 
 
 def _ask_env(with_oca: bool = False) -> MigrationEnv | None:
@@ -213,6 +256,7 @@ def _generate_environment() -> None:
     preview_commands(commands)
     if ask_bool("Apply this plan now?", False):
         apply_commands(commands)
+        _offer_step_python_deps(env)
         print(level_text("OK", tf("Environment ready. Run: bash {}/run_migration.sh <source-dump>", env.root)))
 
 

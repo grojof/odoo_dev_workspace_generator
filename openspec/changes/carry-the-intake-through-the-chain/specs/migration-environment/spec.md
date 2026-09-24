@@ -17,6 +17,19 @@ Every step's configuration SHALL name the environment's `data_dir`, the one the 
 a checkpoint, the driver SHALL give that database a filestore of hard links to the reference's, unless it
 already has one. Without an intake, neither changes.
 
+Each step's venv SHALL get the Python libraries the installed modules declare at that step, read from that
+step's manifests under the name the step knows each module by. They SHALL be held to what the venv already
+holds, so a library that needs another version of something Odoo pinned fails by name instead of upgrading
+it. Before each step, the driver SHALL check those libraries with the step's own interpreter, as Odoo does:
+the distribution and its version, then the import name. It SHALL stop before the step and name each module
+and library that is missing or at the wrong version.
+
+#### Scenario: A library only the source's venv had
+
+- **WHEN** a module at 13.0 declares `unidecode` and the 13.0 venv lacks it
+- **THEN** the driver stops before the step and names the module and the library, and regenerating the
+  environment offers to install it in that venv
+
 #### Scenario: A core module that moves to OCA
 
 - **WHEN** the availability table finds a core module in `bank-statement-import` from 14.0

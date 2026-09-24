@@ -18,6 +18,8 @@ exposed six gaps between the client intake and the chain:
 5. **The chain's step configurations ignored the intake's `data_dir`**, so the steps would have looked for
    the client's attachments in Odoo's default location.
 6. **The driver gave the working database no filestore.**
+7. **The chain's venvs lacked the Python libraries the client's modules declare**, so step 13.0 stopped
+   four minutes in on `unidecode`. Only the source's venv had been given them.
 
 ## What Changes
 
@@ -29,6 +31,8 @@ exposed six gaps between the client intake and the chain:
 - **A decision is stale only when no step of the chain needs it.**
 - With an intake, **every step's configuration names the environment's `data_dir`**, and **the driver gives
   the working database a filestore** of hard links to the reference's, after every restore.
+- **Each step's venv gets the libraries its modules declare**, held to what it has, and **the driver checks
+  them before each step** with the step's own interpreter.
 
 ## Capabilities
 

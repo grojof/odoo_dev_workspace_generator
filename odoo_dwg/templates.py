@@ -844,6 +844,13 @@ def _render_step_preconditions(env: MigrationEnv, version: str) -> str:
         f'|| die "{version}: a module installed since the preflight resolves nowhere '
         f'(see [coverage] lines above)"\n'
     )
+    lines.append(
+        f'  ODWG_MODULES_TSV="$step_modules" python_deps_step {version} '
+        f"{shlex.quote(str(env.venv_dir(version) / 'bin' / 'python'))} "
+        f"{shlex.quote(str(env.apriori_file(version)))} {sources} "
+        f'|| die "{version}: its modules need Python libraries its venv lacks (see [python] '
+        f'lines above) — regenerating the environment offers to install them"\n'
+    )
     return "".join(lines)
 
 
@@ -907,6 +914,106 @@ def _render_preflight_host(env: MigrationEnv) -> str:
         "}",
     ]
     return "\n".join(lines)
+
+
+def _render_python_deps_helper() -> str:
+    """``python_deps_step``: what the step's modules declare, checked in its own venv.
+
+    Run by the step's interpreter, as Odoo checks it: the distribution and its
+    version, then the import name. Odoo only checks when it upgrades a module,
+    minutes into the step; the first client's chain stopped at 13.0 on
+    ``unidecode`` that way. Checked before the step, it fails in seconds and names
+    the module and the library."""
+    return "\n".join([
+        "python_deps_step() {",
+        '  local version="$1" py="$2" apriori="$3"; shift 3',
+        "  \"$py\" - \"$version\" \"$apriori\" \"$@\" <<'PYDEPS'",
+        "import ast, importlib, os, re, sys, warnings",
+        "warnings.simplefilter('ignore')  # pkg_resources' deprecation, on every lookup",
+        "version, apriori, *sources = sys.argv[1:]",
+        "renames = {}",
+        "try:",
+        "    tree = ast.parse(open(apriori, encoding='utf-8').read())",
+        "except (OSError, ValueError, SyntaxError):",
+        "    tree = None",
+        "for node in (tree.body if tree is not None else []):",
+        "    if isinstance(node, ast.Assign) and {t.id for t in node.targets",
+        "            if isinstance(t, ast.Name)} & {'renamed_modules', 'merged_modules'}:",
+        "        try:",
+        "            value = ast.literal_eval(node.value)",
+        "        except (ValueError, TypeError):",
+        "            continue",
+        "        if isinstance(value, dict):",
+        "            renames.update({str(k): str(v) for k, v in value.items()})",
+        "def where(name):",
+        "    for src in sources:",
+        "        if os.path.isdir(os.path.join(src, name)):",
+        "            return os.path.join(src, name)",
+        "    return None",
+        "def declared(path):",
+        "    for manifest in ('__manifest__.py', '__openerp__.py'):",
+        "        try:",
+        "            data = ast.literal_eval(open(os.path.join(path, manifest), encoding='utf-8').read())",
+        "        except (OSError, ValueError, SyntaxError, TypeError):",
+        "            continue",
+        "        external = data.get('external_dependencies') if isinstance(data, dict) else None",
+        "        deps = external.get('python') if isinstance(external, dict) else None",
+        "        return [d for d in deps if isinstance(d, str)] if isinstance(deps, list) else []",
+        "    return []",
+        "def packaging(part):",
+        "    for base in ('packaging', 'pkg_resources.extern.packaging',",
+        "                 'setuptools._vendor.packaging', 'pip._vendor.packaging'):",
+        "        try:",
+        "            return importlib.import_module(base + '.' + part)",
+        "        except Exception:",
+        "            continue",
+        "    return None",
+        "def problem(dep):",
+        "    text, _, marker = dep.partition(';')",
+        "    markers = packaging('markers')",
+        "    if marker.strip() and markers is not None:",
+        "        try:",
+        "            if not markers.Marker(marker).evaluate():",
+        "                return None",
+        "        except Exception:",
+        "            pass",
+        r"    match = re.match(r'\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*(.*)$', text)",
+        "    if not match:",
+        "        return None",
+        "    name, spec = match.group(1), match.group(2).strip()",
+        "    try:",
+        "        from importlib import metadata",
+        "        installed = metadata.version(name)",
+        "    except Exception:",
+        "        try:",
+        "            importlib.import_module(name)",
+        "            return None",
+        "        except Exception:",
+        "            return 'not installed'",
+        "    specifiers = packaging('specifiers')",
+        "    if not spec or specifiers is None:",
+        "        return None",
+        "    try:",
+        "        fits = specifiers.SpecifierSet(spec).contains(installed, prereleases=True)",
+        "    except Exception:",
+        "        return None",
+        "    return None if fits else installed + ' installed'",
+        "missing = []",
+        "for line in os.environ.get('ODWG_MODULES_TSV', '').splitlines():",
+        "    name = line.split('\\t')[0].strip()",
+        "    if not name:",
+        "        continue",
+        "    found = where(name) or (where(renames[name]) if renames.get(name) else None)",
+        "    for dep in declared(found) if found else []:",
+        "        why = problem(dep)",
+        "        if why:",
+        "            missing.append((os.path.basename(found), dep, why))",
+        "for module, dep, why in missing:",
+        "    print('[python] %s needs %s for %s: %s' % (module, dep, version, why), file=sys.stderr)",
+        "sys.exit(1 if missing else 0)",
+        "PYDEPS",
+        "}",
+    ])
 
 
 def _render_coverage_helper() -> str:
@@ -1077,6 +1184,8 @@ def _render_preflight_db(env: MigrationEnv) -> str:
     source_major = odoo_major(env.source)
     lines = [
         _render_coverage_helper(),
+        "",
+        _render_python_deps_helper(),
         "",
         "preflight_db() {",
         "  local base_ver blocking=0 next_tsv",

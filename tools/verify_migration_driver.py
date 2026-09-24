@@ -17,6 +17,8 @@ directory. Exits non-zero on the first case that does not behave as documented.
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
+import os
 import re
 import shutil
 import subprocess
@@ -82,18 +84,21 @@ def _build(
     for name in ("pg_restore", "dropdb", "createdb", "uv"):
         _stub(stubs / name, "exit 0")
     _stub(stubs / "pg_dump", "exit 1" if failing_pg_dump else 'echo "dump of $*"')
+    # The step's library check runs the same interpreter with a script on stdin
+    # (`python - …`): answered as satisfied, so it is not taken for the step.
+    library_check = 'if [ "${1:-}" = "-" ]; then cat >/dev/null; exit 0; fi\n'
     for version in env.chain():
         # A step's interpreter, and one that fails after writing to its log.
         if version == failing_step:
             _stub(
                 env.venv_dir(version) / "bin" / "python",
-                f'echo "traceback" >> {env.logs_dir}/{version}.log; exit 1',
+                library_check + f'echo "traceback" >> {env.logs_dir}/{version}.log; exit 1',
             )
         else:
             # Each step records that it ran, so the psql stub can answer as a
             # database that the chain has changed.
             _stub(env.venv_dir(version) / "bin" / "python",
-                  f'mkdir -p "$STATE" && touch "$STATE/{version}"; exit 0')
+                  library_check + f'mkdir -p "$STATE" && touch "$STATE/{version}"; exit 0')
         odoo_bin = Path(env.odoo_bin(version))
         odoo_bin.parent.mkdir(parents=True, exist_ok=True)
         odoo_bin.write_text("", encoding="utf-8")
@@ -608,6 +613,33 @@ def main() -> int:
               run.returncode == 0 and working.exists()
               and working.stat().st_ino == (store / "abcd").stat().st_ino
               and run.stdout.count("[filestore]") == 1, run.stdout + run.stderr)
+
+    # --- the step's libraries, checked by its own interpreter --------------------
+    with tempfile.TemporaryDirectory(prefix="odwg-pydeps-") as tmp:
+        src = Path(tmp) / "addons"
+        for module, deps in (("needs_missing", "['surely_not_installed_odwg']"),
+                             ("needs_newer", "['pytest>=999']"),
+                             ("satisfied", "['pytest', 'json']"),
+                             ("renamed_new", "['surely_not_installed_odwg']")):
+            (src / module).mkdir(parents=True)
+            (src / module / "__manifest__.py").write_text(
+                f"{{'name': 'x', 'external_dependencies': {{'python': {deps}}}}}")
+        apriori = Path(tmp) / "apriori.py"
+        apriori.write_text("renamed_modules = {'renamed_old': 'renamed_new'}\n")
+        script = (templates._render_python_deps_helper()
+                  + f"\npython_deps_step 13.0 {sys.executable} {apriori} {src}\n")
+        run = subprocess.run(
+            ["bash", "-c", script], capture_output=True, text=True,
+            env={**os.environ, "ODWG_MODULES_TSV": "needs_missing\tA\nneeds_newer\tB\n"
+                 "satisfied\tC\nrenamed_old\tD\nnot_on_disk\tE\n"})
+        lines = sorted(line for line in run.stderr.splitlines() if line.startswith("[python]"))
+        check("a step's libraries are checked as Odoo checks them: missing, too old, renamed",
+              run.returncode == 1 and lines == [
+                  "[python] needs_missing needs surely_not_installed_odwg for 13.0: not installed",
+                  f"[python] needs_newer needs pytest>=999 for 13.0: "
+                  f"{importlib.metadata.version('pytest')} installed",
+                  "[python] renamed_new needs surely_not_installed_odwg for 13.0: not installed",
+              ], run.stderr)
 
     if failures:
         print("\n".join(["", "FAILED:"] + failures))

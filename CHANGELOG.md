@@ -152,6 +152,11 @@ All notable changes to this project are documented here. The format is based on
   only when no step needs it. With an intake, every step's configuration names the environment's
   `data_dir`, and the driver gives its working database a filestore of hard links to the reference's
   after every restore.
+- **Each chain step gets the Python libraries its modules declare.** Before, only the source's venv
+  had them, and the first client's chain stopped four minutes into 13.0 on `unidecode`. After
+  generating with an intake, the tool offers to install each step's libraries. They are read from
+  that step's manifests and held to what the venv has. The driver checks them before each step with
+  the step's own interpreter, as Odoo does, and stops in seconds, naming the module and the library.
 - **The findings ledger no longer accepts a key it does not model.** A finding with an unknown key
   validated, and the next write through the tool dropped it. Validation now names the key.
 - **The read-only role can read where a sequence stands.** A wizard leaves no rows, so its id sequence is

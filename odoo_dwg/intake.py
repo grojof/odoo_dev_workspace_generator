@@ -396,6 +396,29 @@ def pip_names(imports: list[str]) -> tuple[str, ...]:
     return tuple(sorted((n for n in out if _PIP_RE.fullmatch(n)), key=str.lower))
 
 
+_REQUIREMENT_RE = re.compile(
+    r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*"
+    r"((?:(?:===|==|!=|<=|>=|~=|<|>)\s*[A-Za-z0-9.*+!_-]+\s*,?\s*)*)\s*$")
+
+
+def pip_requirements(declared: list[str]) -> tuple[str, ...]:
+    """What ``uv pip install`` takes for dependencies manifests declare.
+
+    Up to 13.0 a manifest names what it imports (``OpenSSL``); from 14.0 OCA writes
+    requirements (``cryptography<39``, ``schwifty==2024.4.0``). Both are what Odoo
+    checks, so both are kept: an import name becomes its distribution, a
+    requirement keeps its version. Anything else (an environment marker) is left to
+    the step's own check."""
+    out: set[str] = set()
+    for dep in declared:
+        match = _REQUIREMENT_RE.fullmatch(dep)
+        if not match:
+            continue
+        name, spec = match.group(1), re.sub(r"\s+", "", match.group(2)).rstrip(",")
+        out.add(f"{PIP_NAMES.get(name, name)}{spec}" if not spec else f"{name}{spec}")
+    return tuple(sorted(out, key=str.lower))
+
+
 # --- identifying the core --------------------------------------------------------------
 
 def git_blob_id(data: bytes) -> str:

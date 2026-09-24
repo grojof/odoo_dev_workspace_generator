@@ -944,6 +944,8 @@ _ES: dict[str, str] = {
         'no se pierden datos del cliente',
     'Uninstalling these also uninstalls: {}':
         'Desinstalar estos desinstala también: {}',
+    "The client's modules declare Python libraries at these steps:":
+        'Los módulos del cliente declaran librerías Python en estos pasos:',
 }
 
 # Runtime lookup: English (the in-code source) → Spanish.

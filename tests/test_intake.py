@@ -514,3 +514,24 @@ def test_a_core_module_found_in_an_oca_repository_later_has_moved():
     stays = it.Availability("sale", "odoo", "", ("sale", "sale"), ("core", "core"))
     custom = it.Availability("client_mod", "custom", "", ("c", "c"), ("port", "port"))
     assert core_to_oca.moved and not stays.moved and not custom.moved
+
+
+def test_declared_dependencies_become_what_pip_installs():
+    """Up to 13.0 manifests name imports; from 14.0 OCA writes requirements."""
+    assert it.pip_requirements(["OpenSSL", "dateutil", "unidecode", "cryptography<39",
+                                "schwifty == 2024.4.0", "paramiko<4.0.0,>=2",
+                                'x; python_version < "3"', "bad name"]) == (
+        "cryptography<39", "paramiko<4.0.0,>=2", "pyOpenSSL", "python-dateutil",
+        "schwifty==2024.4.0", "unidecode")
+
+
+def test_each_steps_venv_gets_its_own_modules_libraries_held_to_what_it_has():
+    env = _env()
+    plan = planners.plan_step_python_deps(env, {"13.0": ["unidecode"],
+                                                "15.0": ["schwifty==2024.4.0", "c<39"]})
+    assert [c.description for c in plan] == [
+        "Install the client's modules' Python dependencies for 13.0",
+        "Install the client's modules' Python dependencies for 15.0"]
+    assert "uv pip freeze --python" in plan[0].command and '-c "$held"' in plan[0].command
+    assert "odoo13/bin/python" in plan[0].command and "unidecode" in plan[0].command
+    assert " schwifty==2024.4.0 'c<39';" in plan[1].command  # a < is quoted for the shell
