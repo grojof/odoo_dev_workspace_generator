@@ -211,6 +211,20 @@ def main() -> int:
             check("the dependents are found before any uninstall, transitively, installed only",
                   deps == [["mod_dep"], ["mod_dep2"]], deps)
             cluster.value("DELETE FROM ir_module_module WHERE name = 'mod_dep2'; SELECT 1", "ub")
+            # A manifest's author spread over lines split a module's row in two, and
+            # the driver checked the second line as a module: the query flattens it.
+            cluster.value("ALTER TABLE ir_module_module ADD COLUMN author varchar; "
+                          "UPDATE ir_module_module SET author = E'Someone,\\n    Odoo Community "
+                          "Association (OCA)' WHERE name = 'mod_c'; SELECT 1", "ub")
+            from odoo_dwg import templates  # noqa: PLC0415
+            driver = templates.render_run_migration_sh(env)
+            line = next(x for x in driver.splitlines() if "step_modules=$(psql" in x)
+            query = line.split("step_modules=", 1)[1].split(" || die", 1)[0]
+            listed = _bash(f'DB=ub; v={query}; printf "%s\\n" "$v"', pg).stdout.splitlines()
+            check("the driver's module list has one row per module, whatever an author holds",
+                  "mod_c\tSomeone,     Odoo Community Association (OCA)" in listed
+                  and all("\t" in row for row in listed if row), listed)
+            cluster.value("ALTER TABLE ir_module_module DROP COLUMN author; SELECT 1", "ub")
             from odoo_dwg.workflows import intake as wf_intake  # noqa: PLC0415
             compared = wf_intake._compare_uninstall(env, "ub", "ua", ["mod_a"])
             kinds = {(c.table, c.column): c.kind for c in (compared or ([], []))[0]}

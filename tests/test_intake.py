@@ -494,3 +494,44 @@ def test_the_dependents_are_asked_for_before_the_uninstall():
     assert "state IN ('installed', 'to upgrade')" in sql
     with pytest.raises(it.IntakeError):
         it.dependents_sql(["x'; DROP"])
+
+
+def test_the_chain_clones_every_repository_a_module_is_found_in_at_any_step():
+    """The first client's chain was generated from where modules came from at
+    12.0, and stopped on a core module that lives in an OCA repository from 14.0."""
+    table = ("module\torigin\tsource_repo\tmerged_at\t13.0\t14.0\n"
+             "account_bank_statement_import\todoo\t\t\tcore\tbank-statement-import\n"
+             "web_responsive\toca\tweb\t\tweb\tweb\n"
+             "client_mod\tcustom\t\t\tport\tport\n"
+             "gone\toca\tweb\t\tMISSING\tweb\n")
+    assert it.repos_from_availability(table) == ["bank-statement-import", "web"]
+    assert it.repos_from_availability("") == []
+
+
+def test_a_core_module_found_in_an_oca_repository_later_has_moved():
+    core_to_oca = it.Availability("account_bank_statement_import", "odoo", "",
+                                  ("a", "a"), ("core", "bank-statement-import"))
+    stays = it.Availability("sale", "odoo", "", ("sale", "sale"), ("core", "core"))
+    custom = it.Availability("client_mod", "custom", "", ("c", "c"), ("port", "port"))
+    assert core_to_oca.moved and not stays.moved and not custom.moved
+
+
+def test_declared_dependencies_become_what_pip_installs():
+    """Up to 13.0 manifests name imports; from 14.0 OCA writes requirements."""
+    assert it.pip_requirements(["OpenSSL", "dateutil", "unidecode", "cryptography<39",
+                                "schwifty == 2024.4.0", "paramiko<4.0.0,>=2",
+                                'x; python_version < "3"', "bad name"]) == (
+        "cryptography<39", "paramiko<4.0.0,>=2", "pyOpenSSL", "python-dateutil",
+        "schwifty==2024.4.0", "unidecode")
+
+
+def test_each_steps_venv_gets_its_own_modules_libraries_held_to_what_it_has():
+    env = _env()
+    plan = planners.plan_step_python_deps(env, {"13.0": ["unidecode"],
+                                                "15.0": ["schwifty==2024.4.0", "c<39"]})
+    assert [c.description for c in plan] == [
+        "Install the client's modules' Python dependencies for 13.0",
+        "Install the client's modules' Python dependencies for 15.0"]
+    assert "uv pip freeze --python" in plan[0].command and '-c "$held"' in plan[0].command
+    assert "odoo13/bin/python" in plan[0].command and "unidecode" in plan[0].command
+    assert " schwifty==2024.4.0 'c<39';" in plan[1].command  # a < is quoted for the shell

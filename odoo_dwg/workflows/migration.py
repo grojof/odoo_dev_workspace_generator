@@ -17,9 +17,11 @@ from pathlib import Path
 
 from .. import analysis, egress, planners, preflight, runlog, templates, tester
 from ..i18n import t, tf
+from ..intake import manifest_python_imports, pip_requirements, repos_from_availability
 from ..models import (
     DB_NAME_RE,
     MODULE_NAME_RE,
+    OCA_REPO_RE,
     Command,
     MigrationEnv,
     ModuleDecision,
@@ -36,6 +38,7 @@ from ..system import (
     preview_commands,
     psql_rows,
     psql_scalar,
+    tree_modules,
 )
 from ..ui import level_text, render_table, title
 from .common import (
@@ -69,14 +72,94 @@ def _stamp() -> str:
     return datetime.now().strftime("%Y%m%d-%H%M%S-%f")
 
 
+def linked_oca_repos(env: MigrationEnv) -> list[str]:
+    """The OCA repositories a generated chain linked, read back from its steps.
+
+    Generation records them nowhere else, and every later action needs them: the
+    steps load each repository's modules from its own directory, so a preflight
+    that did not know them reported every OCA module of the chain as missing."""
+    found: set[str] = set()
+    try:
+        versions = env.chain()
+    except ValueError:
+        return []
+    for version in versions:
+        directory = env.addons_oca_dir(version)
+        if not directory.is_dir():
+            continue
+        found.update(entry.name for entry in directory.iterdir()
+                     if entry.is_symlink() and OCA_REPO_RE.fullmatch(entry.name))
+    return sorted(found)
+
+
+def step_python_requirements(env: MigrationEnv, installed: list[str]) -> dict[str, list[str]]:
+    """What the installed modules declare at each step, as pip requirements: read
+    from each step's own manifests, under the name the step knows each module by."""
+    carried = {module: module for module in installed}
+    out: dict[str, list[str]] = {}
+    for version in env.chain():
+        renames = preflight.read_apriori(preflight.apriori_path(env, version))
+        sources = preflight.coverage_sources(env, version)
+        declared: list[str] = []
+        for module in installed:
+            name = carried[module]
+            for candidate in (name, renames.get(name)):
+                found = next((s / candidate for s in sources
+                              if candidate and (s / candidate).is_dir()), None)
+                if found is None:
+                    continue
+                text = _read_text(found / "__manifest__.py") or _read_text(
+                    found / "__openerp__.py") or ""
+                declared += manifest_python_imports(text) or []
+                break
+            if renames.get(name):
+                carried[module] = renames[name]
+        requirements = list(pip_requirements(declared))
+        # Odoo 18 needs `packaging` to read a requirement with a version or a
+        # marker, and does not list it: read from the step's own Odoo.
+        module_py = _read_text(templates.odoo_module_file(env, version)) or ""
+        if ("Package `packaging` is required" in module_py
+                and any(not re.fullmatch(r"[\w\-]+", r) for r in requirements)
+                and "packaging" not in requirements):
+            requirements.append("packaging")
+        if requirements:
+            out[version] = requirements
+    return out
+
+
+def _offer_step_python_deps(env: MigrationEnv) -> None:
+    """After generation with an intake: the client's modules' libraries, per step."""
+    if env.intake is None:
+        return
+    table = _read_text(env.findings_data_dir / "intake-installed.tsv") or ""
+    installed = [line.split("\t")[0] for line in table.splitlines()[1:] if line.strip()]
+    requirements = step_python_requirements(env, installed)
+    if not requirements:
+        return
+    print(level_text("INFO", t("The client's modules declare Python libraries at these steps:")))
+    for version, wanted in requirements.items():
+        print(f"  {version}: {', '.join(wanted)}")
+    apply_if_confirmed(planners.plan_step_python_deps(env, requirements))
+
+
 def _ask_env(with_oca: bool = False) -> MigrationEnv | None:
     source = ask_text("Source Odoo version (e.g. 13.0)", required=True)
     target = ask_text("Target Odoo version (e.g. 18.0)", required=True)
-    # Only where they are acted on: generation clones and links them, and every
-    # other action reads what generation already put on disk.
+    probe = MigrationEnv(source=source, target=target)
+    linked = linked_oca_repos(probe)
+    if with_oca:
+        # After an intake, what its availability check found at every step: the
+        # first client's chain was generated from the repositories modules came
+        # from at 12.0, and missed the one a core module moves into at 14.0.
+        table = _read_text(probe.findings_data_dir / "intake-availability.tsv") or ""
+        linked = sorted(set(linked) | set(repos_from_availability(table)))
+    # Asked only where they are acted on: generation clones and links them, and
+    # every other action reads what generation put on disk. A regeneration offers
+    # what is linked, so it does not drop a repository by default.
     raw_oca = (
-        ask_text("OCA repositories this chain needs (comma-separated, optional)", "")
-        if with_oca else ""
+        ask_text("OCA repositories this chain needs (comma-separated, optional)",
+                 ",".join(linked))
+        if with_oca else ",".join(linked)
     )
     oca = [repo.strip() for repo in raw_oca.split(",") if repo.strip()]
     env = MigrationEnv(source=source, target=target, oca_repos=oca)
@@ -181,6 +264,7 @@ def _generate_environment() -> None:
     preview_commands(commands)
     if ask_bool("Apply this plan now?", False):
         apply_commands(commands)
+        _offer_step_python_deps(env)
         print(level_text("OK", tf("Environment ready. Run: bash {}/run_migration.sh <source-dump>", env.root)))
 
 
@@ -192,6 +276,34 @@ def _read_decisions(path: Path) -> list[ModuleDecision]:
     """
     text = _read_text(path)
     return decisions_from_json(text) if text else []
+
+
+def oca_homes(env: MigrationEnv, wanted: dict[str, set[str]]) -> dict[tuple[str, str], list[str]]:
+    """``{(module, version): [OCA repository]}`` for modules no step source has,
+    from the one-commit OCA trees the intake cached: where to find the code a
+    dependency needs, instead of only saying it resolves nowhere."""
+    base = env.repos_dir / "oca-trees"
+    homes: dict[tuple[str, str], list[str]] = {}
+    for version, modules in wanted.items():
+        suffix = f"-{version}"
+        for tree in sorted(list_dirs(base) if base.is_dir() else []):
+            if not tree.endswith(suffix):
+                continue
+            found = tree_modules(base / tree) & modules
+            for module in found:
+                homes.setdefault((module, version), []).append(tree.removesuffix(suffix))
+    return homes
+
+
+def _print_oca_homes(env: MigrationEnv, coverage: preflight.Coverage | None) -> None:
+    wanted: dict[str, set[str]] = {}
+    for version, unmet in (coverage.unmet if coverage else {}).items():
+        for missing in unmet.values():
+            wanted.setdefault(version, set()).update(missing)
+    for (module, version), repos in sorted(oca_homes(env, wanted).items()):
+        print(level_text("INFO", tf("{} ({}): OCA has it in {} — add that repository when "
+                                    "generating the environment", module, version,
+                                    ", ".join(repos))))
 
 
 def _preflight_check() -> None:
@@ -226,6 +338,7 @@ def _preflight_check() -> None:
         host, db_facts, coverage, customs, custom_dir_for=env.addons_custom_dir
     )
     _print_preflight(rows)
+    _print_oca_homes(env, coverage)
     if any(state == "MISSING" for state, _check, _detail in rows):
         print(level_text("WARN", t("Resolve the MISSING checks before running the migration.")))
     else:

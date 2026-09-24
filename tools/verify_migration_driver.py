@@ -17,6 +17,8 @@ directory. Exits non-zero on the first case that does not behave as documented.
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
+import os
 import re
 import shutil
 import subprocess
@@ -82,18 +84,21 @@ def _build(
     for name in ("pg_restore", "dropdb", "createdb", "uv"):
         _stub(stubs / name, "exit 0")
     _stub(stubs / "pg_dump", "exit 1" if failing_pg_dump else 'echo "dump of $*"')
+    # The step's library check runs the same interpreter with a script on stdin
+    # (`python - …`): answered as satisfied, so it is not taken for the step.
+    library_check = 'if [ "${1:-}" = "-" ]; then cat >/dev/null; exit 0; fi\n'
     for version in env.chain():
         # A step's interpreter, and one that fails after writing to its log.
         if version == failing_step:
             _stub(
                 env.venv_dir(version) / "bin" / "python",
-                f'echo "traceback" >> {env.logs_dir}/{version}.log; exit 1',
+                library_check + f'echo "traceback" >> {env.logs_dir}/{version}.log; exit 1',
             )
         else:
             # Each step records that it ran, so the psql stub can answer as a
             # database that the chain has changed.
             _stub(env.venv_dir(version) / "bin" / "python",
-                  f'mkdir -p "$STATE" && touch "$STATE/{version}"; exit 0')
+                  library_check + f'mkdir -p "$STATE" && touch "$STATE/{version}"; exit 0')
         odoo_bin = Path(env.odoo_bin(version))
         odoo_bin.parent.mkdir(parents=True, exist_ok=True)
         odoo_bin.write_text("", encoding="utf-8")
@@ -596,6 +601,94 @@ def main() -> int:
         (copy / "ab" / "new-in-the-copy").write_text("x", encoding="utf-8")
         check("a copy gets the reference's filestore by hard links, and its new files stay its own",
               same_inode and not (store / "new-in-the-copy").exists())
+
+        # The driver's own: the working database gets the same hard links, once.
+        give = templates._render_driver_filestore(env)
+        run = subprocess.run(
+            ["bash", "-c", 'set -euo pipefail\ndie() { echo "[fail] $1" >&2; exit 1; }\n'
+             f'DB=migration_12_to_18\n{give}give_filestore\ngive_filestore\n'],
+            capture_output=True, text=True)
+        working = env.data_dir / "filestore" / "migration_12_to_18" / "ab" / "abcd"
+        check("the driver gives the working database the reference's files by hard links, once",
+              run.returncode == 0 and working.exists()
+              and working.stat().st_ino == (store / "abcd").stat().st_ino
+              and run.stdout.count("[filestore]") == 1, run.stdout + run.stderr)
+
+    # --- the operator's SQL around a step ----------------------------------------
+    # Before the step, and after it succeeds but before its checkpoint, so the
+    # checkpoint holds what the post-step hook restored.
+    with tempfile.TemporaryDirectory(prefix="odwg-hooks-") as tmp:
+        hooked_root = Path(tmp)
+        hooked, hooked_env = _build(hooked_root)
+        step = hooked_env.chain()[0]
+        Path(hooked_env.hooks_dir).mkdir(parents=True, exist_ok=True)
+        for when in ("pre", "post"):
+            (Path(hooked_env.hooks_dir) / f"{step}-{when}.sql").write_text("SELECT 1;\n")
+        ran = _run(hooked_root, hooked)
+        out = ran.stdout
+        order = [out.find(f"[step] upgrading to {step}"), out.find(f"[hook] {step} pre"),
+                 out.find(f"[hook] {step} post"), out.find(f"[checkpoint] {step}")]
+        check("a step's hooks run before it, and after it before its checkpoint",
+              ran.returncode == 0 and -1 not in order and order == sorted(order)
+              and f"[hook] {hooked_env.chain()[1]}" not in out, out[-600:])
+        psql = hooked_root / "bin" / "psql"
+        psql.rename(psql.with_name("psql.real"))
+        _stub(psql, f'if [[ "$*" == *hooks/* ]]; then exit 3; fi; exec {psql}.real "$@"')
+        for dump in Path(hooked_env.checkpoints_dir).glob("*"):
+            dump.unlink()
+        broken = _run(hooked_root, hooked)
+        check("a failing hook stops the run before the step, naming the file",
+              broken.returncode != 0 and f"{step}: the pre-step hook" in broken.stderr
+              and not (Path(hooked_env.checkpoints_dir) / f"{step}.dump").exists(),
+              broken.stderr[-400:])
+
+    # --- the step's libraries, checked by its own interpreter --------------------
+    with tempfile.TemporaryDirectory(prefix="odwg-pydeps-") as tmp:
+        src = Path(tmp) / "addons"
+        for module, deps in (("needs_missing", "['surely_not_installed_odwg']"),
+                             ("needs_newer", "['pytest>=999']"),
+                             ("satisfied", "['pytest', 'json']"),
+                             ("renamed_new", "['surely_not_installed_odwg']")):
+            (src / module).mkdir(parents=True)
+            (src / module / "__manifest__.py").write_text(
+                f"{{'name': 'x', 'external_dependencies': {{'python': {deps}}}}}")
+        apriori = Path(tmp) / "apriori.py"
+        apriori.write_text("renamed_modules = {'renamed_old': 'renamed_new'}\n")
+        lenient = Path(tmp) / "odoo16_module.py"
+        lenient.write_text("# no packaging fallback\n")
+        script = (templates._render_python_deps_helper()
+                  + f"\npython_deps_step 13.0 {sys.executable} {apriori} {lenient} {src}\n")
+        run = subprocess.run(
+            ["bash", "-c", script], capture_output=True, text=True,
+            env={**os.environ, "ODWG_MODULES_TSV": "needs_missing\tA\nneeds_newer\tB\n"
+                 "satisfied\tC\nrenamed_old\tD\nnot_on_disk\tE\n"})
+        lines = sorted(line for line in run.stderr.splitlines() if line.startswith("[python]"))
+        check("a step's libraries are checked as Odoo checks them: missing, too old, renamed",
+              run.returncode == 1 and lines == [
+                  "[python] needs_missing needs surely_not_installed_odwg for 13.0: not installed",
+                  f"[python] needs_newer needs pytest>=999 for 13.0: "
+                  f"{importlib.metadata.version('pytest')} installed",
+                  "[python] renamed_new needs surely_not_installed_odwg for 13.0: not installed",
+              ], run.stderr)
+        # Odoo 18 reads a versioned requirement with `packaging` and fails without
+        # it; the first client's 18.0 step stopped on `paramiko<4.0.0` that way.
+        strict = Path(tmp) / "odoo18_module.py"
+        strict.write_text("msg = f'Package `packaging` is required to parse `{pydep}`'\n")
+        bare = Path(tmp) / "python-without-site"
+        bare.write_text(f'#!/bin/bash\nexec {sys.executable} -S "$@"\n')
+        bare.chmod(0o755)
+        (src / "versioned").mkdir()
+        (src / "versioned" / "__manifest__.py").write_text(
+            "{'name': 'x', 'external_dependencies': {'python': ['json<999', 'json']}}")
+        script = (templates._render_python_deps_helper()
+                  + f"\npython_deps_step 18.0 {bare} {apriori} {strict} {src}\n")
+        run = subprocess.run(["bash", "-c", script], capture_output=True, text=True,
+                             env={**os.environ, "ODWG_MODULES_TSV": "versioned\tA\n"})
+        lines = [line for line in run.stderr.splitlines() if line.startswith("[python]")]
+        check("an Odoo that needs packaging to read a versioned requirement is checked as it reads",
+              run.returncode == 1 and lines == [
+                  "[python] versioned needs json<999 for 18.0: packaging is not installed, "
+                  "and this Odoo needs it to read it"], run.stderr)
 
     if failures:
         print("\n".join(["", "FAILED:"] + failures))

@@ -1018,6 +1018,11 @@ class MigrationEnv:
         return self.logs_dir / "steps.tsv"
 
     @property
+    def hooks_dir(self) -> Path:
+        """The operator's SQL around steps: ``<version>-pre.sql``, ``<version>-post.sql``."""
+        return self.root / "hooks"
+
+    @property
     def decisions_file(self) -> Path:
         """Where this environment records what was decided about modules no step
         can resolve.

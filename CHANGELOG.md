@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Operator SQL around a migration step.** The driver runs `hooks/<version>-pre.sql` before a step, and
+  `hooks/<version>-post.sql` after it and before its checkpoint. Each file runs in one transaction and
+  is named in the log. This is for client data a migration script does not expect. The first client's
+  14.0 step needed bank journals' deprecated accounts usable for a moment, and deprecated again after.
 - **Rehearse uninstalling modules on a copy.** A new step in Take in a client copy, for modules with no
   code at some step of the chain. OpenUpgrade documents no procedure for them, and an uninstall deletes
   what a module owns, drops its tables and columns with `CASCADE`, and takes its dependents along. The step
@@ -143,6 +147,35 @@ All notable changes to this project are documented here. The format is based on
   coverage treat this project's own module as Odoo's dropped code.
 
 ### Fixed
+- **A module whose author spans several lines no longer stops the chain.** The driver lists installed
+  modules one per line, with their author. An OCA manifest that spread its author over two lines at 16.0
+  split its row, and step 17.0 stopped on "Odoo Community Association (OCA) missing". The author is now
+  flattened in the driver's two queries and in the preflight's.
+- **The chain carries the client intake through every step.** The first client's 12 → 18 rehearsal
+  showed six gaps. Generation now proposes every OCA repository the intake's availability check finds a
+  module in, at any step. That includes the one a core module moves into later, and such a module now
+  counts as moved. Later menu actions read the linked repositories back from disk. Before, the preflight
+  reported every OCA module as missing. The preflight checks dependencies under the name each step knows,
+  as the driver does. Before, it passed a renamed module the driver then stopped on. A decision is stale
+  only when no step needs it. With an intake, every step's configuration names the environment's
+  `data_dir`, and the driver gives its working database a filestore of hard links to the reference's
+  after every restore.
+- **Each chain step gets the Python libraries its modules declare.** Before, only the source's venv
+  had them, and the first client's chain stopped four minutes into 13.0 on `unidecode`. After
+  generating with an intake, the tool offers to install each step's libraries. They are read from
+  that step's manifests and held to what the venv has. The driver checks them before each step with
+  the step's own interpreter, as Odoo does, and stops in seconds, naming the module and the library.
+  Odoo 18 reads a requirement with a version or a marker through `packaging` and does not list it, so
+  the first client's 18.0 step stopped on `paramiko<4.0.0`. A step whose Odoo says so in its own
+  `odoo/modules/module.py` now gets `packaging`, and the check reads that file too.
+- **The preflight predicts what the chain installs by itself.** The first client's 13.0 step installed
+  two OCA glue modules with no code at 14.0, and the driver stopped there. The preflight now lists, per
+  step, the new dependencies and the `auto_install` modules that follow. It uses the rule that step's own
+  OpenUpgrade applies: a broad selection at 13.0 and from 18.0, Odoo's own rule between them. It checks
+  them at every later step. Unmet dependencies are now MISSING rows, where before they were computed and
+  never shown, so the menu said "passed" for a chain its driver stopped. When a cached OCA tree has the
+  missing module, the preflight names the repository. It no longer crashes when the addons layout is
+  missing.
 - **The findings ledger no longer accepts a key it does not model.** A finding with an unknown key
   validated, and the next write through the tool dropped it. Validation now names the key.
 - **The read-only role can read where a sequence stands.** A wizard leaves no rows, so its id sequence is

@@ -245,6 +245,13 @@ A repository OCA has **not** ported to one of your versions is reported for that
 generation: the branch is asked for before it is cloned, and its absence is a fact you need, not a reason to
 refuse to build the environment.
 
+**After a client intake, generation proposes the list.** It offers every repository the intake's
+availability check found an installed module in, at any step of the chain, together with those already
+linked. That includes the repositories modules move into later, such as `bank-statement-import`, where a
+core bank statement import module lives from 14.0. You may edit the list. Every later action (the
+preflight, the report, the module fates) reads the linked repositories back from each step's
+`addons/odoo<major>/oca`, so they are never asked for twice.
+
 ## Preflight: verify before you burn hours
 
 **Menu → Migration → Preflight check** runs a read-only verification, and the same checks run
@@ -261,6 +268,14 @@ The database scope needs a live database: name an already-restored one in the me
 driver verify right after its initial restore (it aborts before step 1 on any failure). For a ≤ 13 step,
 coverage looks in the OpenUpgrade fork itself: its `addons` and `odoo/addons`, and its renames in
 `odoo/addons/openupgrade_records/lib/apriori.py`.
+
+**What the chain installs by itself.** A step installs modules the source never had: dependencies an
+upgraded module now declares, then `auto_install` glue modules. OpenUpgrade's 13.0 loader and its
+framework from 18.0 install every glue module whose requirements are met; between them Odoo installs one
+only when something it needs is new. The preflight reads which rule each step's checkout applies,
+lists the modules as *Installed by the chain (13.0)*, and checks them at every later step. A dependency
+no source has is a **MISSING** row. When the intake's cached OCA trees have it, the preflight names the
+repository to add (`account_statement_base (16.0): OCA has it in account-reconcile`).
 
 ## Running the migration
 
@@ -370,6 +385,23 @@ journalctl -t opensnitch --since "2026-09-20T11:41:05+02:00" --until "2026-09-20
 With the [outbound firewall](egress-control.md) installed, `odoo-bin` is rejected anywhere but localhost, so
 anything in that window is a step reaching for the outside — worth knowing before that code reaches
 production.
+
+### When the client's data breaks a migration script: step hooks
+
+A migration script can meet data it does not expect. The first client's 14.0 step stopped because
+OpenUpgrade gives every bank statement line a journal entry, and some lines belonged to closed banks
+whose accounts were deprecated. What to do is a decision about the client's data, so it is yours, in
+the environment:
+
+- `hooks/<version>-pre.sql` runs before that step;
+- `hooks/<version>-post.sql` runs after the step succeeds, and before its checkpoint, so the checkpoint
+  holds what the post-step hook restored.
+
+Each file runs in one transaction and stops at its first error. The driver prints `[hook] 14.0 pre: …`
+and records it in `logs/steps.tsv`. A failing hook stops the run before the step. Keep a pre-step change
+reversible and have the post-step hook undo exactly it. For example, record which deprecated accounts
+you make usable in a table of your own, and deprecate exactly those again. Record the decision in the
+findings ledger too.
 
 ### When a module has no code anywhere: `decisions.json`
 
@@ -703,6 +735,16 @@ With an intake, the guarded start:
   space, and Odoo never rewrites an attachment file in place, so the reference's files stay as they were;
 - **uses the environment's `data_dir`** for every version, so a migrated database finds the client's
   attachments too.
+
+The chain carries the same `data_dir`: every step's configuration names it. Before the first step, and
+after any resume from a checkpoint, the driver gives its working database a filestore of hard links to the
+reference's (`[filestore] … hard links to …`).
+
+Each step's venv also needs what the client's modules declare in `external_dependencies`, at that
+step's version. After generating with an intake, the tool lists them per step and offers to install
+them, held to what each venv has. Before each step the driver checks them with that step's interpreter,
+as Odoo would, and stops naming the module and the library (`[python] … needs … for 13.0: not
+installed`) instead of failing minutes into the step.
 
 ## Recording what the migration finds
 

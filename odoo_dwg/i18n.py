@@ -944,6 +944,18 @@ _ES: dict[str, str] = {
         'no se pierden datos del cliente',
     'Uninstalling these also uninstalls: {}':
         'Desinstalar estos desinstala también: {}',
+    "The client's modules declare Python libraries at these steps:":
+        'Los módulos del cliente declaran librerías Python en estos pasos:',
+    'Installed by the chain ({})':
+        'Instalado por la cadena ({})',
+    '{} — auto_install, and everything it needs is installed by then; checked from the next step on':
+        '{} — auto_install, y todo lo que necesita está instalado para entonces; se comprueba desde el paso siguiente',
+    '{} ({}): OCA has it in {} — add that repository when generating the environment':
+        '{} ({}): la OCA lo tiene en {} — añade ese repositorio al generar el entorno',
+    'Dependencies ({})':
+        'Dependencias ({})',
+    '{} — no source of this step has them':
+        '{} — ninguna fuente de este paso las tiene',
 }
 
 # Runtime lookup: English (the in-code source) → Spanish.

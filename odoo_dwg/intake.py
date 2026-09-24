@@ -396,6 +396,29 @@ def pip_names(imports: list[str]) -> tuple[str, ...]:
     return tuple(sorted((n for n in out if _PIP_RE.fullmatch(n)), key=str.lower))
 
 
+_REQUIREMENT_RE = re.compile(
+    r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*"
+    r"((?:(?:===|==|!=|<=|>=|~=|<|>)\s*[A-Za-z0-9.*+!_-]+\s*,?\s*)*)\s*$")
+
+
+def pip_requirements(declared: list[str]) -> tuple[str, ...]:
+    """What ``uv pip install`` takes for dependencies manifests declare.
+
+    Up to 13.0 a manifest names what it imports (``OpenSSL``); from 14.0 OCA writes
+    requirements (``cryptography<39``, ``schwifty==2024.4.0``). Both are what Odoo
+    checks, so both are kept: an import name becomes its distribution, a
+    requirement keeps its version. Anything else (an environment marker) is left to
+    the step's own check."""
+    out: set[str] = set()
+    for dep in declared:
+        match = _REQUIREMENT_RE.fullmatch(dep)
+        if not match:
+            continue
+        name, spec = match.group(1), re.sub(r"\s+", "", match.group(2)).rstrip(",")
+        out.add(f"{PIP_NAMES.get(name, name)}{spec}" if not spec else f"{name}{spec}")
+    return tuple(sorted(out, key=str.lower))
+
+
 # --- identifying the core --------------------------------------------------------------
 
 def git_blob_id(data: bytes) -> str:
@@ -583,8 +606,24 @@ class Availability:
 
     @property
     def moved(self) -> bool:
-        return bool(self.source_repo) and any(
-            w not in (self.source_repo, "MISSING", "core") for w in self.where)
+        """Found in an OCA repository it did not start in — Odoo's own modules
+        included: one Odoo moves out of its core lands in a repository the client
+        never used, and the chain has to clone it."""
+        return any(w not in (self.source_repo, "MISSING", "core", "port") for w in self.where)
+
+
+def repos_from_availability(tsv: str) -> list[str]:
+    """Every OCA repository the availability table finds a module in, at any step:
+    what the chain has to clone, including the ones modules move into later."""
+    lines = tsv.splitlines()
+    if not lines or not lines[0].startswith("module\t"):
+        return []
+    repos: set[str] = set()
+    for line in lines[1:]:
+        for cell in line.split("\t")[4:]:
+            if cell not in ("core", "MISSING", "port", "") and _NAME_RE.fullmatch(cell):
+                repos.add(cell)
+    return sorted(repos)
 
 
 def availability(installed: dict[str, tuple[str, str]], fates: list, steps: list[str],

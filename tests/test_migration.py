@@ -426,3 +426,122 @@ def test_an_oca_repository_name_that_could_escape_the_cache_is_refused():
             assert "OCA repository" in str(error)
         else:
             raise AssertionError(f"accepted {repo!r}")
+
+
+# --- a chain that carries a client's intake ------------------------------------
+
+def _intake_env(monkeypatch, tmp_path) -> MigrationEnv:
+    from odoo_dwg import intake as it
+
+    monkeypatch.setattr(MigrationEnv, "base_dir", str(tmp_path))
+    record = it.IntakeRecord("ACME_original", "acme_reader", "client-src/acme", ("custom",),
+                             it.Core("ocb", "a" * 40))
+    return MigrationEnv(source="12.0", target="14.0", intake=record)
+
+
+def test_with_an_intake_every_step_reads_the_clients_attachments(monkeypatch, tmp_path):
+    """A step that looked in Odoo's default data_dir found none of them, and the
+    migrated database could not be opened with them either."""
+    env = _intake_env(monkeypatch, tmp_path)
+    for version in env.chain():
+        assert f"data_dir = {env.data_dir}\n" in templates.render_migration_conf(env, version)
+    plain = MigrationEnv(source="12.0", target="14.0")
+    assert "data_dir" not in templates.render_migration_conf(plain, "13.0")
+
+
+def test_the_driver_gives_the_working_database_a_filestore_before_any_step(monkeypatch, tmp_path):
+    env = _intake_env(monkeypatch, tmp_path)
+    driver = templates.render_run_migration_sh(env)
+    reference = env.data_dir / "filestore" / "ACME_original"
+    assert f"cp -al {reference} " in driver
+    # after every createdb of the working database: the source restore and a resume
+    assert driver.count('createdb "$DB"\n  give_filestore\n') == 2
+    plain = templates.render_run_migration_sh(MigrationEnv(source="12.0", target="14.0"))
+    assert "give_filestore() { :; }" in plain and "cp -al" not in plain
+
+
+def test_actions_after_generation_know_the_oca_repositories_it_linked(monkeypatch, tmp_path):
+    """The menu's preflight did not, and reported every OCA module as missing."""
+    from odoo_dwg.workflows.migration import linked_oca_repos
+
+    monkeypatch.setattr(MigrationEnv, "base_dir", str(tmp_path))
+    env = MigrationEnv(source="12.0", target="14.0")
+    assert linked_oca_repos(env) == []
+    for version, repo in (("13.0", "web"), ("14.0", "l10n-spain"), ("14.0", "web")):
+        target = tmp_path / "cache" / f"{repo}-{version}"
+        target.mkdir(parents=True)
+        env.addons_oca_dir(version).mkdir(parents=True, exist_ok=True)
+        (env.addons_oca_dir(version) / repo).symlink_to(target)
+    (env.addons_oca_dir("13.0") / "not_a_link").mkdir()
+    assert linked_oca_repos(env) == ["l10n-spain", "web"]
+
+
+def test_a_steps_requirements_come_from_its_own_manifests_under_its_names(monkeypatch, tmp_path):
+    """The first client's chain stopped at 13.0 on a library only the source's
+    venv had been given."""
+    from odoo_dwg import preflight
+    from odoo_dwg.workflows.migration import step_python_requirements
+
+    monkeypatch.setattr(MigrationEnv, "base_dir", str(tmp_path))
+    env = MigrationEnv(source="12.0", target="14.0")
+    for version, apriori in (("13.0", "{'old_mod': 'new_mod'}"), ("14.0", "{}")):
+        path = preflight.apriori_path(env, version)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"renamed_modules = {apriori}\nmerged_modules = {{}}\n")
+        preflight._APRIORI_CACHE.clear()
+    for version, deps in (("13.0", "['unidecode', 'OpenSSL']"), ("14.0", "['cryptography<39']")):
+        module = env.addons_oca_dir(version) / "new_mod"
+        module.mkdir(parents=True)
+        (module / "__manifest__.py").write_text(
+            f"{{'name': 'x', 'external_dependencies': {{'python': {deps}}}}}")
+    assert step_python_requirements(env, ["old_mod", "gone"]) == {
+        "13.0": ["pyOpenSSL", "unidecode"], "14.0": ["cryptography<39"]}
+
+
+def test_the_driver_checks_each_steps_libraries_in_its_own_venv_before_it(monkeypatch, tmp_path):
+    env = MigrationEnv(source="12.0", target="14.0")
+    driver = templates.render_run_migration_sh(env)
+    assert driver.count("python_deps_step() {") == 1
+    for version in env.chain():
+        assert f'python_deps_step {version} {env.venv_dir(version)}/bin/python' in driver
+
+
+def test_a_steps_hooks_wrap_it_and_run_before_its_checkpoint(monkeypatch, tmp_path):
+    """The first client's 14.0 step stopped on deprecated accounts a migration
+    script needed for a moment; what to do is a decision about that client's
+    data, so it is the operator's SQL, run around the step."""
+    monkeypatch.setattr(MigrationEnv, "base_dir", str(tmp_path))
+    env = MigrationEnv(source="12.0", target="14.0")
+    driver = templates.render_run_migration_sh(env)
+    assert driver.count("step_hook() {") == 1 and f"{env.hooks_dir}/" in driver
+    for version in env.chain():
+        pre = driver.index(f'step_hook "{version}" pre')
+        post = driver.index(f'step_hook "{version}" post')
+        assert pre < driver.index(f"step {version} failed") < post
+        assert post < driver.index(f'checkpoint "{version}"', post)
+
+
+def test_a_step_whose_odoo_needs_packaging_to_read_a_version_gets_it(monkeypatch, tmp_path):
+    """Odoo 18 reads a requirement with a version through `packaging` and does not
+    list it; the first client's 18.0 step stopped on `paramiko<4.0.0`."""
+    from pathlib import Path
+
+    from odoo_dwg import preflight
+    from odoo_dwg.workflows.migration import step_python_requirements
+
+    monkeypatch.setattr(MigrationEnv, "base_dir", str(tmp_path))
+    env = MigrationEnv(source="12.0", target="14.0")
+    for version in env.chain():
+        path = preflight.apriori_path(env, version)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("renamed_modules = {}\nmerged_modules = {}\n")
+        module = env.addons_oca_dir(version) / "backup"
+        module.mkdir(parents=True)
+        (module / "__manifest__.py").write_text(
+            "{'name': 'x', 'external_dependencies': {'python': ['paramiko<4.0.0']}}")
+    preflight._APRIORI_CACHE.clear()
+    reader = templates.odoo_module_file(env, "14.0")
+    Path(reader).parent.mkdir(parents=True)
+    Path(reader).write_text("msg = 'Package `packaging` is required to parse'\n")
+    assert step_python_requirements(env, ["backup"]) == {
+        "13.0": ["paramiko<4.0.0"], "14.0": ["paramiko<4.0.0", "packaging"]}

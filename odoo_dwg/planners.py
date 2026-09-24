@@ -1656,6 +1656,30 @@ def plan_copy_database(env: MigrationEnv, reference: str, copy: str) -> list[Com
                     f"createdb {_pg(env)} -T {shlex.quote(reference)} {shlex.quote(copy)}")]
 
 
+def plan_step_python_deps(env: MigrationEnv, requirements: dict[str, list[str]]) -> list[Command]:
+    """Each chain step's venv gets what the client's modules declare at that step.
+
+    Generation installs Odoo's own requirements; the modules' ``external_dependencies``
+    were installed for the source version only, and the first client's chain stopped
+    at 13.0 on ``unidecode``. Held to what the venv has, as for the source: a
+    dependency that needs another version of something Odoo pinned fails the step
+    by name instead of upgrading it."""
+    commands = []
+    for version in env.chain():
+        wanted = requirements.get(version) or []
+        if not wanted:
+            continue
+        venv = shlex.quote(str(env.venv_dir(version) / "bin" / "python"))
+        commands.append(Command(
+            tf("Install the client's modules' Python dependencies for {}", version),
+            f'held=$(mktemp) && uv pip freeze --python {venv} > "$held" && '
+            f'uv pip install --python {venv} -c "$held" '
+            + " ".join(shlex.quote(r) for r in wanted)
+            + '; code=$?; rm -f "$held"; exit $code',
+        ))
+    return commands
+
+
 def uninstall_script(modules: list[str]) -> str:
     """The Python ``odoo-bin shell`` runs: the Apps screen's own uninstall, then a
     check that every module asked for is gone. Any failure exits non-zero."""

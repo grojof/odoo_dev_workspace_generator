@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import system
-from .i18n import tf
+from .i18n import t, tf
 from .models import DEFAULT_DB_ROLE, MigrationEnv, ModuleDecision, odoo_major
 
 Exists = Callable[[Path], bool]
@@ -75,6 +75,11 @@ class Coverage:
     # ``{version: [(module, decision, why it no longer holds)]}`` — a decision
     # the sources have overtaken. Reported, never applied.
     stale: dict[str, list[tuple[str, str, str]]] = field(default_factory=dict)
+    # ``{version: [module]}`` — modules the step itself will install, because they
+    # are ``auto_install`` and everything they need is installed by then. The
+    # source database cannot show them, and the first client's chain installed
+    # two at 13.0 that had no code at 14.0.
+    auto_installed: dict[str, list[str]] = field(default_factory=dict)
     # ``[version]`` — steps whose sources are not on disk at all. Classifying a
     # module against nothing would report every one of them as missing, `base`
     # among them, and send the operator looking for code that is not the problem.
@@ -117,7 +122,8 @@ def gather_db_facts(env: MigrationEnv, db: str) -> DbFacts:
     # the operator owes the migration. Tab-separated: an author may contain a
     # comma ("Odoo Community Association (OCA), Tecnativa").
     authors_raw = system.psql_scalar(
-        "SELECT string_agg(name || E'\\t' || coalesce(author, ''), E'\\n' ORDER BY name) "
+        "SELECT string_agg(name || E'\\t' || regexp_replace(coalesce(author, ''), '[\\n\\r\\t]+', ' ', 'g'), "
+        "E'\\n' ORDER BY name) "
         "FROM ir_module_module WHERE state='installed'",
         db, env.db_host, env.db_port, env.db_user,
     )
@@ -281,11 +287,13 @@ def gather_coverage(
         stale: list[tuple[str, str, str]] = []
         recorded = {d.module: d for d in (decisions or [])
                     if d.source == env.source and d.target == env.target}
+        here: list[str] = []
         for module in modules:
             # Resolved under the name this step knows it by; reported under the
             # operator's, which is what their database holds and what a recorded
             # decision was made about.
             name = carried[module]
+            here.append(name)
             found = next((src for src in sources if exists(src / name)), None)
             successor = renames.get(name)
             resolved_successor = bool(
@@ -324,7 +332,30 @@ def gather_coverage(
                     blocking.append(module)
             elif found == sources[0]:
                 coverage.customs.add(module)
-        unmet = missing_dependencies(modules, sources, exists)
+        # What the step installs by itself joins the list from the next step on,
+        # checked like anything the operator installed.
+        selects_all, skips_l10n = openupgrade_auto_install(env, version)
+        added = auto_installs({carried[m] for m in modules}, sources, exists,
+                              selects_all=selects_all, skips_l10n=skips_l10n)
+        if added:
+            coverage.auto_installed[version] = added
+            for name in added:
+                carried[name] = name
+                # The database has no author for what it never had: the manifest
+                # that installs it does, and that is what separates Odoo's own
+                # dropped code from somebody else's.
+                path = next((src / name for src in sources if exists(src / name)), None)
+                data = _manifest(path) if path is not None else None
+                if isinstance(data, dict):
+                    # Odoo's own default for a manifest with no author (core ones).
+                    author = data.get("author", "Odoo S.A.")
+                    if isinstance(author, str):
+                        authors = {**authors, name: author}
+            modules = [*modules, *added]
+        # Under the names this step knows: a module renamed at an earlier step does
+        # not resolve under its original name, so asking with that name skipped it
+        # and missed a dependency the driver then stopped on.
+        unmet = missing_dependencies(here, sources, exists)
         if unmet:
             coverage.unmet[version] = unmet
         if blocking:
@@ -335,6 +366,16 @@ def gather_coverage(
             coverage.decided[version] = decided
         if stale:
             coverage.stale[version] = stale
+    # A decision is about the steps where a module has no code. That it resolves
+    # at another step is expected, not a sign the decision is out of date: it is
+    # stale only when no step of the chain needs it any more.
+    needed = {module for rows in coverage.decided.values() for module, _d, _r in rows}
+    for version in list(coverage.stale):
+        kept = [row for row in coverage.stale[version] if row[0] not in needed]
+        if kept:
+            coverage.stale[version] = kept
+        else:
+            del coverage.stale[version]
     return coverage
 
 
@@ -403,7 +444,7 @@ def preflight_rows(
 
     rows.append(("OK" if host.addons_layout_present else "WARN", tf("Addons layout"),
                  tf("present") if host.addons_layout_present
-                 else tf("addons/odoo<major>/{custom,oca} dirs absent — regenerate the "
+                 else t("addons/odoo<major>/{custom,oca} dirs absent — regenerate the "
                          "environment")))
 
     if db is None:
@@ -429,11 +470,25 @@ def preflight_rows(
                      tf("that step's sources are not on disk — generate the environment before "
                         "reading coverage")))
 
+    for version, added in sorted((coverage.auto_installed if coverage else {}).items()):
+        rows.append(("INFO", tf("Installed by the chain ({})", version),
+                     tf("{} — auto_install, and everything it needs is installed by then; "
+                        "checked from the next step on", ", ".join(added))))
+
     for version, missing_modules in sorted((coverage.blocking if coverage else {}).items()):
         target = str(custom_dir_for(version)) if custom_dir_for else f"addons/odoo{odoo_major(version)}/custom"
         listing = ", ".join(missing_modules[:8]) + ("…" if len(missing_modules) > 8 else "")
         rows.append(("MISSING", tf("Coverage ({})", version),
                      tf("{} — place each module's {} branch in {}", listing, version, target)))
+
+    # A module that resolves but names a dependency that does not: Odoo refuses to
+    # upgrade it, and the driver stops there. Computed all along and never shown,
+    # so the menu said "passed" for a chain its own driver would stop.
+    for version, unmet in sorted((coverage.unmet if coverage else {}).items()):
+        listing = "; ".join(f"{module} needs {', '.join(deps)}"
+                            for module, deps in sorted(unmet.items()))
+        rows.append(("MISSING", tf("Dependencies ({})", version),
+                     tf("{} — no source of this step has them", listing)))
 
     for version, entries in sorted((coverage.decided if coverage else {}).items()):
         for module, decision, reason in entries:
@@ -563,6 +618,115 @@ def manifest_depends(path: Path) -> list[str]:
             depends = data.get("depends")
             return [d for d in depends if isinstance(d, str)] if isinstance(depends, list) else []
     return []
+
+
+def _manifest(path: Path) -> dict | None:
+    for name in ("__manifest__.py", "__openerp__.py"):
+        try:
+            data = ast.literal_eval((path / name).read_text(encoding="utf-8"))
+        except (OSError, ValueError, SyntaxError, TypeError):
+            continue
+        return data if isinstance(data, dict) else None
+    return None
+
+
+def manifest_auto_install(path: Path) -> list[str] | None:
+    """What must be installed for Odoo to install this module by itself, or None
+    when it never does. ``auto_install: True`` means all of ``depends``; from 16.0
+    it may name a subset instead. A module marked not installable never is, and
+    one restricted to ``countries`` (17.0+) is installed only for companies there,
+    which a chain cannot tell from its sources."""
+    data = _manifest(path)
+    if data is None or data.get("installable", True) is False or data.get("countries"):
+        return None
+    auto = data.get("auto_install", False)
+    depends = data.get("depends")
+    depends = [d for d in depends if isinstance(d, str)] if isinstance(depends, list) else []
+    if auto is True:
+        return depends
+    if isinstance(auto, list):
+        return [d for d in auto if isinstance(d, str)]
+    return None
+
+
+#: How a step's OpenUpgrade selects ``auto_install`` modules, recognised in its own
+#: code: the 13.0 fork's loader and the framework's ``update_list`` patch (18.0+)
+#: install every one whose requirements are met; between them OpenUpgrade leaves
+#: it to Odoo. The patch skips localisations.
+_SELECTS_ALL = (
+    ("odoo/openupgrade/openupgrade_loading.py", "Selecting autoinstallable modules", False),
+    ("openupgrade_framework/odoo_patch/odoo/addons/base/models/ir_module.py",
+     "auto_install", True),
+)
+
+
+def openupgrade_auto_install(env: MigrationEnv, version: str) -> tuple[bool, bool]:
+    """``(selects every met auto_install module, except l10n_*)`` for a step, read
+    from its OpenUpgrade checkout. ``(False, False)`` is Odoo's own rule."""
+    clone = env.openupgrade_clone_dir(version)
+    for relative, marker, skips_l10n in _SELECTS_ALL:
+        try:
+            if marker in (clone / relative).read_text(encoding="utf-8"):
+                return True, skips_l10n
+        except OSError:
+            continue
+    return False, False
+
+
+def auto_installs(installed: set[str], sources: list[Path],
+                  exists: Exists = Path.exists, selects_all: bool = False,
+                  skips_l10n: bool = False) -> list[str]:
+    """Modules a step installs that the database never had.
+
+    A dependency an upgraded module now declares and nobody installed is installed
+    with it. Then an ``auto_install`` module follows by one of two rules:
+
+    - Odoo's rule (``must_install`` in ``ir_module.py``): everything it requires
+      is installed or about to be, **and at least one of those is about to be**.
+    - OpenUpgrade's, where the step's own code says so (``selects_all``):
+      everything it requires is installed or about to be. The first client's
+      13.0 step installed two glue modules this way that had no code at 14.0.
+    """
+    index: dict[str, Path] = {}
+    for src in sources:
+        if not exists(src):
+            continue
+        try:
+            entries = sorted(src.iterdir())
+        except OSError:
+            continue
+        for entry in entries:
+            if entry.name not in index and entry.is_dir() and _manifest(entry) is not None:
+                index[entry.name] = entry
+    installing: set[str] = set()
+
+    def pull(names: list[str]) -> None:
+        pending = [n for n in names if n not in installed and n not in installing]
+        while pending:
+            name = pending.pop()
+            if name in installed or name in installing or name not in index:
+                continue
+            installing.add(name)
+            pending += manifest_depends(index[name])
+
+    for name in sorted(installed):
+        if name in index:
+            pull(manifest_depends(index[name]))
+    candidates = {name: needed for name, path in index.items()
+                  if name not in installed and (needed := manifest_auto_install(path)) is not None}
+    progress = True
+    while progress:
+        progress = False
+        for name, needed in sorted(candidates.items()):
+            if name in installing or not needed:
+                continue
+            if skips_l10n and name.startswith("l10n_"):
+                continue
+            states = set(needed)
+            if states <= installed | installing and (selects_all or states & installing):
+                pull([name])
+                progress = True
+    return sorted(installing)
 
 
 def missing_dependencies(
