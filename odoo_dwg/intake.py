@@ -234,7 +234,10 @@ def reader_role_sql(role: str, database: str, columns: list[tuple[str, str]]) ->
     ``columns`` is every ``(table, column)`` of the schema, read from
     ``pg_attribute`` — not ``information_schema``, which lists only what the
     connected role may read. A table with a secret column is granted column by
-    column, so ``SELECT *`` on it fails rather than leaking."""
+    column, so ``SELECT *`` on it fails rather than leaking.
+
+    Sequences are readable (``SELECT``, not ``USAGE``): a wizard leaves no rows,
+    so its id sequence is the only trace that anyone ever opened it."""
     if not (_NAME_RE.fullmatch(role) and _NAME_RE.fullmatch(database)):
         raise IntakeError([f"not a role or database name: {role!r}, {database!r}"])
     r = _ident(role)
@@ -243,6 +246,7 @@ def reader_role_sql(role: str, database: str, columns: list[tuple[str, str]]) ->
         f"GRANT CONNECT ON DATABASE {_ident(database)} TO {r};",
         f"GRANT USAGE ON SCHEMA public TO {r};",
         f"GRANT SELECT ON ALL TABLES IN SCHEMA public TO {r};",
+        f"GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO {r};",
     ]
     by_table: dict[str, list[str]] = {}
     for table, column in columns:

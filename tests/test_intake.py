@@ -76,6 +76,8 @@ def test_the_reader_role_hides_secrets_column_by_column():
                ("res_partner", "name")]
     sql = it.reader_role_sql("acme_reader", "ACME_original", columns)
     assert 'GRANT SELECT ON ALL TABLES IN SCHEMA public TO "acme_reader";' in sql
+    assert 'GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO "acme_reader";' in sql
+    assert "USAGE ON ALL SEQUENCES" not in sql  # reading a sequence, never advancing it
     assert 'REVOKE SELECT ON public."res_users" FROM "acme_reader";' in sql
     assert 'GRANT SELECT ("id", "login") ON public."res_users"' in sql
     assert 'GRANT SELECT ("key") ON public."ir_config_parameter"' in sql

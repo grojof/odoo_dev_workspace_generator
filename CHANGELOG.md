@@ -133,6 +133,10 @@ All notable changes to this project are documented here. The format is based on
   coverage treat this project's own module as Odoo's dropped code.
 
 ### Fixed
+- **The read-only role can read where a sequence stands.** A wizard leaves no rows, so its id sequence is
+  the only trace that it was ever opened; the role could not read it. It now has `SELECT` on sequences
+  (`nextval` is still refused). An existing role gets it with
+  `GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO <role>;`, run as the database owner.
 - **A generated file over 128 KiB could not be written.** The file travelled in a heredoc inside
   `bash -lc`, and Linux refuses a single argument over 128 KiB. A findings ledger or a table of
   twenty thousand rows failed with "Argument list too long" before bash started. An over-long command

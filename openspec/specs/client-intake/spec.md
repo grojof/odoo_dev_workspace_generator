@@ -53,7 +53,8 @@ data, and code that uses it recreates it when it runs.
 
 The system SHALL offer an action that creates a role on the reference database with these limits:
 - it can connect to that database only;
-- it can `SELECT` only;
+- it can `SELECT` only, sequences included — reading where a sequence stands, never advancing it, because a
+  wizard leaves no rows and its id sequence is the only trace that it was ever used;
 - its transactions are read-only by default;
 - it cannot create temporary tables;
 - it cannot read a declared catalogue of secret columns: user passwords, mail and fetchmail passwords, API

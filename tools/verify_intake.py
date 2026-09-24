@@ -154,6 +154,11 @@ def main() -> int:
                   "permission denied" in reader(
                       "SET default_transaction_read_only = off; BEGIN READ WRITE; "
                       "UPDATE res_partner SET name = 'x'; COMMIT").stderr)
+            check("it reads where a sequence stands (a wizard's only trace)",
+                  reader("SELECT is_called FROM res_partner_id_seq").stdout.strip() == "t",
+                  reader("SELECT 1 FROM res_partner_id_seq").stderr)
+            check("it cannot advance a sequence",
+                  "permission denied" in reader("SELECT nextval('res_partner_id_seq')").stderr)
             again = planners.plan_reader_role(env, "ACME_original", "acme_reader", grants, True)
             _bash(again[0].command, env_run)  # a second creation fails: the role exists
             check("a second run leaves one .pgpass line for the role",
