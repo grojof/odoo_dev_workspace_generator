@@ -198,6 +198,16 @@ items are host-dependent.
   - the ledger refuses a finding key it does not know, instead of dropping it on the next write;
   - read-only commands never prompt for the language.
 
+  And from preparing the first client's 12 → 18 rehearsal (change `carry-the-intake-through-the-chain`):
+  - the chain's OCA repositories proposed from the intake's availability table, and read back by later
+    actions;
+  - the preflight and the driver agree on renamed modules' dependencies, and stale decisions;
+  - `data_dir` and a hard-linked filestore for every step of the chain.
+
+  Not done yet: a client's own module whose manifest declares Odoo S.A. as its author is reported
+  "dropped by Odoo; OpenUpgrade removes it". With an intake, where the module loads from is known, and
+  that should decide it rather than the author.
+
 - ~~The operator surface has a spec~~ — **done** (2026-09-20, change `name-the-operator-surface`).
   The twelve capabilities all described what the tool does to the *host*; nothing described what the
   operator touches, and "previewed and confirmed" was restated in six of them with no one place

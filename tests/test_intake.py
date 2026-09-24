@@ -494,3 +494,23 @@ def test_the_dependents_are_asked_for_before_the_uninstall():
     assert "state IN ('installed', 'to upgrade')" in sql
     with pytest.raises(it.IntakeError):
         it.dependents_sql(["x'; DROP"])
+
+
+def test_the_chain_clones_every_repository_a_module_is_found_in_at_any_step():
+    """The first client's chain was generated from where modules came from at
+    12.0, and stopped on a core module that lives in an OCA repository from 14.0."""
+    table = ("module\torigin\tsource_repo\tmerged_at\t13.0\t14.0\n"
+             "account_bank_statement_import\todoo\t\t\tcore\tbank-statement-import\n"
+             "web_responsive\toca\tweb\t\tweb\tweb\n"
+             "client_mod\tcustom\t\t\tport\tport\n"
+             "gone\toca\tweb\t\tMISSING\tweb\n")
+    assert it.repos_from_availability(table) == ["bank-statement-import", "web"]
+    assert it.repos_from_availability("") == []
+
+
+def test_a_core_module_found_in_an_oca_repository_later_has_moved():
+    core_to_oca = it.Availability("account_bank_statement_import", "odoo", "",
+                                  ("a", "a"), ("core", "bank-statement-import"))
+    stays = it.Availability("sale", "odoo", "", ("sale", "sale"), ("core", "core"))
+    custom = it.Availability("client_mod", "custom", "", ("c", "c"), ("port", "port"))
+    assert core_to_oca.moved and not stays.moved and not custom.moved

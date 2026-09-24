@@ -65,6 +65,14 @@ def _render(into: Path) -> list[Path]:
             f"seed_demo_{source.split('.')[0]}.sh",
             templates.render_seed_demo_sh(env, ["partner_firstname", "web_responsive"]),
         )
+    # With a client's intake the driver and the opener grow a filestore branch
+    # and a refused reference: rendered too, or those lines are never linted.
+    from odoo_dwg.intake import Core, IntakeRecord
+    env = MigrationEnv(source="12.0", target="18.0",
+                       intake=IntakeRecord("ACME_original", "acme_reader", "client-src/acme",
+                                           ("custom",), Core("ocb", "4" * 40)))
+    write("run_migration_12_18_intake.sh", templates.render_run_migration_sh(env))
+    write("open_for_testing_12_18_intake.sh", templates.render_open_for_testing_sh(env))
     # The `pg_hba` steps are not files, but they are the longest shell this project
     # writes and they run under `sh` (``system.run`` uses ``shell=True``), so they
     # are linted as that shell rather than as bash.

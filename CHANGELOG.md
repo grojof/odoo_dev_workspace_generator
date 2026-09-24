@@ -143,6 +143,15 @@ All notable changes to this project are documented here. The format is based on
   coverage treat this project's own module as Odoo's dropped code.
 
 ### Fixed
+- **The chain carries the client intake through every step.** The first client's 12 → 18 rehearsal
+  showed six gaps. Generation now proposes every OCA repository the intake's availability check finds a
+  module in, at any step. That includes the one a core module moves into later, and such a module now
+  counts as moved. Later menu actions read the linked repositories back from disk. Before, the preflight
+  reported every OCA module as missing. The preflight checks dependencies under the name each step knows,
+  as the driver does. Before, it passed a renamed module the driver then stopped on. A decision is stale
+  only when no step needs it. With an intake, every step's configuration names the environment's
+  `data_dir`, and the driver gives its working database a filestore of hard links to the reference's
+  after every restore.
 - **The findings ledger no longer accepts a key it does not model.** A finding with an unknown key
   validated, and the next write through the tool dropped it. Validation now names the key.
 - **The read-only role can read where a sequence stands.** A wizard leaves no rows, so its id sequence is

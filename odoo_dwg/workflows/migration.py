@@ -17,9 +17,11 @@ from pathlib import Path
 
 from .. import analysis, egress, planners, preflight, runlog, templates, tester
 from ..i18n import t, tf
+from ..intake import repos_from_availability
 from ..models import (
     DB_NAME_RE,
     MODULE_NAME_RE,
+    OCA_REPO_RE,
     Command,
     MigrationEnv,
     ModuleDecision,
@@ -69,14 +71,44 @@ def _stamp() -> str:
     return datetime.now().strftime("%Y%m%d-%H%M%S-%f")
 
 
+def linked_oca_repos(env: MigrationEnv) -> list[str]:
+    """The OCA repositories a generated chain linked, read back from its steps.
+
+    Generation records them nowhere else, and every later action needs them: the
+    steps load each repository's modules from its own directory, so a preflight
+    that did not know them reported every OCA module of the chain as missing."""
+    found: set[str] = set()
+    try:
+        versions = env.chain()
+    except ValueError:
+        return []
+    for version in versions:
+        directory = env.addons_oca_dir(version)
+        if not directory.is_dir():
+            continue
+        found.update(entry.name for entry in directory.iterdir()
+                     if entry.is_symlink() and OCA_REPO_RE.fullmatch(entry.name))
+    return sorted(found)
+
+
 def _ask_env(with_oca: bool = False) -> MigrationEnv | None:
     source = ask_text("Source Odoo version (e.g. 13.0)", required=True)
     target = ask_text("Target Odoo version (e.g. 18.0)", required=True)
-    # Only where they are acted on: generation clones and links them, and every
-    # other action reads what generation already put on disk.
+    probe = MigrationEnv(source=source, target=target)
+    linked = linked_oca_repos(probe)
+    if with_oca:
+        # After an intake, what its availability check found at every step: the
+        # first client's chain was generated from the repositories modules came
+        # from at 12.0, and missed the one a core module moves into at 14.0.
+        table = _read_text(probe.findings_data_dir / "intake-availability.tsv") or ""
+        linked = sorted(set(linked) | set(repos_from_availability(table)))
+    # Asked only where they are acted on: generation clones and links them, and
+    # every other action reads what generation put on disk. A regeneration offers
+    # what is linked, so it does not drop a repository by default.
     raw_oca = (
-        ask_text("OCA repositories this chain needs (comma-separated, optional)", "")
-        if with_oca else ""
+        ask_text("OCA repositories this chain needs (comma-separated, optional)",
+                 ",".join(linked))
+        if with_oca else ",".join(linked)
     )
     oca = [repo.strip() for repo in raw_oca.split(",") if repo.strip()]
     env = MigrationEnv(source=source, target=target, oca_repos=oca)

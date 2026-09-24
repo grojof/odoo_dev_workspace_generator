@@ -281,11 +281,13 @@ def gather_coverage(
         stale: list[tuple[str, str, str]] = []
         recorded = {d.module: d for d in (decisions or [])
                     if d.source == env.source and d.target == env.target}
+        here: list[str] = []
         for module in modules:
             # Resolved under the name this step knows it by; reported under the
             # operator's, which is what their database holds and what a recorded
             # decision was made about.
             name = carried[module]
+            here.append(name)
             found = next((src for src in sources if exists(src / name)), None)
             successor = renames.get(name)
             resolved_successor = bool(
@@ -324,7 +326,10 @@ def gather_coverage(
                     blocking.append(module)
             elif found == sources[0]:
                 coverage.customs.add(module)
-        unmet = missing_dependencies(modules, sources, exists)
+        # Under the names this step knows: a module renamed at an earlier step does
+        # not resolve under its original name, so asking with that name skipped it
+        # and missed a dependency the driver then stopped on.
+        unmet = missing_dependencies(here, sources, exists)
         if unmet:
             coverage.unmet[version] = unmet
         if blocking:
@@ -335,6 +340,16 @@ def gather_coverage(
             coverage.decided[version] = decided
         if stale:
             coverage.stale[version] = stale
+    # A decision is about the steps where a module has no code. That it resolves
+    # at another step is expected, not a sign the decision is out of date: it is
+    # stale only when no step of the chain needs it any more.
+    needed = {module for rows in coverage.decided.values() for module, _d, _r in rows}
+    for version in list(coverage.stale):
+        kept = [row for row in coverage.stale[version] if row[0] not in needed]
+        if kept:
+            coverage.stale[version] = kept
+        else:
+            del coverage.stale[version]
     return coverage
 
 

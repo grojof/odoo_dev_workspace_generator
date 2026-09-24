@@ -436,3 +436,44 @@ def test_a_manifest_that_cannot_be_read_names_no_dependency(tmp_path):
     assert preflight.missing_dependencies(
         ["broken"], [env.addons_oca_dir(version)]
     ) == {}
+
+
+def test_a_dependency_is_asked_for_under_the_name_the_step_knows(tmp_path):
+    """The first client's run: the menu said nothing was unmet, and the driver
+    stopped on it. A module renamed at 13.0 was looked up under its original
+    name at 14.0, did not resolve, and its dependencies were never read."""
+    env = MigrationEnv(source="12.0", target="14.0")
+    _write_apriori(preflight.apriori_path(env, "13.0"),
+                   "renamed_modules = {'old_n43': 'new_n43'}\nmerged_modules = {}\n")
+    _write_apriori(preflight.apriori_path(env, "14.0"),
+                   "renamed_modules = {}\nmerged_modules = {}\n")
+    for version in env.chain():
+        (env.addons_oca_dir(version) / "base").mkdir(parents=True)
+    module = env.addons_oca_dir("14.0") / "new_n43"
+    module.mkdir()
+    (module / "__manifest__.py").write_text(
+        "{'name': 'x', 'depends': ['base', 'statement_import']}", encoding="utf-8")
+    (env.addons_oca_dir("13.0") / "new_n43").mkdir()
+
+    coverage = preflight.gather_coverage(env, ["old_n43"])
+    assert coverage.unmet == {"14.0": {"new_n43": ["statement_import"]}}
+
+
+def test_a_decision_needed_at_one_step_is_not_stale_where_the_code_exists(tmp_path):
+    """A module with no code at 15.0 alone is kept installed through the chain:
+    that it resolves at the other steps is why, not a sign the decision is old."""
+    from odoo_dwg.models import ModuleDecision
+
+    env = MigrationEnv(source="12.0", target="14.0")
+    for version in env.chain():
+        _write_apriori(preflight.apriori_path(env, version),
+                       "renamed_modules = {}\nmerged_modules = {}\n")
+        env.addons_oca_dir(version).mkdir(parents=True)
+    (env.addons_oca_dir("14.0") / "gap_at_13").mkdir()
+    decision = ModuleDecision("gap_at_13", "12.0", "14.0", "kept installed", "no code at 13.0")
+    coverage = preflight.gather_coverage(env, ["gap_at_13"], decisions=[decision])
+    assert coverage.decided == {"13.0": [("gap_at_13", "kept installed", "no code at 13.0")]}
+    assert coverage.stale == {} and coverage.blocking == {}
+    (env.addons_oca_dir("13.0") / "gap_at_13").mkdir()  # ported since: now truly stale
+    coverage = preflight.gather_coverage(env, ["gap_at_13"], decisions=[decision])
+    assert set(coverage.stale) == {"13.0", "14.0"} and coverage.decided == {}

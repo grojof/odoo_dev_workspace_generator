@@ -426,3 +426,51 @@ def test_an_oca_repository_name_that_could_escape_the_cache_is_refused():
             assert "OCA repository" in str(error)
         else:
             raise AssertionError(f"accepted {repo!r}")
+
+
+# --- a chain that carries a client's intake ------------------------------------
+
+def _intake_env(monkeypatch, tmp_path) -> MigrationEnv:
+    from odoo_dwg import intake as it
+
+    monkeypatch.setattr(MigrationEnv, "base_dir", str(tmp_path))
+    record = it.IntakeRecord("ACME_original", "acme_reader", "client-src/acme", ("custom",),
+                             it.Core("ocb", "a" * 40))
+    return MigrationEnv(source="12.0", target="14.0", intake=record)
+
+
+def test_with_an_intake_every_step_reads_the_clients_attachments(monkeypatch, tmp_path):
+    """A step that looked in Odoo's default data_dir found none of them, and the
+    migrated database could not be opened with them either."""
+    env = _intake_env(monkeypatch, tmp_path)
+    for version in env.chain():
+        assert f"data_dir = {env.data_dir}\n" in templates.render_migration_conf(env, version)
+    plain = MigrationEnv(source="12.0", target="14.0")
+    assert "data_dir" not in templates.render_migration_conf(plain, "13.0")
+
+
+def test_the_driver_gives_the_working_database_a_filestore_before_any_step(monkeypatch, tmp_path):
+    env = _intake_env(monkeypatch, tmp_path)
+    driver = templates.render_run_migration_sh(env)
+    reference = env.data_dir / "filestore" / "ACME_original"
+    assert f"cp -al {reference} " in driver
+    # after every createdb of the working database: the source restore and a resume
+    assert driver.count('createdb "$DB"\n  give_filestore\n') == 2
+    plain = templates.render_run_migration_sh(MigrationEnv(source="12.0", target="14.0"))
+    assert "give_filestore() { :; }" in plain and "cp -al" not in plain
+
+
+def test_actions_after_generation_know_the_oca_repositories_it_linked(monkeypatch, tmp_path):
+    """The menu's preflight did not, and reported every OCA module as missing."""
+    from odoo_dwg.workflows.migration import linked_oca_repos
+
+    monkeypatch.setattr(MigrationEnv, "base_dir", str(tmp_path))
+    env = MigrationEnv(source="12.0", target="14.0")
+    assert linked_oca_repos(env) == []
+    for version, repo in (("13.0", "web"), ("14.0", "l10n-spain"), ("14.0", "web")):
+        target = tmp_path / "cache" / f"{repo}-{version}"
+        target.mkdir(parents=True)
+        env.addons_oca_dir(version).mkdir(parents=True, exist_ok=True)
+        (env.addons_oca_dir(version) / repo).symlink_to(target)
+    (env.addons_oca_dir("13.0") / "not_a_link").mkdir()
+    assert linked_oca_repos(env) == ["l10n-spain", "web"]

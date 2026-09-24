@@ -583,8 +583,24 @@ class Availability:
 
     @property
     def moved(self) -> bool:
-        return bool(self.source_repo) and any(
-            w not in (self.source_repo, "MISSING", "core") for w in self.where)
+        """Found in an OCA repository it did not start in — Odoo's own modules
+        included: one Odoo moves out of its core lands in a repository the client
+        never used, and the chain has to clone it."""
+        return any(w not in (self.source_repo, "MISSING", "core", "port") for w in self.where)
+
+
+def repos_from_availability(tsv: str) -> list[str]:
+    """Every OCA repository the availability table finds a module in, at any step:
+    what the chain has to clone, including the ones modules move into later."""
+    lines = tsv.splitlines()
+    if not lines or not lines[0].startswith("module\t"):
+        return []
+    repos: set[str] = set()
+    for line in lines[1:]:
+        for cell in line.split("\t")[4:]:
+            if cell not in ("core", "MISSING", "port", "") and _NAME_RE.fullmatch(cell):
+                repos.add(cell)
+    return sorted(repos)
 
 
 def availability(installed: dict[str, tuple[str, str]], fates: list, steps: list[str],

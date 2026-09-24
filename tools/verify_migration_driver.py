@@ -597,6 +597,18 @@ def main() -> int:
         check("a copy gets the reference's filestore by hard links, and its new files stay its own",
               same_inode and not (store / "new-in-the-copy").exists())
 
+        # The driver's own: the working database gets the same hard links, once.
+        give = templates._render_driver_filestore(env)
+        run = subprocess.run(
+            ["bash", "-c", 'set -euo pipefail\ndie() { echo "[fail] $1" >&2; exit 1; }\n'
+             f'DB=migration_12_to_18\n{give}give_filestore\ngive_filestore\n'],
+            capture_output=True, text=True)
+        working = env.data_dir / "filestore" / "migration_12_to_18" / "ab" / "abcd"
+        check("the driver gives the working database the reference's files by hard links, once",
+              run.returncode == 0 and working.exists()
+              and working.stat().st_ino == (store / "abcd").stat().st_ino
+              and run.stdout.count("[filestore]") == 1, run.stdout + run.stderr)
+
     if failures:
         print("\n".join(["", "FAILED:"] + failures))
         return 1

@@ -245,6 +245,13 @@ A repository OCA has **not** ported to one of your versions is reported for that
 generation: the branch is asked for before it is cloned, and its absence is a fact you need, not a reason to
 refuse to build the environment.
 
+**After a client intake, generation proposes the list.** It offers every repository the intake's
+availability check found an installed module in, at any step of the chain, together with those already
+linked. That includes the repositories modules move into later, such as `bank-statement-import`, where a
+core bank statement import module lives from 14.0. You may edit the list. Every later action (the
+preflight, the report, the module fates) reads the linked repositories back from each step's
+`addons/odoo<major>/oca`, so they are never asked for twice.
+
 ## Preflight: verify before you burn hours
 
 **Menu → Migration → Preflight check** runs a read-only verification, and the same checks run
@@ -703,6 +710,10 @@ With an intake, the guarded start:
   space, and Odoo never rewrites an attachment file in place, so the reference's files stay as they were;
 - **uses the environment's `data_dir`** for every version, so a migrated database finds the client's
   attachments too.
+
+The chain carries the same `data_dir`: every step's configuration names it. Before the first step, and
+after any resume from a checkpoint, the driver gives its working database a filestore of hard links to the
+reference's (`[filestore] … hard links to …`).
 
 ## Recording what the migration finds
 
