@@ -21,7 +21,14 @@ from .. import findings as fl
 from .. import intake as it
 from .. import neutralise, planners, preflight
 from ..i18n import t, tf
-from ..models import DB_NAME_RE, MODULE_NAME_RE, Command, MigrationEnv
+from ..models import (
+    DB_NAME_RE,
+    LEGACY_LAYOUT_MAX_MAJOR,
+    MODULE_NAME_RE,
+    Command,
+    MigrationEnv,
+    odoo_major,
+)
 from ..planners import write_text_file_command
 from ..prompts import ask_text, choose, confirm_with_phrase
 from ..system import (
@@ -75,8 +82,9 @@ def _finding(fid: str, severity: str, subject: str, summary: str, evidence: obje
 
 
 def _record(env: MigrationEnv, record: it.IntakeRecord, found: list[dict],
-            tables: dict[str, list[list[str]]]) -> None:
-    """Write the record, the tables and the new findings, through one previewed plan."""
+            tables: dict[str, list[list[str]]], texts: dict[str, str] | None = None) -> None:
+    """Write the record, the tables (and any other files) and the new findings, through
+    one previewed plan."""
     ledger_text = read_text(str(env.findings_ledger))
     if ledger_text is None:
         client = ask_text("Client name (for the findings ledger)", required=True)
@@ -96,6 +104,8 @@ def _record(env: MigrationEnv, record: it.IntakeRecord, found: list[dict],
                         f"mkdir -p {shlex.quote(str(env.findings_data_dir))}")]
     for name, rows in tables.items():
         commands += write_text_file_command(env.findings_data_dir / name, _tsv(rows))
+    for name, text in (texts or {}).items():
+        commands += write_text_file_command(env.findings_data_dir / name, text)
     commands += write_text_file_command(env.intake_file, it.dump_intake(record))
     commands += write_text_file_command(env.findings_ledger, fl.dump_ledger(ledger))
     for f in found:
@@ -926,6 +936,65 @@ def audit_own_modules(env: MigrationEnv) -> None:
                                     for r in rows]]})
 
 
+def find_bank_duplicates(env: MigrationEnv) -> None:
+    """Bank statement lines imported twice, proven by the bank's own balances.
+
+    Up to 13.0 an unreconciled line has no entry; OpenUpgrade's 14.0 step gives every
+    one an entry, so a statement imported twice becomes movements that never happened.
+    Reads the reference only, and deletes nothing: it writes a guarded SQL file the
+    operator may put in the first step's pre hook, on a working copy."""
+    record = _current(env)
+    if record is None:
+        return
+    if odoo_major(env.source) > LEGACY_LAYOUT_MAX_MAJOR:
+        print(level_text("INFO", tf(
+            "From 14.0 every statement line already has its entry; this step is for a source up "
+            "to 13.0, and the source is {}.", env.source)))
+        return
+    ref = record.reference_database
+    q = {"host": env.db_host, "port": env.db_port, "user": env.db_user}
+    copies_rows = psql_rows(it.BANK_DUPLICATES_SQL, ref, **q)
+    stats = psql_rows(it.BANK_LINES_STATS_SQL, ref, **q)
+    if copies_rows is None or not stats or len(stats[0]) < 5:
+        print(level_text("ERROR", tf("Could not read database {}; nothing recorded.", ref)))
+        return
+    statements, matching, lines, unreconciled, after_lock = (int(v) for v in stats[0][:5])
+    copies = it.parse_bank_copies(copies_rows)
+    duplicates = [c for c in copies if c.kind == "duplicate"]
+    twice = [c for c in copies if c.kind == "reconciled twice"]
+    net = sum(float(c.amount) for c in duplicates)
+    print(render_table(["", ""], [
+        [t("Statements matching the bank's balances"), f"{matching} / {statements}"],
+        [t("Unreconciled lines"), f"{unreconciled} / {lines}"],
+        [t("Of them, certain duplicates"), f"{len(duplicates)} ({net:.2f})"],
+        [t("Movements reconciled more than once"), str(len(twice))],
+        [t("Unreconciled lines after the lock date"), str(after_lock)],
+    ]))
+    hook = env.hooks_dir / f"{env.chain()[0]}-pre.sql"
+    found = [_finding(
+        _next_run_id(env, "bank-lines-imported-twice"),
+        "high" if duplicates or twice else "info", "account_bank_statement_line",
+        f"{len(duplicates)} unreconciled statement line(s) are certain duplicates (net {net:.2f}), "
+        f"{len(twice)} movement(s) were reconciled more than once; {matching} of {statements} "
+        f"statement(s) match the bank's balances. Of {unreconciled} unreconciled line(s), "
+        f"{after_lock} fall after the lock date. OpenUpgrade 14.0 gives every unreconciled line "
+        "an entry, so a duplicate would become a bank movement that never happened.",
+        {"statements": statements, "statements_matching_file": matching, "lines": lines,
+         "unreconciled": unreconciled, "unreconciled_after_lock": after_lock,
+         "duplicates": len(duplicates), "duplicates_net": round(net, 2),
+         "reconciled_twice": [[c.line, c.kept, c.journal, c.date, c.amount] for c in twice]},
+        "findings/data/bank-duplicate-lines.tsv",
+        f"review, then put findings/data/bank-duplicate-lines.sql in {hook} (working copy only); "
+        "the client's accountant decides on movements reconciled more than once; re-run on the "
+        "final copy")]
+    _record(env, record, found, {
+        "bank-duplicate-lines.tsv": [
+            ["kind", "statement_line_id", "statement_id", "journal", "date", "amount", "kept_line_id"],
+            *[[c.kind, str(c.line), str(c.statement), c.journal, c.date, c.amount, str(c.kept)]
+              for c in copies]]},
+        {"bank-duplicate-lines.sql": it.bank_duplicates_sql(copies)})
+
+
 def show_intake(env: MigrationEnv) -> None:
     record = _current(env)
     if record is not None:
@@ -947,6 +1016,7 @@ def intake_menu(env: MigrationEnv) -> None:
         "Scan the client's own code for network calls": scan_custom,
         "Rehearse uninstalling modules on a copy": rehearse_uninstall,
         "Audit the client's own modules": audit_own_modules,
+        "Find bank statement lines imported twice": find_bank_duplicates,
         "Show the intake": show_intake,
     }
     while True:

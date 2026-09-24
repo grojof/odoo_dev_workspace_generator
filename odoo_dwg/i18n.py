@@ -965,6 +965,22 @@ _ES: dict[str, str] = {
         '{} — ninguna fuente de este paso las tiene',
     "Audit the client's own modules":
         'Auditar los módulos propios del cliente',
+    'Find bank statement lines imported twice':
+        'Buscar líneas de extracto bancario importadas dos veces',
+    'From 14.0 every statement line already has its entry; this step is for a source up to 13.0, '
+    'and the source is {}.':
+        'Desde la 14.0 cada línea de extracto ya tiene su asiento; este paso es para un origen '
+        'hasta la 13.0, y el origen es {}.',
+    "Statements matching the bank's balances":
+        'Extractos que cuadran con los saldos del banco',
+    'Unreconciled lines':
+        'Líneas sin conciliar',
+    'Of them, certain duplicates':
+        'De ellas, duplicados seguros',
+    'Movements reconciled more than once':
+        'Movimientos conciliados más de una vez',
+    'Unreconciled lines after the lock date':
+        'Líneas sin conciliar posteriores a la fecha de bloqueo',
     'Other modules to audit (comma-separated, optional)':
         'Otros módulos a auditar (separados por comas, opcional)',
     'Count use since (YYYY-MM-DD)':

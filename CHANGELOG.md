@@ -7,6 +7,14 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Find bank statement lines imported twice.** A new step in Take in a client copy, for a source up to
+  13.0. There, a statement line never reconciled has no entry, and OpenUpgrade's 14.0 step gives every
+  one an entry: a statement imported twice becomes bank movements that never happened. The Norma 43
+  import sets no unique id, so Odoo cannot see a repeated file. Matching amount and date is not proof.
+  The step uses the bank's own balances: a day that two statements matching their files hold with the
+  same lines and the same end-of-day balance is one bank day imported twice. It lists each unreconciled
+  copy, and each movement reconciled in more than one copy. It writes a guarded, idempotent SQL file for
+  the first step's pre hook, and deletes nothing itself.
 - **The chain's core: official Odoo or OCB.** From 14.0 each step runs OpenUpgrade on a separate core
   clone, and it was always `odoo/odoo`. Generation now asks which core, and the default is the one the
   intake identified, so a client on OCB is migrated on OCB. It matters because every step installs the

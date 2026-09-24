@@ -1031,3 +1031,104 @@ def audit_label(rows: list[AuditRow], since: str) -> str:
     if any(r.kind in ("field", "model", "document") and some(r.total) for r in rows):
         return f"not used since {since}"
     return "no data"
+
+
+# --- bank statement lines imported twice (sources up to 13.0) ---------------------------
+
+#: Up to 13.0 an unreconciled statement line has no journal item: whether a line is
+#: reconciled is whether any journal item points at it.
+_BANK_LINES_CTE = """
+WITH rec AS (
+    SELECT DISTINCT statement_line_id AS id FROM account_move_line
+    WHERE statement_line_id IS NOT NULL
+), fp AS (
+    SELECT l.id, l.statement_id AS st, l.journal_id AS j, l.date, l.amount,
+           md5(concat_ws('|', l.journal_id, l.date, l.amount, l.name, l.ref, l.note,
+                         l.partner_name)) AS f,
+           rec.id IS NOT NULL AS rec
+    FROM account_bank_statement_line l LEFT JOIN rec ON rec.id = l.id
+), sc AS (
+    SELECT s.id AS st, round(s.balance_start + coalesce(sum(fp.amount), 0)
+                             - s.balance_end_real, 2) = 0 AS ok
+    FROM account_bank_statement s LEFT JOIN fp ON fp.st = s.id
+    GROUP BY s.id, s.balance_start, s.balance_end_real
+)"""
+
+#: One row per copy beyond the kept one: ``kind, line, statement, journal, date,
+#: amount, kept line``. One SELECT, because the reader may not create temporary tables.
+BANK_DUPLICATES_SQL = _BANK_LINES_CTE + """, day AS (
+    SELECT fp.st, fp.j, fp.date, md5(string_agg(fp.f, ',' ORDER BY fp.f)) AS s,
+           sum(fp.amount) AS net
+    FROM fp GROUP BY 1, 2, 3
+), eod AS (
+    SELECT day.*, round(s.balance_start + sum(day.net) OVER (PARTITION BY day.st
+                                                             ORDER BY day.date), 2) AS bal
+    FROM day JOIN account_bank_statement s ON s.id = day.st
+), twice AS (
+    SELECT DISTINCT a.st, a.date, a.s FROM eod a
+    JOIN eod b ON b.j = a.j AND b.date = a.date AND b.s = a.s AND b.bal = a.bal AND b.st <> a.st
+    JOIN sc sa ON sa.st = a.st AND sa.ok JOIN sc sb ON sb.st = b.st AND sb.ok
+), occ AS (
+    SELECT twice.s, fp.*, row_number() OVER (PARTITION BY fp.st, fp.f ORDER BY fp.id) AS k
+    FROM twice JOIN fp ON fp.st = twice.st AND fp.date = twice.date
+), ranked AS (
+    SELECT occ.*,
+           row_number() OVER w AS r,
+           first_value(occ.id) OVER w AS kept
+    FROM occ WINDOW w AS (PARTITION BY occ.j, occ.date, occ.s, occ.f, occ.k
+                          ORDER BY occ.rec DESC, occ.id)
+)
+SELECT CASE WHEN ranked.rec THEN 'reconciled twice' ELSE 'duplicate' END, ranked.id, ranked.st,
+       aj.code, ranked.date, ranked.amount, ranked.kept
+FROM ranked JOIN account_journal aj ON aj.id = ranked.j
+WHERE ranked.r > 1 ORDER BY ranked.date, ranked.id"""
+
+#: ``statements, statements matching their file, lines, unreconciled lines,
+#: unreconciled lines after their company's latest lock date``.
+BANK_LINES_STATS_SQL = _BANK_LINES_CTE + """
+SELECT (SELECT count(*) FROM sc), (SELECT count(*) FROM sc WHERE ok), count(*),
+       count(*) FILTER (WHERE NOT fp.rec),
+       count(*) FILTER (WHERE NOT fp.rec AND fp.date > coalesce(
+           greatest(c.fiscalyear_lock_date, c.period_lock_date), '0001-01-01'))
+FROM fp JOIN account_bank_statement s ON s.id = fp.st JOIN res_company c ON c.id = s.company_id"""
+
+
+@dataclass(frozen=True)
+class BankCopy:
+    kind: str       # "duplicate" | "reconciled twice"
+    line: int
+    statement: int
+    journal: str
+    date: str
+    amount: str
+    kept: int
+
+
+def parse_bank_copies(rows: list[list[str]]) -> list[BankCopy]:
+    return [BankCopy(r[0], int(r[1]), int(r[2]), r[3], r[4], r[5], int(r[6]))
+            for r in rows if len(r) >= 7]
+
+
+def bank_duplicates_sql(copies: list[BankCopy]) -> str:
+    """SQL that deletes the duplicates, for a working copy's first pre hook.
+
+    Guarded line by line, so it is idempotent and harmless on a later copy: a line
+    goes only while no journal item points at it and its kept twin still exists with
+    the same content. A movement reconciled twice is never in it."""
+    pairs = [(c.line, c.kept) for c in copies if c.kind == "duplicate"]
+    if not pairs:
+        return "-- No bank statement line imported twice.\n"
+    values = ",\n    ".join(f"({line}, {kept})" for line, kept in pairs)
+    return f"""-- Bank statement lines imported twice: {len(pairs)} unreconciled copies, each
+-- proven by two statements that match the bank's balances and hold the same day with
+-- the same end-of-day balance. Run on a working copy before the chain, never on the
+-- reference or production.
+DELETE FROM account_bank_statement_line d
+USING (VALUES
+    {values}
+) AS v(line, kept), account_bank_statement_line k
+WHERE d.id = v.line AND k.id = v.kept
+  AND NOT EXISTS (SELECT 1 FROM account_move_line m WHERE m.statement_line_id = d.id)
+  AND (k.journal_id, k.date, k.amount, k.name, k.ref, k.note, k.partner_name)
+      IS NOT DISTINCT FROM (d.journal_id, d.date, d.amount, d.name, d.ref, d.note, d.partner_name);
+"""

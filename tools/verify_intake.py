@@ -86,6 +86,35 @@ AUDIT_DB = """
         ('ACME invoice - INV1.pdf', '2026-03-01'), ('ACME invoice - INV0.pdf', '2021-01-01');
 """
 
+# Bank statements for the duplicates step. Journal 1: statement 1 and 2 match their files
+# and both hold 3 March with the same lines and the same end-of-day balance (157). Two equal
+# fees in one day are two movements. Fee 1 is reconciled in both copies; the +50 only in
+# statement 1. Statement 3 repeats 4 March but does not match its file, so it proves nothing.
+BANK_DB = """
+    CREATE TABLE res_company (id int, fiscalyear_lock_date date, period_lock_date date);
+    CREATE TABLE account_journal (id int, code varchar);
+    CREATE TABLE account_bank_statement (id int, journal_id int, company_id int,
+                                         balance_start numeric, balance_end_real numeric);
+    CREATE TABLE account_bank_statement_line (id int, statement_id int, journal_id int, date date,
+        amount numeric, name varchar, ref varchar, note text, partner_name varchar);
+    CREATE TABLE account_move_line (id serial, statement_line_id int);
+    INSERT INTO res_company VALUES (1, '2025-03-03', NULL);
+    INSERT INTO account_journal VALUES (1, 'BNK1');
+    INSERT INTO account_bank_statement VALUES (1, 1, 1, 100, 157), (2, 1, 1, 110, 162),
+                                              (3, 1, 1, 157, 999);
+    INSERT INTO account_bank_statement_line VALUES
+        (1, 1, 1, '2025-03-01', 10, 'transfer', NULL, NULL, 'ACME'),
+        (2, 1, 1, '2025-03-03', -1.50, 'fee', NULL, NULL, NULL),
+        (3, 1, 1, '2025-03-03', -1.50, 'fee', NULL, NULL, NULL),
+        (4, 1, 1, '2025-03-03', 50, 'payment', 'R1', NULL, 'ACME'),
+        (5, 2, 1, '2025-03-03', -1.50, 'fee', NULL, NULL, NULL),
+        (6, 2, 1, '2025-03-03', -1.50, 'fee', NULL, NULL, NULL),
+        (7, 2, 1, '2025-03-03', 50, 'payment', 'R1', NULL, 'ACME'),
+        (8, 2, 1, '2025-03-04', 5, 'interest', NULL, NULL, NULL),
+        (9, 3, 1, '2025-03-04', 5, 'interest', NULL, NULL, NULL);
+    INSERT INTO account_move_line (statement_line_id) VALUES (2), (4), (5);
+"""
+
 
 def _bash(command: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["bash", "-c", command], capture_output=True, text=True,
@@ -301,6 +330,33 @@ def main() -> int:
             trap = next((r.note for r in audited if r.kind == "document"), "")
             check("a document registered under another module's namespace is flagged",
                   "registered as account.*" in trap, trap)
+
+            # --- bank statement lines imported twice, on a real database ------------------------
+            cluster.sql("CREATE DATABASE bank")
+            cluster.value(BANK_DB + " SELECT 1", "bank")
+            q = {"host": env.db_host, "port": env.db_port, "user": env.db_user}
+            copies = intake.parse_bank_copies(
+                system.psql_rows(intake.BANK_DUPLICATES_SQL, "bank", **q) or [])
+            got = {(c.kind, c.line, c.kept) for c in copies}
+            check("a bank day imported twice: each unreconciled copy is a duplicate of the kept one",
+                  {("duplicate", 6, 3), ("duplicate", 7, 4)} <= got, got)
+            check("two equal fees in one day stay two movements; a movement reconciled in both "
+                  "copies is recorded apart",
+                  ("reconciled twice", 5, 2) in got and not any(c.line in (2, 3) for c in copies),
+                  got)
+            check("a statement that does not match its file proves nothing",
+                  not any(c.line in (8, 9) for c in copies) and len(copies) == 3, got)
+            stats = system.psql_rows(intake.BANK_LINES_STATS_SQL, "bank", **q)
+            check("statements matching their file, unreconciled lines, and those after the lock",
+                  stats == [["3", "2", "9", "6", "2"]], stats)
+            guarded = intake.bank_duplicates_sql(copies)
+            first = cluster.sql(guarded, "bank")
+            second = cluster.sql(guarded, "bank")
+            left = cluster.value("SELECT string_agg(id::text, ',' ORDER BY id) "
+                                 "FROM account_bank_statement_line", "bank")
+            check("the guarded SQL deletes the duplicates only, and a second run deletes nothing",
+                  "DELETE 2" in first.stdout and "DELETE 0" in second.stdout
+                  and left == "1,2,3,4,5,8,9", (first.stdout, second.stdout, left))
 
             # --- the uninstall command, against a stub interpreter ---------------------------
             record = intake.IntakeRecord("ACME_original", "acme_reader", "client-src/acme",

@@ -211,6 +211,9 @@ items are host-dependent.
   OCB, following the client's core by default. Still to do on the host: the first client's second
   rehearsal on OCB.
 
+  Then bank statement lines imported twice (change `find-bank-lines-imported-twice`): proven from the
+  bank's own balances, for a source up to 13.0, with a guarded SQL for the first step's pre hook.
+
   Not done yet: a client's own module whose manifest declares Odoo S.A. as its author is reported
   "dropped by Odoo; OpenUpgrade removes it". With an intake, where the module loads from is known, and
   that should decide it rather than the author.
