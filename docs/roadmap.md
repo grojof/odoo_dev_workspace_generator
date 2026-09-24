@@ -207,6 +207,10 @@ items are host-dependent.
   Then the audit of the client's own modules from their data (change `audit-client-modules`):
   per-module use since a date, survival in a migrated database, and prints from an access log.
 
+  Then the chain's core (change `choose-the-chain-core`): the steps from 14.0 run on official Odoo or
+  OCB, following the client's core by default. Still to do on the host: the first client's second
+  rehearsal on OCB.
+
   Not done yet: a client's own module whose manifest declares Odoo S.A. as its author is reported
   "dropped by Odoo; OpenUpgrade removes it". With an intake, where the module loads from is known, and
   that should decide it rather than the author.

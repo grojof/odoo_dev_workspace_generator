@@ -51,8 +51,19 @@ Both are generated for you in `requirements/`.
 Under `~/odoo-migrations/<src>-to-<tgt>/`:
 
 - Per-version clones of `OCA/OpenUpgrade` (matching branch, shallow) in the shared `.repos/` cache. From
-  14.0 there is also a clone of `odoo/odoo`. Up to 13.0 the OpenUpgrade branch is itself a full Odoo fork, so
-  no separate clone is made.
+  14.0 there is also a clone of the **chain core**, `odoo/odoo` (`.repos/odoo-<version>`) or `OCA/OCB`
+  (`.repos/ocb-<version>`). Up to 13.0 the OpenUpgrade branch is itself a full Odoo fork, so no separate
+  clone is made.
+- **Which core the steps from 14.0 run on.** Generation asks, and the default is the core the intake
+  identified: a client on OCB is migrated on OCB, and official Odoo is the default with no intake or with a
+  patched core. It matters because every step installs the modules whose `auto_install` dependencies are
+  met, and OCB turns `auto_install` off for a list of them (17 at 18.0: `iap`, `sms`, `partner_autocomplete`,
+  `mail_bot`, `base_import_module`, `account_edi_ubl_cii`…). A client on OCB migrated on official Odoo ends
+  up with modules it never had, and they stay installed if the core is switched later. Otherwise the two
+  cores are the same code, module versions and schema, so switching a running database between them is a
+  code change, not a migration. The choice is recorded only in the step configs' `addons_path`, and every
+  later action reads it back from there. OpenUpgrade's own CI tests on `odoo/odoo` only; OCA tests its
+  modules on both.
 - A `uv` virtualenv per native version (matched interpreter + `requirements.txt` + `psycopg2-binary` +
   `openupgradelib`). A per-version `requirements/overrides-<ver>.txt` is applied via
   `uv pip install --overrides` to repair pins that no longer install: the 16.0/17.0 branches pin

@@ -19,13 +19,10 @@ import json
 import re
 from dataclasses import dataclass, field
 
-from .models import MODULE_NAME_RE
+from .models import CORE_FLAVOURS, MODULE_NAME_RE
 
 INTAKE_SCHEMA = 1
-FLAVOURS = {
-    "odoo": "https://github.com/odoo/odoo",
-    "ocb": "https://github.com/OCA/OCB",
-}
+FLAVOURS = CORE_FLAVOURS
 MANIFESTS = ("__manifest__.py", "__openerp__.py")
 
 _NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]+$")

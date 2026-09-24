@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **The chain's core: official Odoo or OCB.** From 14.0 each step runs OpenUpgrade on a separate core
+  clone, and it was always `odoo/odoo`. Generation now asks which core, and the default is the one the
+  intake identified, so a client on OCB is migrated on OCB. It matters because every step installs the
+  modules whose `auto_install` dependencies are met, and OCB turns that off for a list of them: a client on
+  OCB migrated on official Odoo gains modules it never had. Later actions read the choice back from the
+  step configs.
 - **Audit the client's own modules.** A new step in Take in a client copy, reading the reference only.
   For each module the intake classified as the client's own, it records:
   - who depends on it;

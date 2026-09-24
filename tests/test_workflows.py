@@ -553,6 +553,7 @@ def test_every_migration_action_previews_before_it_applies(base, monkeypatch, ac
     monkeypatch.setattr(migration, "_ask_env",
                         lambda **_k: MigrationEnv(source="16.0", target="18.0"))
     monkeypatch.setattr(migration, "_choose_step_interpreters", lambda _e: True)
+    monkeypatch.setattr(migration, "_choose_chain_core", lambda _e: True)
     monkeypatch.setattr(migration.preflight, "gather_host_facts", lambda *a, **k: None)
     monkeypatch.setattr(migration.preflight, "preflight_rows", lambda *a, **k: [])
     monkeypatch.setattr(migration, "confirm_with_phrase", lambda *a: True)
