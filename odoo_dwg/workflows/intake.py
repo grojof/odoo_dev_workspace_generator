@@ -955,7 +955,8 @@ def find_bank_duplicates(env: MigrationEnv) -> None:
     q = {"host": env.db_host, "port": env.db_port, "user": env.db_user}
     copies_rows = psql_rows(it.BANK_DUPLICATES_SQL, ref, **q)
     stats = psql_rows(it.BANK_LINES_STATS_SQL, ref, **q)
-    if copies_rows is None or not stats or len(stats[0]) < 5:
+    locked_rows = psql_rows(it.BANK_LOCKED_SQL, ref, **q)
+    if copies_rows is None or locked_rows is None or not stats or len(stats[0]) < 5:
         print(level_text("ERROR", tf("Could not read database {}; nothing recorded.", ref)))
         return
     statements, matching, lines, unreconciled, after_lock = (int(v) for v in stats[0][:5])
@@ -963,12 +964,17 @@ def find_bank_duplicates(env: MigrationEnv) -> None:
     duplicates = [c for c in copies if c.kind == "duplicate"]
     twice = [c for c in copies if c.kind == "reconciled twice"]
     net = sum(float(c.amount) for c in duplicates)
+    locked = it.parse_locked_lines(locked_rows, {c.line for c in duplicates})
+    kept = [x for x in locked if x.kept]
+    behind = [x for x in locked if not x.kept]
     print(render_table(["", ""], [
         [t("Statements matching the bank's balances"), f"{matching} / {statements}"],
         [t("Unreconciled lines"), f"{unreconciled} / {lines}"],
         [t("Of them, certain duplicates"), f"{len(duplicates)} ({net:.2f})"],
         [t("Movements reconciled more than once"), str(len(twice))],
         [t("Unreconciled lines after the lock date"), str(after_lock)],
+        [t("Closed-period lines that match an open item (kept)"), str(len(kept))],
+        [t("Closed-period lines the accountant may leave behind"), str(len(behind))],
     ]))
     hook = env.hooks_dir / f"{env.chain()[0]}-pre.sql"
     found = [_finding(
@@ -978,21 +984,78 @@ def find_bank_duplicates(env: MigrationEnv) -> None:
         f"{len(twice)} movement(s) were reconciled more than once; {matching} of {statements} "
         f"statement(s) match the bank's balances. Of {unreconciled} unreconciled line(s), "
         f"{after_lock} fall after the lock date. OpenUpgrade 14.0 gives every unreconciled line "
-        "an entry, so a duplicate would become a bank movement that never happened.",
+        "an entry, so a duplicate would become a bank movement that never happened. Of the "
+        f"closed-period ones, {len(kept)} match an open item of the same partner (kept) and "
+        f"{len(behind)} could be left behind, if the client's accountant decides so.",
         {"statements": statements, "statements_matching_file": matching, "lines": lines,
          "unreconciled": unreconciled, "unreconciled_after_lock": after_lock,
          "duplicates": len(duplicates), "duplicates_net": round(net, 2),
-         "reconciled_twice": [[c.line, c.kept, c.journal, c.date, c.amount] for c in twice]},
+         "reconciled_twice": [[c.line, c.kept, c.journal, c.date, c.amount] for c in twice],
+         "closed_period_kept": len(kept), "closed_period_to_leave": len(behind)},
         "findings/data/bank-duplicate-lines.tsv",
         f"review, then put findings/data/bank-duplicate-lines.sql in {hook} (working copy only); "
-        "the client's accountant decides on movements reconciled more than once; re-run on the "
-        "final copy")]
+        "the client's accountant decides on movements reconciled more than once, and whether "
+        "bank-locked-unreconciled.sql goes in the hook too; re-run on the final copy")]
     _record(env, record, found, {
         "bank-duplicate-lines.tsv": [
             ["kind", "statement_line_id", "statement_id", "journal", "date", "amount", "kept_line_id"],
             *[[c.kind, str(c.line), str(c.statement), c.journal, c.date, c.amount, str(c.kept)]
-              for c in copies]]},
-        {"bank-duplicate-lines.sql": it.bank_duplicates_sql(copies)})
+              for c in copies]],
+        "bank-locked-unreconciled.tsv": [
+            ["statement_line_id", "journal", "date", "amount", "label", "reference", "partner",
+             "note", "statement_id", "kept_matches_open_item"],
+            *[[str(x.line), x.journal, x.date, x.amount, x.label, x.ref, x.partner, x.note,
+               str(x.statement), "yes" if x.kept else ""] for x in locked]]},
+        {"bank-duplicate-lines.sql": it.bank_duplicates_sql(copies),
+         "bank-locked-unreconciled.sql": it.locked_lines_sql(locked)})
+
+
+def find_journal_codes(env: MigrationEnv) -> None:
+    """Journal codes the target refuses: shared in a company, or confusable.
+
+    From 15.0 each step drops ``unique (company_id, code)`` and adds it again; with a
+    shared code it only logs that it could not, and the migrated database keeps no
+    constraint. Reads the reference only; the operator's codes in the table are kept."""
+    record = _current(env)
+    if record is None:
+        return
+    rows = psql_rows(it.JOURNAL_CODES_SQL, record.reference_database, host=env.db_host,
+                     port=env.db_port, user=env.db_user)
+    if rows is None:
+        print(level_text("ERROR", tf("Could not read database {}; nothing recorded.",
+                                     record.reference_database)))
+        return
+    table = "journal-codes.tsv"
+    edits = {int(r[1]): r[-1] for r in _read_tsv(env, table)
+             if len(r) >= 10 and r[1].isdigit() and r[-1].strip()}
+    plan, problems = it.journal_code_plan(rows, edits)
+    if problems:
+        print(level_text("ERROR", tf("Fix these codes in findings/data/{} and run again: {}",
+                                     table, "; ".join(problems))))
+        return
+    print(render_table(["Id", "Code", "Entries", "Group", "Proposed", "Journal"],
+                       [[str(j.id), repr(j.code), str(j.entries), j.group, j.proposed or "(keeps)",
+                         j.name[:40]] for j in plan]))
+    renamed = [j for j in plan if j.proposed]
+    shared = [j for j in plan if j.group == "shared"]
+    hook = env.hooks_dir / f"{env.chain()[0]}-pre.sql"
+    found = [_finding(
+        _next_run_id(env, "journal-codes"), "high" if shared else ("low" if plan else "info"),
+        "account_journal",
+        f"{len(renamed)} journal(s) to rename: {len(shared)} journal(s) share a code in their "
+        f"company, {len(plan) - len(shared)} have codes that differ only by case or spaces. From "
+        "15.0 the migration cannot add unique (company_id, code) and only logs it.",
+        {"renamed": {str(j.id): [j.code, j.proposed] for j in renamed},
+         "operator_codes": len([j for j in renamed if j.id in edits])},
+        f"findings/data/{table}",
+        f"edit the proposed codes in findings/data/{table} if needed, re-run, then put "
+        f"findings/data/journal-codes.sql in {hook} (working copy only)")]
+    _record(env, record, found, {table: [
+        ["company", "journal_id", "name", "type", "active", "entries", "last_entry", "group", "code",
+         "proposed"],
+        *[[str(j.company), str(j.id), j.name, j.type, "yes" if j.active else "no", str(j.entries),
+           j.last, j.group, j.code, j.proposed] for j in plan]]},
+        {"journal-codes.sql": it.journal_codes_sql(plan)})
 
 
 def show_intake(env: MigrationEnv) -> None:
@@ -1017,6 +1080,7 @@ def intake_menu(env: MigrationEnv) -> None:
         "Rehearse uninstalling modules on a copy": rehearse_uninstall,
         "Audit the client's own modules": audit_own_modules,
         "Find bank statement lines imported twice": find_bank_duplicates,
+        "Find journal codes the target refuses": find_journal_codes,
         "Show the intake": show_intake,
     }
     while True:

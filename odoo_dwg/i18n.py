@@ -981,6 +981,19 @@ _ES: dict[str, str] = {
         'Movimientos conciliados más de una vez',
     'Unreconciled lines after the lock date':
         'Líneas sin conciliar posteriores a la fecha de bloqueo',
+    'Closed-period lines that match an open item (kept)':
+        'Líneas de periodos cerrados que coinciden con un apunte pendiente (se conservan)',
+    'Closed-period lines the accountant may leave behind':
+        'Líneas de periodos cerrados que la asesoría puede decidir no llevar',
+    'Code': 'Código',
+    'Entries': 'Asientos',
+    'Group': 'Grupo',
+    'Proposed': 'Propuesto',
+    'Journal': 'Diario',
+    'Find journal codes the target refuses':
+        'Buscar códigos de diario que la versión destino rechaza',
+    'Fix these codes in findings/data/{} and run again: {}':
+        'Corrige estos códigos en findings/data/{} y vuelve a ejecutar: {}',
     'Other modules to audit (comma-separated, optional)':
         'Otros módulos a auditar (separados por comas, opcional)',
     'Count use since (YYYY-MM-DD)':

@@ -7,6 +7,16 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Find journal codes the target refuses.** A new step in Take in a client copy. Odoo declares a
+  journal's code unique per company, and from 15.0 a migration that meets a shared code only logs that
+  it could not add the constraint. The step finds, per company, shared codes and codes that differ only
+  by case or spaces. The journal with most entries keeps its code, and the others get a proposal the
+  operator may edit in a table. A guarded SQL file for the first step's pre hook renames the code
+  column only, so no entry number moves.
+- **Closed periods' unreconciled bank lines, optionally left behind.** The bank step also lists the
+  unreconciled lines dated on or before the company's lock date: the file to deliver if the client's
+  accountant decides not to carry them. Lines matching an open receivable or payable item of the same
+  partner are kept. A separate, optional SQL file leaves the rest behind.
 - **Find bank statement lines imported twice.** A new step in Take in a client copy, for a source up to
   13.0. There, a statement line never reconciled has no entry, and OpenUpgrade's 14.0 step gives every
   one an entry: a statement imported twice becomes bank movements that never happened. The Norma 43
