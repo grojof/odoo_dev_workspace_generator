@@ -94,3 +94,18 @@ def test_a_chain_of_only_legacy_steps_asks_nothing(monkeypatch):
     env = MigrationEnv(source="12.0", target="13.0")
     monkeypatch.setattr(wm, "choose", lambda *a, **k: pytest.fail("asked"))
     assert wm._choose_chain_core(env) is True
+
+
+def test_a_regeneration_says_when_the_steps_on_disk_are_not_on_the_clients_core(monkeypatch):
+    env = _client_on("ocb")
+    env.chain_core = "odoo"  # as read back from the step configs
+    seen = {}
+
+    def choose(label, options, default_index=None):
+        seen["label"], seen["default"] = label, options[default_index]
+        return options[default_index]
+
+    monkeypatch.setattr(wm, "choose", choose)
+    wm._choose_chain_core(env)
+    assert "the client runs OCB; the generated steps run Odoo" in seen["label"]
+    assert seen["default"] == "Odoo"

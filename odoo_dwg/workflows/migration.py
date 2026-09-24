@@ -192,14 +192,23 @@ def _choose_chain_core(env: MigrationEnv) -> bool:
     if all(env.uses_legacy_layout(version) for version in env.chain()):
         return True
     client = env.intake.core.flavour if env.intake is not None and env.intake.core else ""
+    generated = env.chain_core  # what the step configs on disk run, if generated before
     options = ["Odoo", "OCB"]
-    label = (tf("Core of the steps from 14.0 (the client runs {})", "OCB" if client == "ocb" else "Odoo")
-             if client else t("Core of the steps from 14.0"))
+    names = {"odoo": "Odoo", "ocb": "OCB"}
+    if client and generated and generated != client:
+        # A regeneration offers what is on disk; say so when it is not the client's core.
+        label = tf("Core of the steps from 14.0 (the client runs {}; the generated steps run {})",
+                   names[client], names[generated])
+    elif client:
+        label = tf("Core of the steps from 14.0 (the client runs {})", names[client])
+    else:
+        label = t("Core of the steps from 14.0")
     answer = choose(label, options, default_index=options.index(env.step_core_label))
     if answer == "":
         return False
     env.chain_core = answer.lower()
     reason = (t("the client's core") if env.chain_core == client
+              else t("as generated before") if env.chain_core == generated
               else t("your choice") if client or env.chain_core != "odoo"
               else t("no identified client core"))
     print(level_text("INFO", tf("The steps from 14.0 run on {} ({}).", env.step_core_label, reason)))

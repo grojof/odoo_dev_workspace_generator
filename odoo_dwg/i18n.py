@@ -453,6 +453,9 @@ _ES: dict[str, str] = {
     "Core of the steps from 14.0 (the client runs {})": "Núcleo de los pasos desde la 14.0 (el cliente usa {})",
     "Core of the steps from 14.0": "Núcleo de los pasos desde la 14.0",
     "the client's core": "el núcleo del cliente",
+    "as generated before": "como se generó antes",
+    "Core of the steps from 14.0 (the client runs {}; the generated steps run {})":
+        "Núcleo de los pasos desde la 14.0 (el cliente usa {}; los pasos generados usan {})",
     "your choice": "elegido por ti",
     "no identified client core": "sin núcleo del cliente identificado",
     "The steps from 14.0 run on {} ({}).": "Los pasos desde la 14.0 usan {} ({}).",
