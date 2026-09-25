@@ -19,6 +19,8 @@ All notable changes to this project are documented here. The format is based on
   - `odoo-dwg migrate decide MODULE … --decision KIND [--to M…]` records a decision, and writes
     `decisions.json` only with `--write`. It is the first command that writes, and it writes only the
     environment's own record.
+  - **A module can be split:** a `renamed` decision may name several modules; the first takes the old
+    module and its data, the others are installed in the same run.
   - **`dropped` now has an effect:** the stage uninstalls a `dropped` module still installed at the
     target, which used to be done by hand. An existing decisions file gets it on the next run of a
     regenerated driver; `migrate modules` lists every uninstall first.
