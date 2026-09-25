@@ -187,7 +187,7 @@ excludes this host's 3.12 (see [`support-matrix.md`](../reference/support-matrix
   it — follow the official instructions: <https://docs.astral.sh/uv/getting-started/installation/>. Reopen
   the shell afterwards and confirm with `uv --version`.
 
-See [`migration.md`](../migration/README.md).
+See [the migration environment](../migration/environment.md).
 
 ## 8. (Optional) Editor and terminal
 
@@ -198,22 +198,14 @@ See [`migration.md`](../migration/README.md).
 
 ## 9. (Optional) Working on the tool itself
 
-Only if you are going to change `odoo_dwg`'s code:
-
-```bash
-cd ~/odoo_dev_workspace_generator
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"     # pytest + ruff; the tool itself still has no dependencies
-
-python -m pytest -q
-python -m ruff check .
-```
+Only if you are going to change `odoo_dwg`'s code: follow [CONTRIBUTING](../../CONTRIBUTING.md) for the
+development environment and the checks.
 
 **Next:** with the host ready, create your first workspace — `python3 -m odoo_dwg workspace` → **New
 (quick)**. See [provisioning](provisioning.md#next-your-first-workspace) and
-[workspace-layout](../workspace/layout.md).
+[workspace layout](../workspace/layout.md).
 
-Conventions, checks, and the spec-first flow: [`../CONTRIBUTING.md`](../../CONTRIBUTING.md).
+Conventions, checks, and the spec-first flow: [CONTRIBUTING](../../CONTRIBUTING.md).
 
 ## What this guide deliberately leaves out
 

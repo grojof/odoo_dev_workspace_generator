@@ -21,12 +21,12 @@ never changes the host without first showing you every command it will run.
 
 ## How it works
 
-Everything that changes the host goes through the same contract. Destructive actions ask you to type an
-exact phrase.
+Everything that changes the host is a menu action, and goes through the same contract. The read-only
+commands never change anything.
 
 ```mermaid
 flowchart LR
-    A([Menu or CLI]) --> B[Build a command plan] --> C[Preview every command] --> D{Confirm?}
+    A([Menu action]) --> B[Build a command plan] --> C[Preview every command] --> D{Confirm<br/>destructive: type<br/>the exact phrase}
     D -- yes --> E[Apply on the host]
     D -- no --> A
     classDef step fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
@@ -41,19 +41,19 @@ A migration, from the client's copy to the cutover:
 
 ```mermaid
 flowchart LR
-    A[(Client copy:<br/>dump, add-ons, conf)] --> B[Intake:<br/>reference + audits]
-    B --> C[Neutralise]
-    C --> D[Rehearse the chain<br/>12 → … → target]
+    A[(Client copy:<br/>dump, addons, conf)] --> B[Intake:<br/>reference, audits,<br/>migrate audit]
+    B --> D[Rehearse: the driver restores,<br/>neutralises and runs<br/>12 → … → target]
     D --> E{migrate audit<br/>+ findings}
     E -- fix data, adapt modules --> D
-    E -- clean, client agrees --> F([Final copy + cutover])
+    E -- clean, client agrees --> F[Final copy through<br/>the same chain]
+    F --> G([Give production<br/>settings back, cutover])
     classDef data fill:#ede9fe,stroke:#7c3aed,color:#4c1d95
     classDef step fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
     classDef guard fill:#dcfce7,stroke:#16a34a,color:#14532d
     classDef ask fill:#fef3c7,stroke:#d97706,color:#78350f
     class A data
-    class B,D step
-    class C,F guard
+    class B,D,F step
+    class G guard
     class E ask
 ```
 
@@ -102,7 +102,7 @@ needed. Which Python and PostgreSQL each Odoo version takes is in the
 | Prepare a host from nothing | [WSL 2 setup](docs/host/wsl-setup.md) · [Provisioning](docs/host/provisioning.md) |
 | Keep a host from reaching the outside, and capture mail | [Egress control and mail capture](docs/host/egress-control.md) |
 | Create a workspace and understand its tree | [Workspace layout](docs/workspace/layout.md) · [Profile fields](docs/workspace/configuration.md) · [Editor](docs/workspace/editor.md) |
-| Migrate a database | [Overview](docs/migration/README.md), then in order: [environment](docs/migration/environment.md) → [intake](docs/migration/intake.md) → [copies of production](docs/migration/production-copies.md) → [rehearsing](docs/migration/rehearsing.md) → [running](docs/migration/running.md) → [checks and findings](docs/migration/checks-findings.md) |
+| Migrate a database | [Overview](docs/migration/README.md), then in order: [environment](docs/migration/environment.md) → [intake](docs/migration/intake.md) → [copies of production](docs/migration/production-copies.md) → [running](docs/migration/running.md) → [rehearsing](docs/migration/rehearsing.md) → [checks and findings](docs/migration/checks-findings.md) |
 | Know what is supported, and why | [Support matrix](docs/reference/support-matrix.md) |
 | See where the project is going | [Roadmap](docs/project/roadmap.md) · [Changelog](CHANGELOG.md) |
 | Contribute | [CONTRIBUTING](CONTRIBUTING.md) · [CLAUDE.md](CLAUDE.md) (guide for AI agents) · [SECURITY](SECURITY.md) |

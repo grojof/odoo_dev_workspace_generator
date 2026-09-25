@@ -250,10 +250,12 @@ It works on Odoo 12 to 19 and asks you to type `CAPTURE`. Running it twice is sa
 
 ### Giving the mail back
 
-**Restore a database's mail configuration** (phrase `RESTORE`) is the other half, and the one that makes a
-migrated database fit for production: it removes the server the capture added, switches back on exactly the
-servers the capture switched off — a server *you* had disabled stays disabled — and drops its record. A
-database that was never captured is refused rather than reported as restored.
+**Restore a database's mail configuration** (phrase `RESTORE`) is the other half: it removes the server the
+capture added, switches back on exactly the servers the capture switched off — a server *you* had disabled
+stays disabled — and drops its record. A database that was never captured is refused rather than reported as
+restored. A neutralised database, which every migrated one is, is given back as a whole instead
+([production settings](../migration/production-copies.md#giving-production-its-settings-back)): that undoes
+the capture too.
 
 ### Asking whether mail can leave
 

@@ -9,6 +9,9 @@ updated: 2026-09-25
 
 # Running a migration
 
+Check the host and the dump, run the chain on a copy, follow it, and read what it left. The environment
+must exist first ([environment](environment.md)).
+
 ## Preflight: verify before you burn hours
 
 **Menu → Migration → Preflight check** runs a read-only verification, and the same checks run
@@ -66,10 +69,10 @@ Each step of the chain, as the generated `run_migration.sh` runs it:
 
 ```mermaid
 flowchart LR
-    K{Checkpoint for<br/>this version?} -- no --> P[Pre hook] --> O[OpenUpgrade<br/>step]
-    O -- ok --> H[Post hook] --> R[Known repairs<br/>14.0 only] --> N[Neutralise<br/>again] --> C[(Checkpoint)]
+    K{Checkpoint for<br/>this version?} -- no --> P[Preconditions<br/>+ pre hook] --> O[OpenUpgrade<br/>step]
+    O -- ok --> H[Post hook] --> R[Known repairs<br/>14.0, from ≤ 13.0] --> N[Neutralise<br/>again] --> C[(Checkpoint)]
     K -- yes --> Y([Skip to the<br/>next version])
-    O -- fails --> X([Stop and name the log.<br/>A re-run resumes from<br/>the newest checkpoint])
+    O -- fails --> X([Any failure stops the run<br/>and names the log. A re-run<br/>resumes from the newest checkpoint])
     classDef step fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
     classDef ask fill:#fef3c7,stroke:#d97706,color:#78350f
     classDef guard fill:#dcfce7,stroke:#16a34a,color:#14532d
@@ -93,9 +96,6 @@ at `700` and writes into them at `600`, so a second account on the host cannot r
 that predates that is narrowed the next time you generate over it: upgrading the tool alone changes
 nothing already on disk.
 
-Checkpoints that carry no record of which dump they came from stop the driver rather than let it resume
-against a dump that may not be theirs; it prints the one command that adopts them if it is.
-
 **When a step fails.** The driver names the step and its log (`[fail] step 16.0 failed — see
 logs/16.0.log`). Read that log: the cause is usually one of your own modules under
 `addons/odoo<major>/custom` that has not been adapted to that version. Fix it there, then run the same
@@ -103,11 +103,11 @@ command again — it resumes from the last checkpoint rather than from the sourc
 anything fails identically.
 
 **When it finishes.** `[done] migration complete` leaves the result in the `migration_13_to_18` database on the
-shared cluster. To look at it, start that step's Odoo by hand:
+shared cluster. Open it through the environment's own script, which neutralises it again before every start
+([why](production-copies.md#opening-a-migrated-database-for-testing)):
 
 ```bash
-cd ~/odoo-migrations/13-to-18
-.venv/odoo18/bin/python .repos/odoo-18.0/odoo-bin -c conf/odoo18.conf -d migration_13_to_18   # .repos/ocb-18.0 on an OCB chain
+~/odoo-migrations/13-to-18/open_for_testing.sh 18.0 migration_13_to_18
 ```
 
 To take it away: `pg_dump -Fc -h 127.0.0.1 -U odoo migration_13_to_18 -f migrated-18.0.dump` (and the filestore
@@ -138,8 +138,17 @@ Besides each step's `logs/<version>.log`, the driver appends one line per event 
 ```
 
 The columns are *when*, *which run* (the source dump's hash, so several runs can share the file), *which
-step*, *what happened* (`start`, `ok`, `fail`, `skip`, `restore`, `run-start`, `run-ok`) and a detail — the
-exit code for a failure.
+step*, *what happened* and a detail:
+
+| Event | Detail |
+|---|---|
+| `run-start`, `run-ok` | the chain, on start |
+| `restore` | what was restored: `00_source`, or the checkpoint a re-run resumes from |
+| `neutralised` | the step after which the database was neutralised again |
+| `start`, `ok`, `skip` | — |
+| `fail` | the step's exit code |
+| `hook-pre`, `hook-post` | the hook file that ran |
+| `repair` | which repair ran after the step |
 
 It is **appended and never rewritten**, so a run you interrupt still leaves a readable record, and it
 accumulates across runs: the file is the history of every attempt on this chain.
@@ -175,7 +184,7 @@ the environment:
   holds what the post-step hook restored.
 
 Each file runs in one transaction and stops at its first error. The driver prints `[hook] 14.0 pre: …`
-and records it in `logs/steps.tsv`. A failing hook stops the run before the step. Keep a pre-step change
+and records it in `logs/steps.tsv`. A failing pre hook stops the run before the step; a failing post hook stops it before the checkpoint. Keep a pre-step change
 reversible and have the post-step hook undo exactly it. For example, record which deprecated accounts
 you make usable in a table of your own, and deprecate exactly those again. Record the decision in the
 findings ledger too.
@@ -217,7 +226,9 @@ successor for it. That is not a bug to work around — it is a question only you
 for real: OCA ported `website_sale_product_attribute_filter_category` to 14.0, 15.0, 17.0 and 18.0 but
 **not** to 16.0 or 19.0.
 
-Record the answer in the environment's own `decisions.json`:
+Record the answer in the environment's own `decisions.json`. The driver reads that file; **Preflight
+check** asks for a file, usually that one. For an **official or OCA** module the decision is the same for
+every client migrating between the same two versions, so one file of yours can serve them all:
 
 ```json
 {
@@ -246,7 +257,8 @@ ported it to 16.0 or 19.0)
 **A decision is never believed over the sources.** It is applied only while the module still resolves
 nowhere and still has no successor that does; when either changes — OCA ports it, OpenUpgrade declares a
 successor — the preflight reports the decision as **stale** instead of applying it. A file that cannot be
-read decides nothing, so a typo cannot open the gate.
+read decides nothing, so a typo cannot open the gate. That matters most for OCA, which ports modules
+continuously: a module recorded as dead a year ago may have a branch today.
 
 The file is the operator's, carried between clients: the fates of Odoo and OCA modules are facts the tool
 derives every time, and this records the one thing no source states.
@@ -279,12 +291,8 @@ It only reads. **Ctrl-C stops watching; the driver keeps going** — it is anoth
 the watch says how, and points you at the report, because the live view follows the *running* step and so
 its last frame holds no detail.
 
-If you would rather not leave a terminal on it, the two files behind that view are plain text:
-
-```bash
-tail -f ~/odoo-migrations/12-to-19/logs/steps.tsv    # where the chain is
-tail -f ~/odoo-migrations/12-to-19/logs/15.0.log     # what that step is saying
-```
+If you would rather not leave a terminal on it, the two files behind that view are plain text: `tail -f`
+them ([above](#what-the-run-leaves-behind-step-by-step)).
 
 ### The report: what happened, and what is still open
 

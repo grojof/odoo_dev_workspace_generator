@@ -9,6 +9,10 @@ updated: 2026-09-25
 
 # Rehearsing a migration
 
+Two aids for rehearsals: a source database seeded from Odoo's demo data, for before there is a client
+dump, and a tester module that asks each step what it took away. Both run through the same driver
+([running](running.md)).
+
 ## Rehearsing before there is a client dump
 
 The driver needs a source dump, and before a client's database exists nobody has one. **Menu → Migration →
@@ -39,7 +43,7 @@ Applying the plan writes `seed_demo.sh`. Run it yourself, like the driver:
 
 ```bash
 cd ~/odoo-migrations/12-to-19
-./seed_demo.sh                      # builds seed_12 with demo data, dumps it
+./seed_demo.sh                      # builds seed_12_to_19 with demo data, dumps it
 ./run_migration.sh source-12.0-demo.dump
 ```
 

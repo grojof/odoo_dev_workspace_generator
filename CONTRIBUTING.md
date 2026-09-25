@@ -27,8 +27,7 @@ pip install -e ".[dev]"             # pytest, ruff
 npm install -g @fission-ai/openspec@latest   # the `openspec` CLI (Node)
 ```
 
-[`docs/host/wsl-setup.md`](docs/host/wsl-setup.md) covers getting a host ready from nothing, including a Node that
-needs no root.
+[`docs/host/wsl-setup.md`](docs/host/wsl-setup.md) covers getting a host ready from nothing.
 
 ## Checks before a PR
 

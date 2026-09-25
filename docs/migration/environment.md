@@ -154,7 +154,7 @@ where the work happens — the migrator does what it can mechanically and you fi
 The corrections live in the environment's `addons/odoo<major>/custom`, which **cleaning deletes** and
 re-staging replaces. So when a version is reviewed, promote it.
 
-**Menu → Migration → Promote reviewed modules** copies a module's code, for the steps you pick, to a
+**Menu → Migration → Promote reviewed modules** copies a module's code, for every step where it is staged, to a
 directory you name — one subdirectory per version:
 
 ```
@@ -207,40 +207,10 @@ Yours is the promoted one, committed with your identity.
 
 ### Decisions about modules nobody will port
 
-When a module resolves nowhere and OpenUpgrade declares no successor, the preflight names it and stops there.
-What follows is a decision only you can make — dropped, replaced by another module, ported by us — and for
-an **official or OCA** module that decision is the same for every client migrating between the same two
-versions.
-
-Record it once, in a file you own, and pass it to **Preflight check**:
-
-```json
-{
-  "decisions": [
-    {
-      "module": "sale_x",
-      "source": "12.0",
-      "target": "18.0",
-      "decision": "dropped",
-      "reason": "no successor; the client stopped using it in 2024"
-    }
-  ]
-}
-```
-
-Coverage then shows it as *Decided* instead of asking again, and reports what is still **undecided** as its
-own class, separate from code that is simply not on disk.
-
-A decision is **never believed over the sources**. The fates of Odoo and OCA modules are derived from that
-step's checkout and `apriori.py` every time the question is asked — never frozen into this tool or into your
-file — so when the sources say otherwise the decision is reported as stale and *not* applied:
-
-```
-WARN  Decision no longer holds (18.0)  sale_x was decided dropped — the module now resolves in this step's sources
-```
-
-That matters most for OCA, which ports modules continuously: a module recorded as dead a year ago may have a
-branch today, and a frozen answer would keep a client on a workaround they no longer need.
+When a module resolves nowhere and OpenUpgrade declares no successor, the preflight names it and stops. What
+follows is your decision: dropped, replaced or ported. Record it once in `decisions.json`; the preflight
+and the driver both honour it, and never over the sources
+([running](running.md#when-a-module-has-no-code-anywhere-decisionsjson)).
 
 ### OCA repositories
 

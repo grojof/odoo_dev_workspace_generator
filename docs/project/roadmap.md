@@ -67,7 +67,7 @@ and taken as given by the next run; what was decided about a module with no succ
 reused between clients and reported as stale when the sources overtake it; and a migration environment
 can name OCA repositories, so that half of coverage is derived instead of filled by hand.
 
-**Seeing what a run did (in flight).** A chain of seven steps takes hours and used to leave only seven
+**Seeing what a run did.** A chain of seven steps takes hours and used to leave only seven
 Odoo logs. The driver now records each step as it runs it (`logs/steps.tsv`, one appended line per
 event); a run can be **followed live** from those marks, and reported on **afterwards and
 cumulatively** — every run of the environment, opening with what is still unresolved. The parsing is
@@ -113,7 +113,7 @@ records through both steps, and reported them afterwards without Odoo running �
 which is the honest answer for two module subjects that had never been installed in that database and which
 an earlier pass had reported as the chain behaving.
 
-**Next:** the real 12 client, and a 12 → 19 rehearsal on demo data with the same module set.
+Both followed: a 12 → 19 rehearsal on demo data, and the first client's 12 → 18 migration (see Features below).
 
 ## F0 — Foundation ✅
 
@@ -331,4 +331,4 @@ items are host-dependent.
   shell, upgrade modules and test module. The first try exposed the `pkg_resources` failure fixed by
   `fix-workspace-venvs`.
 - **When OdooLS 1.5 reaches the stable channel** — run `python tools/verify_odools_config.py` and decide whether
-  any 1.5 key is worth emitting, following [`editor-integration.md`](../workspace/editor.md).
+  any 1.5 key is worth emitting, following [editor integration](../workspace/editor.md).

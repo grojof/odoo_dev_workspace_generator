@@ -207,77 +207,6 @@ All notable changes to this project are documented here. The format is based on
   predicted` about modules that had never been installed. The generated tester's manifest also declares
   its author, because Odoo attributes a manifest without one to "Odoo S.A.", which is false and made
   coverage treat this project's own module as Odoo's dropped code.
-
-### Fixed
-- **A module whose author spans several lines no longer stops the chain.** The driver lists installed
-  modules one per line, with their author. An OCA manifest that spread its author over two lines at 16.0
-  split its row, and step 17.0 stopped on "Odoo Community Association (OCA) missing". The author is now
-  flattened in the driver's two queries and in the preflight's.
-- **The chain carries the client intake through every step.** The first client's 12 → 18 rehearsal
-  showed six gaps. Generation now proposes every OCA repository the intake's availability check finds a
-  module in, at any step. That includes the one a core module moves into later, and such a module now
-  counts as moved. Later menu actions read the linked repositories back from disk. Before, the preflight
-  reported every OCA module as missing. The preflight checks dependencies under the name each step knows,
-  as the driver does. Before, it passed a renamed module the driver then stopped on. A decision is stale
-  only when no step needs it. With an intake, every step's configuration names the environment's
-  `data_dir`, and the driver gives its working database a filestore of hard links to the reference's
-  after every restore.
-- **Each chain step gets the Python libraries its modules declare.** Before, only the source's venv
-  had them, and the first client's chain stopped four minutes into 13.0 on `unidecode`. After
-  generating with an intake, the tool offers to install each step's libraries. They are read from
-  that step's manifests and held to what the venv has. The driver checks them before each step with
-  the step's own interpreter, as Odoo does, and stops in seconds, naming the module and the library.
-  Odoo 18 reads a requirement with a version or a marker through `packaging` and does not list it, so
-  the first client's 18.0 step stopped on `paramiko<4.0.0`. A step whose Odoo says so in its own
-  `odoo/modules/module.py` now gets `packaging`, and the check reads that file too.
-- **The preflight predicts what the chain installs by itself.** The first client's 13.0 step installed
-  two OCA glue modules with no code at 14.0, and the driver stopped there. The preflight now lists, per
-  step, the new dependencies and the `auto_install` modules that follow. It uses the rule that step's own
-  OpenUpgrade applies: a broad selection at 13.0 and from 18.0, Odoo's own rule between them. It checks
-  them at every later step. Unmet dependencies are now MISSING rows, where before they were computed and
-  never shown, so the menu said "passed" for a chain its driver stopped. When a cached OCA tree has the
-  missing module, the preflight names the repository. It no longer crashes when the addons layout is
-  missing.
-- **The findings ledger no longer accepts a key it does not model.** A finding with an unknown key
-  validated, and the next write through the tool dropped it. Validation now names the key.
-- **The read-only role can read where a sequence stands.** A wizard leaves no rows, so its id sequence is
-  the only trace that it was ever opened; the role could not read it. It now has `SELECT` on sequences
-  (`nextval` is still refused). An existing role gets it with
-  `GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO <role>;`, run as the database owner.
-- **A read-only command no longer asks for the language.** `egress check`, `mail check`,
-  `neutralise check`, `migrate report`, `migrate probes` and `migrate findings …` used to prompt when
-  neither `--lang` nor `ODWG_LANG` was given, and failed from a script or a pipe. They now use English;
-  so does the menu when stdin is not a terminal.
-- **A generated file over 128 KiB could not be written.** The file travelled in a heredoc inside
-  `bash -lc`, and Linux refuses a single argument over 128 KiB. A findings ledger or a table of
-  twenty thousand rows failed with "Argument list too long" before bash started. An over-long command
-  now runs from a temporary script (mode 600), which is removed afterwards.
-- **Building the source version no longer assumes the chain was generated first.** It creates `conf/`
-  itself, as it now can run before, or without, the chain's own generation.
-
-*Six defects, all in shipped code, all found by the first real rehearsal — a 12 → 14 demo migration on the
-reference host. None was visible to 419 unit tests or seven verifiers.*
-
-- **A module absorbed mid-chain blocked the run.** Coverage resolved every step against the source
-  database's module list with one hop through that step's own `apriori.py`, so a module merged at 13.0 was
-  reported missing at 14.0 — where its old name no longer exists to be declared. The migration stopped and
-  told the operator to supply code that should not exist. Both implementations had it: the Python check and
-  the driver's embedded one, which now emits the module list as the next step will see it.
-- **OCA repositories were linked one level too deep for the path that names them.** A migration
-  environment listed `addons/odoo<major>/oca` as one add-ons path entry while each repository is linked
-  *inside* it, and Odoo scans an entry exactly one level deep. No OCA module was loadable, and coverage
-  reported every one of them as somebody else's to supply.
-- **Odoo 12's venv could not be built at all.** Its requirements pin `pyldap==2.4.28`, whose setup passes
-  `-R` to `cc`. The override bridges through the fork's own final release, which only requires
-  `python-ldap`.
-- **A demo seed looked for `openupgrade-<source>/odoo-bin`**, a path that cannot exist — the source version
-  is not a step — and stopped with "generate the environment first" while the clone it needed was there.
-- **The seed's existing-database check never fired**: its `psql -lqt` carried no connection arguments, so
-  it failed as the OS user and the pipeline quietly yielded nothing.
-- **The rehearsal tester was written only into the chain's steps**, so it could be installed nowhere: it is
-  installed at the source version, which is where its records are written.
-
-### Added
 - **A chain can be rehearsed before there is a client dump.** *Seed a demo source database* prepares the
   source version — which the chain itself never builds, since `chain()` is the *steps* — and writes a
   `seed_demo.sh` that builds a database from Odoo's own demo data and dumps it in the format the driver
@@ -364,13 +293,87 @@ reference host. None was visible to 419 unit tests or seven verifiers.*
   states — was answered by whoever last copied something in. A repository OCA has not ported to a version
   is reported for that step and does not fail the generation.
 
-### Removed
+### Changed
+- **The documentation is nested by area.** `docs/` is now `migration/`, `workspace/`, `host/`, `reference/`
+  and `project/`. The migration guide is an overview plus six pages in the order a migration is done, and
+  the README is a map with an index by task. Old paths such as `docs/migration.md` no longer exist.
 
+### Removed
 - **The one-way mail redirect.** It rewrote the client's SMTP host, user and password with no record of
   what they had been, so it could only ever be used on a copy that would be thrown away. Replaced by
   capture and restore, which move no value at all.
 
 ### Fixed
+- **`odoo-dwg mail` without `check` is a usage error**, not a Python traceback, as `neutralise` already was.
+- **`egress check` names the action that rewrites the firewall rules**: Apply, answering yes to the
+  outbound firewall. It named the on/off menu, which cannot.
+- **A module whose author spans several lines no longer stops the chain.** The driver lists installed
+  modules one per line, with their author. An OCA manifest that spread its author over two lines at 16.0
+  split its row, and step 17.0 stopped on "Odoo Community Association (OCA) missing". The author is now
+  flattened in the driver's two queries and in the preflight's.
+- **The chain carries the client intake through every step.** The first client's 12 → 18 rehearsal
+  showed six gaps. Generation now proposes every OCA repository the intake's availability check finds a
+  module in, at any step. That includes the one a core module moves into later, and such a module now
+  counts as moved. Later menu actions read the linked repositories back from disk. Before, the preflight
+  reported every OCA module as missing. The preflight checks dependencies under the name each step knows,
+  as the driver does. Before, it passed a renamed module the driver then stopped on. A decision is stale
+  only when no step needs it. With an intake, every step's configuration names the environment's
+  `data_dir`, and the driver gives its working database a filestore of hard links to the reference's
+  after every restore.
+- **Each chain step gets the Python libraries its modules declare.** Before, only the source's venv
+  had them, and the first client's chain stopped four minutes into 13.0 on `unidecode`. After
+  generating with an intake, the tool offers to install each step's libraries. They are read from
+  that step's manifests and held to what the venv has. The driver checks them before each step with
+  the step's own interpreter, as Odoo does, and stops in seconds, naming the module and the library.
+  Odoo 18 reads a requirement with a version or a marker through `packaging` and does not list it, so
+  the first client's 18.0 step stopped on `paramiko<4.0.0`. A step whose Odoo says so in its own
+  `odoo/modules/module.py` now gets `packaging`, and the check reads that file too.
+- **The preflight predicts what the chain installs by itself.** The first client's 13.0 step installed
+  two OCA glue modules with no code at 14.0, and the driver stopped there. The preflight now lists, per
+  step, the new dependencies and the `auto_install` modules that follow. It uses the rule that step's own
+  OpenUpgrade applies: a broad selection at 13.0 and from 18.0, Odoo's own rule between them. It checks
+  them at every later step. Unmet dependencies are now MISSING rows, where before they were computed and
+  never shown, so the menu said "passed" for a chain its driver stopped. When a cached OCA tree has the
+  missing module, the preflight names the repository. It no longer crashes when the addons layout is
+  missing.
+- **The findings ledger no longer accepts a key it does not model.** A finding with an unknown key
+  validated, and the next write through the tool dropped it. Validation now names the key.
+- **The read-only role can read where a sequence stands.** A wizard leaves no rows, so its id sequence is
+  the only trace that it was ever opened; the role could not read it. It now has `SELECT` on sequences
+  (`nextval` is still refused). An existing role gets it with
+  `GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO <role>;`, run as the database owner.
+- **A read-only command no longer asks for the language.** `egress check`, `mail check`,
+  `neutralise check`, `migrate report`, `migrate probes` and `migrate findings …` used to prompt when
+  neither `--lang` nor `ODWG_LANG` was given, and failed from a script or a pipe. They now use English;
+  so does the menu when stdin is not a terminal.
+- **A generated file over 128 KiB could not be written.** The file travelled in a heredoc inside
+  `bash -lc`, and Linux refuses a single argument over 128 KiB. A findings ledger or a table of
+  twenty thousand rows failed with "Argument list too long" before bash started. An over-long command
+  now runs from a temporary script (mode 600), which is removed afterwards.
+- **Building the source version no longer assumes the chain was generated first.** It creates `conf/`
+  itself, as it now can run before, or without, the chain's own generation.
+
+*Six defects, all in shipped code, all found by the first real rehearsal — a 12 → 14 demo migration on the
+reference host. None was visible to 419 unit tests or seven verifiers.*
+
+- **A module absorbed mid-chain blocked the run.** Coverage resolved every step against the source
+  database's module list with one hop through that step's own `apriori.py`, so a module merged at 13.0 was
+  reported missing at 14.0 — where its old name no longer exists to be declared. The migration stopped and
+  told the operator to supply code that should not exist. Both implementations had it: the Python check and
+  the driver's embedded one, which now emits the module list as the next step will see it.
+- **OCA repositories were linked one level too deep for the path that names them.** A migration
+  environment listed `addons/odoo<major>/oca` as one add-ons path entry while each repository is linked
+  *inside* it, and Odoo scans an entry exactly one level deep. No OCA module was loadable, and coverage
+  reported every one of them as somebody else's to supply.
+- **Odoo 12's venv could not be built at all.** Its requirements pin `pyldap==2.4.28`, whose setup passes
+  `-R` to `cc`. The override bridges through the fork's own final release, which only requires
+  `python-ldap`.
+- **A demo seed looked for `openupgrade-<source>/odoo-bin`**, a path that cannot exist — the source version
+  is not a step — and stopped with "generate the environment first" while the clone it needed was there.
+- **The seed's existing-database check never fired**: its `psql -lqt` carried no connection arguments, so
+  it failed as the OS user and the pipeline quietly yielded nothing.
+- **The rehearsal tester was written only into the chain's steps**, so it could be installed nowhere: it is
+  installed at the source version, which is where its records are written.
 - **The 12 → 13 step found no OpenUpgrade analysis at all.** Up to 13.0 the analysis lives in each
   add-on's `migrations/<ver>/` directory and is called `openupgrade_analysis.txt`; from 14.0 it sits
   under `openupgrade_scripts/` as `upgrade_analysis.txt`. Only the newer name was looked for, so

@@ -9,6 +9,9 @@ updated: 2026-09-25
 
 # Checks and findings
 
+Ask a database what breaks or distorts its migration, and keep what the migration finds, with the evidence
+and the client's decision on each.
+
 ## Checking a database's coherence: `migrate audit`
 
 A step can succeed and still leave the database wrong. OpenUpgrade logs "unable to add constraint" and

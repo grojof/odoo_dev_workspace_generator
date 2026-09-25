@@ -165,7 +165,7 @@ Record the evidence in the change's `design.md`.
 The workspace is set up for the **official** Odoo extension (`Odoo.odoo`) and its language server: an
 `odools.toml` with one profile per version (switch it from the status bar), Pylance turned off so Python is
 analysed once, and no `jsconfig.json`. What is emitted, what is deliberately not, and how to keep up with the
-extension's releases: [`editor-integration.md`](editor.md).
+extension's releases: [editor integration](editor.md).
 
 ## Shared clones are shallow
 

@@ -22,7 +22,7 @@ project status — look that up in the files below.
 | Outbound firewall + mail capture, and their update procedure | [`docs/host/egress-control.md`](docs/host/egress-control.md) — pins in `odoo_dwg/egress.py`, re-verified by `tools/verify_egress_pins.py` |
 | Provisioning / migration guides | [`docs/host/provisioning.md`](docs/host/provisioning.md), [`docs/migration/README.md`](docs/migration/README.md) — the generated driver is re-verified by `tools/verify_migration_driver.py` |
 | Contribution rules, checks, commits | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
-| User-facing change log & version | [`CHANGELOG.md`](CHANGELOG.md) (`[Unreleased]`), `version` in [`pyproject.toml`](pyproject.toml) |
+| User-facing change log & version | [`CHANGELOG.md`](CHANGELOG.md) (`[Unreleased]`), `__version__` in [`odoo_dwg/__init__.py`](odoo_dwg/__init__.py) (read by `pyproject.toml`) |
 
 When a change lands, keep these in lockstep: the spec (via `/opsx:archive`), `README.md` + the relevant
 `docs/` page, `CHANGELOG.md`, and `docs/project/roadmap.md` (move items from backlog to done).

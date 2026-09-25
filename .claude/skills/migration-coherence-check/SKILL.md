@@ -1,7 +1,7 @@
 ---
 name: migration-coherence-check
 description: Check one Odoo database for the data problems that break or distort an OpenUpgrade migration - journal codes the target's unique constraint refuses, bank lines imported twice, payments the bank would count twice, declared constraints PostgreSQL does not have, required fields left empty, statement lines stored as reconciled. Use before the chain on a client copy, between steps on a checkpoint, after the chain on the migrated database, or when asked whether a migrated database is coherent.
-license: LGPL-3.0
+license: AGPL-3.0-or-later
 compatibility: Requires odoo-dwg on PATH (or `python -m odoo_dwg`) and a database the role can read.
 metadata:
   author: odoo_dwg

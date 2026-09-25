@@ -182,6 +182,6 @@ The path changed twice across the supported range, so it must be resolved per ve
 ## See also
 
 - [`provisioning.md`](../host/provisioning.md) — the host readiness table and what `apply` installs.
-- [`migration.md`](../migration/README.md) — chains, interpreters and the two OpenUpgrade layouts.
-- [`configuration-reference.md`](../workspace/configuration.md) — the workspace profile.
+- [The migration environment](../migration/environment.md) — chains, interpreters and the two OpenUpgrade layouts.
+- [Profile fields](../workspace/configuration.md) — the workspace profile.
 - [`roadmap.md`](../project/roadmap.md) — the open validation items this page depends on.

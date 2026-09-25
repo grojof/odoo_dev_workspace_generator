@@ -22,7 +22,8 @@ Mail is one way a copy of production reaches the outside. A copy is armed in sev
 - **its links** point at the production server.
 
 **Neutralise a database**, in the Workspace and Migration menus (phrase `NEUTRALISE`), turns all of that
-off. It captures the mail through the action above and applies a catalogue of rules:
+off. It first captures the mail ([mail capture](../host/egress-control.md#a-copied-database-still-mails-out-capture-it)),
+then applies a catalogue of rules:
 
 | Area | What changes |
 |---|---|
@@ -76,7 +77,7 @@ not counted as armed: the tool's own configurations point it at the capture.
 **Give a neutralised database its production settings back** (phrase `RESTORE PRODUCTION`) is the
 cutover step, and nothing else ever runs it: no driver step, no start script, no end of a chain. It:
 - puts back exactly the first run's recorded values;
-- restores the mail capture;
+- undoes the mail capture;
 - drops its record.
 
 Some rows are reported and left alone:
@@ -131,9 +132,12 @@ run before the next start turns it off. There is no option to skip either guard.
 ## Live production migrations
 
 When the migrated database **goes back to production**:
-- **Restore its mail configuration** before cutover, and check it: mail must leave again, through the
-  client's own servers. Capture never overwrote them, so there is nothing to retype.
-- **Do not** run `neutralize` on it.
+- **Give it its production settings back** before cutover ([above](#giving-production-its-settings-back)).
+  That also undoes the mail capture, so do not run **Restore a database's mail configuration** as well.
+  Then check it: mail must leave again, through the client's own servers. Capture never overwrote them, so
+  there is nothing to retype.
+- **Do not neutralise it again**: neither Odoo's `odoo-bin neutralize` nor this tool's **Neutralise a
+  database**.
 
 Keep OpenSnitch running instead:
 - **During the migration** (`odoo-bin` steps), every attempt to reach the outside is rejected and logged.
