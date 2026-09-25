@@ -27,7 +27,7 @@ pip install -e ".[dev]"             # pytest, ruff
 npm install -g @fission-ai/openspec@latest   # the `openspec` CLI (Node)
 ```
 
-[`docs/wsl-setup.md`](docs/wsl-setup.md) covers getting a host ready from nothing, including a Node that
+[`docs/host/wsl-setup.md`](docs/host/wsl-setup.md) covers getting a host ready from nothing, including a Node that
 needs no root.
 
 ## Checks before a PR
@@ -170,11 +170,11 @@ function whose last command succeeds, which is exactly the bug that verifier exi
 
 `verify_workspace_versions.py` previews a plan, asks before applying (or not, with `--yes`), and removes
 what it created. See
-[`docs/workspace-layout.md`](docs/workspace-layout.md#re-verifying-every-version) for when to run it.
+[`docs/workspace/layout.md`](docs/workspace/layout.md#re-verifying-every-version) for when to run it.
 
 `verify_support_matrix.py` exits non-zero on drift and never edits the declared matrix: fixing drift means editing
-`odoo_dwg/models.py` and `docs/support-matrix.md` together. The editor check has its own procedure for
-acting on what it reports: [`docs/editor-integration.md`](docs/editor-integration.md). There is no scheduled job running it — make it a
+`odoo_dwg/models.py` and `docs/reference/support-matrix.md` together. The editor check has its own procedure for
+acting on what it reports: [`docs/workspace/editor.md`](docs/workspace/editor.md). There is no scheduled job running it — make it a
 habit before touching the matrix, and every few months otherwise, since a bound drifts when *Odoo* changes,
 not when this repository does.
 

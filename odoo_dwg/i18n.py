@@ -577,8 +577,8 @@ _ES: dict[str, str] = {
     'Check that {} connects over loopback': 'Comprobar que {} conecta por loopback',
     'Ask PostgreSQL to read back the rules for {}':
         'Preguntar a PostgreSQL por las reglas que tiene para {}',
-    'OpenSnitch blocks every outbound connection without a rule, asking in its UI when it is open. Odoo may reach only localhost, plus DNS on port 53; the development tools keep their hosts. See docs/egress-control.md.':
-        'OpenSnitch bloquea toda conexión saliente sin regla y pregunta en su interfaz cuando está abierta. Odoo solo puede llegar a localhost, más DNS en el puerto 53; las herramientas de desarrollo conservan sus destinos. Ver docs/egress-control.md.',
+    'OpenSnitch blocks every outbound connection without a rule, asking in its UI when it is open. Odoo may reach only localhost, plus DNS on port 53; the development tools keep their hosts. See docs/host/egress-control.md.':
+        'OpenSnitch bloquea toda conexión saliente sin regla y pregunta en su interfaz cuando está abierta. Odoo solo puede llegar a localhost, más DNS en el puerto 53; las herramientas de desarrollo conservan sus destinos. Ver docs/host/egress-control.md.',
     'Database whose mail to capture': 'Base de datos cuyo correo capturar',
     'Database whose mail configuration to restore':
         'Base de datos cuya configuración de correo restaurar',

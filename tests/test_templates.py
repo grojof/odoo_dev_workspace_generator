@@ -174,7 +174,7 @@ def test_generated_scripts_quote_paths_so_they_can_never_run(monkeypatch):
 
 def test_the_generated_config_never_asks_odoo_to_reload_itself():
     """`reload` re-executes the process on a file change, detaching the debugger
-    every launch configuration attaches (docs/editor-integration.md)."""
+    every launch configuration attaches (docs/workspace/editor.md)."""
     cfg = WorkspaceConfig(name="acme", versions=["18.0"])
     conf = templates.render_odoo_conf(cfg, "18.0")
     assert "dev_mode = qweb,xml" in conf

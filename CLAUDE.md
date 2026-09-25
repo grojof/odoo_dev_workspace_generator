@@ -9,23 +9,23 @@ project status — look that up in the files below.
 
 | Need | Read / update |
 |---|---|
-| Current status, phases, backlog, next work | [`docs/roadmap.md`](docs/roadmap.md) |
+| Current status, phases, backlog, next work | [`docs/project/roadmap.md`](docs/project/roadmap.md) |
 | Work in flight | `openspec/changes/<name>/` (`proposal.md`, `design.md`, `tasks.md`) |
 | Behavior source of truth (per capability) | `openspec/specs/<capability>/spec.md` |
 | Why a decision was made | `openspec/changes/archive/*/design.md` (no separate ADR series) |
 | OpenSpec project context & artifact rules | [`openspec/config.yaml`](openspec/config.yaml) |
 | What the tool does, user-facing map | [`README.md`](README.md) |
-| Commands, menus, confirmation phrases | [`docs/commands.md`](docs/commands.md) |
-| What is supported (hosts, Python, PostgreSQL) | [`docs/support-matrix.md`](docs/support-matrix.md) — declared in `models.py`, re-verified by `tools/verify_support_matrix.py` |
-| Editor integration (official Odoo extension) and its update procedure | [`docs/editor-integration.md`](docs/editor-integration.md) — re-verified by `tools/verify_odools_config.py` |
-| Workspace profile / layout, per-version venv rules | [`docs/configuration-reference.md`](docs/configuration-reference.md), [`docs/workspace-layout.md`](docs/workspace-layout.md) — re-verified by `tools/verify_workspace_versions.py` |
-| Outbound firewall + mail capture, and their update procedure | [`docs/egress-control.md`](docs/egress-control.md) — pins in `odoo_dwg/egress.py`, re-verified by `tools/verify_egress_pins.py` |
-| Provisioning / migration guides | [`docs/provisioning.md`](docs/provisioning.md), [`docs/migration.md`](docs/migration.md) — the generated driver is re-verified by `tools/verify_migration_driver.py` |
+| Commands, menus, confirmation phrases | [`docs/reference/commands.md`](docs/reference/commands.md) |
+| What is supported (hosts, Python, PostgreSQL) | [`docs/reference/support-matrix.md`](docs/reference/support-matrix.md) — declared in `models.py`, re-verified by `tools/verify_support_matrix.py` |
+| Editor integration (official Odoo extension) and its update procedure | [`docs/workspace/editor.md`](docs/workspace/editor.md) — re-verified by `tools/verify_odools_config.py` |
+| Workspace profile / layout, per-version venv rules | [`docs/workspace/configuration.md`](docs/workspace/configuration.md), [`docs/workspace/layout.md`](docs/workspace/layout.md) — re-verified by `tools/verify_workspace_versions.py` |
+| Outbound firewall + mail capture, and their update procedure | [`docs/host/egress-control.md`](docs/host/egress-control.md) — pins in `odoo_dwg/egress.py`, re-verified by `tools/verify_egress_pins.py` |
+| Provisioning / migration guides | [`docs/host/provisioning.md`](docs/host/provisioning.md), [`docs/migration/README.md`](docs/migration/README.md) — the generated driver is re-verified by `tools/verify_migration_driver.py` |
 | Contribution rules, checks, commits | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 | User-facing change log & version | [`CHANGELOG.md`](CHANGELOG.md) (`[Unreleased]`), `version` in [`pyproject.toml`](pyproject.toml) |
 
 When a change lands, keep these in lockstep: the spec (via `/opsx:archive`), `README.md` + the relevant
-`docs/` page, `CHANGELOG.md`, and `docs/roadmap.md` (move items from backlog to done).
+`docs/` page, `CHANGELOG.md`, and `docs/project/roadmap.md` (move items from backlog to done).
 
 ## Code layout (layer contract)
 
@@ -58,7 +58,7 @@ unless they are `system.py`.
   Spanish-speaking Odoo developer says; translating them reads worse than leaving them. Translate the
   sentence around them.
 - **Anchor Odoo/OpenUpgrade facts to official sources**, cited bound by bound in
-  `docs/support-matrix.md` and declared once in `models.py`; never assume them, and never restate a
+  `docs/reference/support-matrix.md` and declared once in `models.py`; never assume them, and never restate a
   bound elsewhere. Each bound carries its evidence tier (`official`/`derived`/`untested`).
 - **Host-agnostic.** Target "a Linux host"; never assume WSL. The environment is the user's choice.
 - **No AI/MCP coupling.** Install nothing AI-related and emit nothing assistant-specific; the generated

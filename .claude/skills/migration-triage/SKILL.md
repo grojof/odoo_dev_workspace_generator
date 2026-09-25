@@ -86,4 +86,4 @@ step's log and what it reached for, and it leaves the driver alone. The report i
 - **Change nothing, and run nothing that changes anything.** Re-running a step, cleaning an environment,
   capturing mail and promoting modules are all menu actions behind confirmations. Name them.
 - **Exit 2 is not a clean run.** Say what could not be read.
-- Background: `docs/migration.md`.
+- Background: `docs/migration/README.md`.

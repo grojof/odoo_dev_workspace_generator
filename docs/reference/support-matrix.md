@@ -9,7 +9,7 @@ updated: 2026-09-20
 # Support matrix
 
 This page is the authority on what the tool supports. The same facts live in code as
-`ODOO_SUPPORT` / `SUPPORTED_HOSTS` in [`odoo_dwg/models.py`](../odoo_dwg/models.py), which every surface —
+`ODOO_SUPPORT` / `SUPPORTED_HOSTS` in [`odoo_dwg/models.py`](../../odoo_dwg/models.py), which every surface —
 `provision check`, workspace generation, migration environments, the generated per-workspace README — reads
 from rather than restating. Change a bound there and here together; nowhere else states one.
 
@@ -127,7 +127,7 @@ The script re-derives every bound from the sources below and exits non-zero on d
 the fact, both values and the source URL. It never edits the declared matrix: fixing drift means editing
 `odoo_dwg/models.py` **and** this page together. It is stdlib-only, lives outside the package
 (`odoo_dwg` never imports it) and outside the unit suite, like every `tools/verify_*.py`. What each of those
-needs is listed once, in [`CONTRIBUTING.md`](../CONTRIBUTING.md).
+needs is listed once, in [`CONTRIBUTING.md`](../../CONTRIBUTING.md).
 
 ### Source precedence, per fact
 
@@ -180,7 +180,7 @@ The path changed twice across the supported range, so it must be resolved per ve
 
 ## See also
 
-- [`provisioning.md`](provisioning.md) — the host readiness table and what `apply` installs.
-- [`migration.md`](migration.md) — chains, interpreters and the two OpenUpgrade layouts.
-- [`configuration-reference.md`](configuration-reference.md) — the workspace profile.
-- [`roadmap.md`](roadmap.md) — the open validation items this page depends on.
+- [`provisioning.md`](../host/provisioning.md) — the host readiness table and what `apply` installs.
+- [`migration.md`](../migration/README.md) — chains, interpreters and the two OpenUpgrade layouts.
+- [`configuration-reference.md`](../workspace/configuration.md) — the workspace profile.
+- [`roadmap.md`](../project/roadmap.md) — the open validation items this page depends on.

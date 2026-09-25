@@ -90,7 +90,7 @@ On Ubuntu 24.04 (host `python3` 3.12), with the interpreter the tool picks by de
 Why each rule exists:
 
 - **Python:** a version runs on the host `python3` when it is inside that version's range in the
-  [support matrix](support-matrix.md), which also declares every range. Odoo 14's maximum is below 3.12. Odoo
+  [support matrix](../reference/support-matrix.md), which also declares every range. Odoo 14's maximum is below 3.12. Odoo
   12 and 13 state no maximum, but their pinned `gevent` does not build on 3.12. All three default to the
   recommended `uv` interpreter, and you can still pick another one when generating.
 - **setuptools `<58` (≤ 13):** `vatnumber==1.2` still passes `use_2to3`, which setuptools 58 removed. setuptools
@@ -143,7 +143,7 @@ filestores, and only the shared clones it had to create. It needs network, Postg
 (`provision apply`) and `uv`, and takes about 15 minutes when nothing is cached.
 
 **When to run it:** after a setuptools or pip major release; when `uv` changes the Python builds it provides;
-when a new Odoo version or a new host Python enters the [support matrix](support-matrix.md); and before a
+when a new Odoo version or a new host Python enters the [support matrix](../reference/support-matrix.md); and before a
 release.
 
 **When a version fails**, rerun only that version with `--keep` and read the failing step in the output.
@@ -164,7 +164,7 @@ Record the evidence in the change's `design.md`.
 The workspace is set up for the **official** Odoo extension (`Odoo.odoo`) and its language server: an
 `odools.toml` with one profile per version (switch it from the status bar), Pylance turned off so Python is
 analysed once, and no `jsconfig.json`. What is emitted, what is deliberately not, and how to keep up with the
-extension's releases: [`editor-integration.md`](editor-integration.md).
+extension's releases: [`editor-integration.md`](editor.md).
 
 ## Shared clones are shallow
 

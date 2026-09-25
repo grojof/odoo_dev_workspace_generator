@@ -277,7 +277,6 @@ reference host. None was visible to 419 unit tests or seven verifiers.*
 - **The rehearsal tester was written only into the chain's steps**, so it could be installed nowhere: it is
   installed at the source version, which is where its records are written.
 
-
 ### Added
 - **A chain can be rehearsed before there is a client dump.** *Seed a demo source database* prepares the
   source version — which the chain itself never builds, since `chain()` is the *steps* — and writes a
@@ -383,7 +382,7 @@ reference host. None was visible to 419 unit tests or seven verifiers.*
 
 ### Added
 - **Outbound firewall and mail capture** (change `add-egress-control`), both opt-in in `provision apply`, see
-  [`docs/egress-control.md`](docs/egress-control.md).
+  [`docs/egress-control.md`](docs/host/egress-control.md).
   - **OpenSnitch 1.8.0** is installed from the upstream release, with SHA-512 pinned from the maintainer-signed
     list.
   - **Hardened configuration:** deny by default whether or not its window is open, `proc` process monitoring
@@ -820,7 +819,7 @@ First release.
   `python_path` — as absolute paths, so the file stays valid across releases of a strict schema. Pick the
   profile from the status bar. New `tools/verify_odools_config.py` checks the emitted keys against the latest
   stable release's published schema, lists keys not yet emitted, and prints the release notes since the
-  release last reviewed; [`docs/editor-integration.md`](docs/editor-integration.md) documents the update
+  release last reviewed; [`docs/editor-integration.md`](docs/workspace/editor.md) documents the update
   procedure.
 - **Support matrix** (change `add-support-matrix`): one authoritative, evidence-tiered declaration of what
   the tool supports — host releases, the tool's own Python floor, and per-Odoo-version Python range,
@@ -848,7 +847,7 @@ First release.
 - **`tools/verify_workspace_versions.py`**: builds a throwaway workspace with every supported Odoo version
   through the tool's own plan, installs `base` and serves `/web/login` on each, then removes what it created.
   It is the documented procedure for re-checking that every version still builds and starts
-  ([`docs/workspace-layout.md`](docs/workspace-layout.md#re-verifying-every-version)).
+  ([`docs/workspace-layout.md`](docs/workspace/layout.md#re-verifying-every-version)).
 - **The generated README states what each venv installs**: its Python (host or `uv`), its setuptools rule
   and any requirement replaced, with the reason, so anyone reading the workspace, human or assistant, knows
   exactly what runs. `docs/workspace-layout.md` carries the same table for every version, as last verified.

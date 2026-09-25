@@ -10,7 +10,7 @@ updated: 2026-09-20
 
 The optional **provision** section prepares a *Linux* host (bare server, WSL, or container) for Odoo
 development. The host releases it supports are declared in the
-[support matrix](support-matrix.md) — **Ubuntu 24.04** — detected from `/etc/os-release`. Any other
+[support matrix](../reference/support-matrix.md) — **Ubuntu 24.04** — detected from `/etc/os-release`. Any other
 host is reported by `check` and refused by `apply` rather than guessed at: earlier versions accepted the whole
 apt family, which implied Debian support that was never validated.
 
@@ -166,7 +166,7 @@ unfiltered host or, if it died after installing its queue rules, one with no out
 With the host ready, create a workspace: `python3 -m odoo_dwg workspace` → **New (quick)**. It clones the
 versions you name, builds a venv for each, and writes the config, scripts and editor files. The workspace's
 own `README.md` then tells you how to create its database and start Odoo; the layout and every convention
-are in [workspace-layout](workspace-layout.md), and every menu action in [commands](commands.md).
+are in [workspace-layout](../workspace/layout.md), and every menu action in [commands](../reference/commands.md).
 
 ## Acceptance (validated on WSL Ubuntu 24.04)
 

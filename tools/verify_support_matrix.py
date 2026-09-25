@@ -11,7 +11,7 @@ Odoo branch may have changed what it targets, or before trusting a bound:
 Exits 0 when every declared bound agrees with its source, 1 on drift or on a
 source that could not be read. It never edits the declared matrix.
 
-Sources, in precedence order per fact (see docs/support-matrix.md):
+Sources, in precedence order per fact (see docs/reference/support-matrix.md):
 
 * Python minimum  — every source that states it (``odoo/release.py``
   ``MIN_PY_VERSION`` where the branch has it, ``setup.py`` ``python_requires``,
@@ -326,7 +326,7 @@ def main(argv: list[str]) -> int:
             print(f"  - {line}")
     if report.drift or report.errors:
         print("\nThe declared matrix was NOT modified. Update odoo_dwg/models.py")
-        print("and docs/support-matrix.md together if the sources are right.")
+        print("and docs/reference/support-matrix.md together if the sources are right.")
         return 1
     print("No drift: every declared bound matches its source.")
     return 0

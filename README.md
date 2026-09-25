@@ -8,7 +8,7 @@ and shares its UI, menus, and the safe **plan → preview → apply** contract.
 
 > **Status:** all three surfaces — **workspace**, **provision**, and **migration** (now with preflight
 > verification and custom-module staging) — are implemented and validated on WSL Ubuntu 24.04.
-> See [`docs/roadmap.md`](docs/roadmap.md).
+> See [`docs/project/roadmap.md`](docs/project/roadmap.md).
 
 ## How it works
 
@@ -41,7 +41,7 @@ Two optional user-facing **sections** plus one **mode**:
 | Surface | What it does | Requires root? |
 |---|---|---|
 | **workspace** | Per-client workspaces: shared Odoo/OCA repo cache, per-instance venv, `addons-custom`/`addons-oca`, per-version `odoo.conf`, VSCode files, and a robust per-workspace README. | No (user's home) |
-| **provision** *(optional — prepare the host yourself if you prefer, but a workspace needs PostgreSQL, the development role and wkhtmltopdf either way)* | Prepare *a Linux host*: build dependencies, PostgreSQL + role, wkhtmltopdf, and rtlcss for right-to-left languages (opt-in). Optionally, an [outbound firewall that denies by default and asks, plus local mail capture](docs/egress-control.md) (OpenSnitch + Mailpit). Targets Ubuntu 24.04, per the [support matrix](docs/support-matrix.md). | `apply` may |
+| **provision** *(optional — prepare the host yourself if you prefer, but a workspace needs PostgreSQL, the development role and wkhtmltopdf either way)* | Prepare *a Linux host*: build dependencies, PostgreSQL + role, wkhtmltopdf, and rtlcss for right-to-left languages (opt-in). Optionally, an [outbound firewall that denies by default and asks, plus local mail capture](docs/host/egress-control.md) (OpenSnitch + Mailpit). Targets Ubuntu 24.04, per the [support matrix](docs/reference/support-matrix.md). | `apply` may |
 | **migration** *(mode)* | OpenUpgrade chained upgrade **12 → 19** (sequential, no skips): **preflight verification** (host, dump, database, addons coverage), per-version interpreters via `uv`, **custom-module staging** (OCA `odoo-module-migrator` + analysis findings + scaffolds), a checkpointing driver, and environment cleanup. | No |
 
 ## Install & first run
@@ -82,11 +82,11 @@ python3 -m odoo_dwg migrate         # generate env / preflight / stage custom mo
 ODWG_LANG=es python3 -m odoo_dwg    # Spanish UI (English is the default)
 ```
 
-Every command, menu action, and confirmation phrase: [`docs/commands.md`](docs/commands.md).
+Every command, menu action, and confirmation phrase: [`docs/reference/commands.md`](docs/reference/commands.md).
 
 ## Requirements
 
-- A **Linux** host (target: Ubuntu 24.04) — don't have one? [`docs/wsl-setup.md`](docs/wsl-setup.md) sets up
+- A **Linux** host (target: Ubuntu 24.04) — don't have one? [`docs/host/wsl-setup.md`](docs/host/wsl-setup.md) sets up
   Ubuntu 24.04 on WSL 2 step by step. Development *of this tool* works on any OS; real end-to-end
   generation is validated on WSL/Linux.
 - `python3` ≥ 3.12 (the tool itself; Ubuntu 24.04's system Python). Host tools it orchestrates — `git`, `psql`/`createdb` and `uv`
@@ -95,51 +95,51 @@ Every command, menu action, and confirmation phrase: [`docs/commands.md`](docs/c
 
 ## Supported versions
 
-- **Development:** any version in the [support matrix](docs/support-matrix.md) (**12.0 – 19.0**); one
+- **Development:** any version in the [support matrix](docs/reference/support-matrix.md) (**12.0 – 19.0**); one
   workspace may host several at once.
 - **Migration:** the full **12.0 → 19.0** OpenUpgrade chain (one step per version).
-- **Python, PostgreSQL and hosts per version:** the [support matrix](docs/support-matrix.md), with the official
+- **Python, PostgreSQL and hosts per version:** the [support matrix](docs/reference/support-matrix.md), with the official
   source behind every bound.
 
 ## Design principles
 
 Standard library only · English canonical (Spanish optional UI) · plan → preview → apply · pure planners ·
 every Odoo/OpenUpgrade fact anchored to **official sources** and cited bound by bound in
-[`docs/support-matrix.md`](docs/support-matrix.md) · assistant-agnostic
+[`docs/reference/support-matrix.md`](docs/reference/support-matrix.md) · assistant-agnostic
 (no AI/MCP installed).
 
 ## Documentation
 
 By surface:
 
-- **Using the tool** — [`docs/commands.md`](docs/commands.md) (every command and menu action).
-- **Workspaces** — [`docs/workspace-layout.md`](docs/workspace-layout.md) (generated tree, conventions) ·
-  [`docs/configuration-reference.md`](docs/configuration-reference.md) (JSON profile fields).
-- **Host setup** — [`docs/wsl-setup.md`](docs/wsl-setup.md) (Ubuntu 24.04 on WSL 2, from zero) ·
-  [`docs/provisioning.md`](docs/provisioning.md) (host check/apply).
-- **Migration** — [`docs/migration.md`](docs/migration.md) (interpreters, preflight, staging, checkpointing driver).
-- **Host safety** — [`docs/egress-control.md`](docs/egress-control.md) (the outbound firewall that denies by
+- **Using the tool** — [`docs/reference/commands.md`](docs/reference/commands.md) (every command and menu action).
+- **Workspaces** — [`docs/workspace/layout.md`](docs/workspace/layout.md) (generated tree, conventions) ·
+  [`docs/workspace/configuration.md`](docs/workspace/configuration.md) (JSON profile fields).
+- **Host setup** — [`docs/host/wsl-setup.md`](docs/host/wsl-setup.md) (Ubuntu 24.04 on WSL 2, from zero) ·
+  [`docs/host/provisioning.md`](docs/host/provisioning.md) (host check/apply).
+- **Migration** — [`docs/migration/README.md`](docs/migration/README.md) (interpreters, preflight, staging, checkpointing driver).
+- **Host safety** — [`docs/host/egress-control.md`](docs/host/egress-control.md) (the outbound firewall that denies by
   default and asks, the local mail capture, and capturing a copied database's mail without losing its
   configuration).
-- **Taking in a client copy** — [`docs/migration.md`](docs/migration.md#taking-in-a-client-copy)
+- **Taking in a client copy** — [`docs/migration/README.md`](docs/migration/intake.md#taking-in-a-client-copy)
   (restore the dump into a reference nobody modifies, a read-only role without secrets, the add-ons archive
   classified, the core identified — official or OCB, and the commit — and the source built from exactly
   that, started guarded).
-- **Neutralising a copy of production** — [`docs/egress-control.md`](docs/egress-control.md#neutralising-a-copy-of-production)
+- **Neutralising a copy of production** — [`docs/host/egress-control.md`](docs/migration/production-copies.md#neutralising-a-copy-of-production)
   (crons, tax and EDI, payments, IAP and links switched off with every change recorded inside the database;
   the migration driver re-applies it after every step, `open_for_testing.sh` before every start, and only
   your explicit action gives production's settings back).
-- **Findings and client reports** — [`docs/migration.md`](docs/migration.md#recording-what-the-migration-finds)
+- **Findings and client reports** — [`docs/migration/README.md`](docs/migration/checks-findings.md#recording-what-the-migration-finds)
   (one ledger per migration of everything found, with the evidence, the query that re-derives it and the
   client's decision; the client and extended reports are rendered from it, in English or Spanish).
 - **Read-only checks without the menu** — `odoo-dwg egress check`, `mail check`, `migrate report`,
   `migrate probes`, `migrate audit`, `migrate findings …`, `neutralise check`: they write nothing, prompt for nothing, and carry their verdict
   in the exit code, so they work in a script or in a second terminal while a migration runs.
-- **Editor** — [`docs/editor-integration.md`](docs/editor-integration.md) (the official Odoo extension, what a
+- **Editor** — [`docs/workspace/editor.md`](docs/workspace/editor.md) (the official Odoo extension, what a
   workspace emits for it, and how to keep up with its releases).
-- **What is supported** — [`docs/support-matrix.md`](docs/support-matrix.md) (hosts, Python per Odoo version,
+- **What is supported** — [`docs/reference/support-matrix.md`](docs/reference/support-matrix.md) (hosts, Python per Odoo version,
   PostgreSQL — with the source behind every bound and how to re-verify it).
-- **Project** — [`docs/roadmap.md`](docs/roadmap.md) (phases + backlog) · [`CLAUDE.md`](CLAUDE.md) (AI-agent
+- **Project** — [`docs/project/roadmap.md`](docs/project/roadmap.md) (phases + backlog) · [`CLAUDE.md`](CLAUDE.md) (AI-agent
   guide) · [`CONTRIBUTING.md`](CONTRIBUTING.md) · [`SECURITY.md`](SECURITY.md) ·
   [`CHANGELOG.md`](CHANGELOG.md).
 - Non-trivial changes are **spec-first** via OpenSpec (`/opsx:*`); specs live in `openspec/specs/`.

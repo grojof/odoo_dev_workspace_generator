@@ -46,7 +46,7 @@ Both change a database and both are behind a confirmation phrase in the menu. Na
   calling an answer good or bad.
 - Captured mail is read at `http://127.0.0.1:8025`.
 - Never suggest editing `ir_mail_server` by hand. The capture exists so that nothing has to be retyped.
-- Background: `docs/egress-control.md`.
+- Background: `docs/host/egress-control.md`.
 
 ## A migrated database
 

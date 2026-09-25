@@ -70,7 +70,7 @@ Inside Ubuntu:
 
 ```bash
 lsb_release -a        # expect: Ubuntu 24.04 LTS (noble)
-python3 --version     # expect: Python 3.12.x — the tool needs 3.12 or newer (see docs/support-matrix.md)
+python3 --version     # expect: Python 3.12.x — the tool needs 3.12 or newer (see docs/reference/support-matrix.md)
 systemctl status      # expect: "State: running" — systemd manages PostgreSQL later
 ```
 
@@ -180,13 +180,13 @@ Details and the full capability list: [`provisioning.md`](provisioning.md).
 ## 7. (Optional) `uv` for other Python versions
 
 Needed for migrations with OpenUpgrade, and for workspaces on an Odoo version whose supported Python range
-excludes this host's 3.12 (see [`support-matrix.md`](support-matrix.md)):
+excludes this host's 3.12 (see [`support-matrix.md`](../reference/support-matrix.md)):
 
 - **`uv`** provides the per-version Python interpreters. `provision check` reports it but does not install
   it — follow the official instructions: <https://docs.astral.sh/uv/getting-started/installation/>. Reopen
   the shell afterwards and confirm with `uv --version`.
 
-See [`migration.md`](migration.md).
+See [`migration.md`](../migration/README.md).
 
 ## 8. (Optional) Editor and terminal
 
@@ -210,9 +210,9 @@ python -m ruff check .
 
 **Next:** with the host ready, create your first workspace — `python3 -m odoo_dwg workspace` → **New
 (quick)**. See [provisioning](provisioning.md#next-your-first-workspace) and
-[workspace-layout](workspace-layout.md).
+[workspace-layout](../workspace/layout.md).
 
-Conventions, checks, and the spec-first flow: [`../CONTRIBUTING.md`](../CONTRIBUTING.md).
+Conventions, checks, and the spec-first flow: [`../CONTRIBUTING.md`](../../CONTRIBUTING.md).
 
 ## What this guide deliberately leaves out
 

@@ -59,4 +59,4 @@ Two findings need care in how you word them:
 - **Client data stays out of the repository.** The output carries a client's journal codes, ids and
   amounts. Quote it to the operator, and never put it in code, tests, specs, docs, commits or pull requests.
   Examples there use invented or Odoo demo data (`BANK1`, `CSH1`, "Acme Corporation", "My Company").
-- Background: `docs/migration.md`.
+- Background: `docs/migration/checks-findings.md`.

@@ -44,7 +44,7 @@ def _smtp_to_capture() -> list[str]:
     refused when it does not — never delivered. A mail server stored in the
     database takes precedence over these keys; see the mail redirect action."""
     return [
-        "; Mail goes to the local capture (Mailpit); never delivered. docs/egress-control.md",
+        "; Mail goes to the local capture (Mailpit); never delivered. docs/host/egress-control.md",
         f"smtp_server = {egress.MAILPIT_SMTP_HOST}",
         f"smtp_port = {egress.MAILPIT_SMTP_PORT}",
     ]
@@ -191,7 +191,7 @@ def render_vscode_settings(cfg: WorkspaceConfig) -> str:
 
 
 # The official Odoo extension and the language server it runs (odoo/odoo-vscode,
-# odoo/odoo-ls). See docs/editor-integration.md for the update procedure.
+# odoo/odoo-ls). See docs/workspace/editor.md for the update procedure.
 ODOO_EXTENSION_ID = "Odoo.odoo"
 
 # The OdooLS release this configuration was last reviewed against. Bump it in

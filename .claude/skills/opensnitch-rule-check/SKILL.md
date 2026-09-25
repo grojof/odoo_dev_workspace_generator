@@ -35,4 +35,4 @@ The exit code is the verdict: **0** nothing to report, **1** it found something,
   run it.
 - **Exit 2 is not "clean".** If the tool could not read the rules, say so. Never report a firewall as
   correct because a check failed to run.
-- Background on why the prefix is `00-odwg-` and why file-name order decides: `docs/egress-control.md`.
+- Background on why the prefix is `00-odwg-` and why file-name order decides: `docs/host/egress-control.md`.
