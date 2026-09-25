@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 from datetime import date
 
-from .. import audit, egress
+from .. import audit, carry, egress
 from .. import findings as fl
 from ..i18n import t, tf
 from ..models import DB_NAME_RE, MigrationEnv
@@ -317,3 +317,63 @@ def findings_links(source: str, target: str) -> int:
     for where, url, answer in broken:
         print(f"  {answer:<8} {url}  ({where})")
     return FOUND
+
+
+def _installed_modules(database: str, host: str, port: int, user: str) -> set[str] | None:
+    rows = psql_rows("SELECT name FROM ir_module_module WHERE state IN ('installed', 'to upgrade')",
+                     database, host, port, user)
+    return None if rows is None else {row[0] for row in rows if row and row[0]}
+
+
+def client_modules(source: str, target: str, database: str | None,
+                   host: str, port: int, user: str) -> int:
+    """What the driver's client-modules stage will do at the target, and what would stop it.
+
+    The same plan the driver computes (``carry.py``), over the environment's decisions and the
+    target's sources; with a database, also which decided modules are installed there."""
+    env = _environment(source, target)
+    if env is None:
+        return UNKNOWN
+    env.chain_core = migration.generated_chain_core(env) or env.chain_core
+    installed = None
+    if database:
+        if not DB_NAME_RE.fullmatch(database):
+            print(level_text("ERROR", tf("Invalid database name: {}", database)))
+            return UNKNOWN
+        installed = _installed_modules(database, host, port, user)
+        if installed is None:
+            print(level_text("ERROR", tf("Cannot read the database {}.", database)))
+            return UNKNOWN
+    entries = carry.read_decisions(str(env.decisions_file))
+    sources = [str(path) for path in env.coverage_dirs(env.target)]
+    result = carry.plan(entries, env.source, env.target, carry.reader(sources), installed)
+    _print_carry_plan(result)
+    if carry.blocked(result):
+        print(level_text("ERROR", t(
+            "The client-modules stage would stop before changing the database.")))
+        return FOUND
+    if not carry.has_work(result):
+        print(level_text("OK", t("Nothing to carry: the stage will change nothing.")))
+    print(level_text("INFO", t("Nothing was changed.")))
+    return CLEAN
+
+
+def _print_carry_plan(result: dict) -> None:
+    for old, new in result["renames"]:
+        if new in result["merges"]:
+            print(level_text("INFO", tf("{} is merged into {}", old, new)))
+        else:
+            print(level_text("INFO", tf("{} is renamed to {}", old, new)))
+    for label, key in (("Update: {}", "updates"), ("Install: {}", "installs"),
+                       ("Uninstall: {}", "uninstalls")):
+        if result[key]:
+            print(level_text("INFO", tf(label, ", ".join(result[key]))))
+    for module in result["skipped"]:
+        print(level_text("INFO", tf("{}: not installed, nothing to carry", module)))
+    for module in result["left"]:
+        print(level_text("WARN", tf("{}: still installed with no code at {} (kept as decided)",
+                                    module, result["target"])))
+    for problem in result["problems"]:
+        level = "ERROR" if problem["level"] == carry.BLOCKING else "WARN"
+        print(level_text(level, f"{problem['module']}: "
+                                + tf(carry.MESSAGES[problem["code"]], *problem["args"])))

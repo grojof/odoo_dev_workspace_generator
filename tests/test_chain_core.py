@@ -74,7 +74,7 @@ def test_later_actions_read_the_generated_core(tmp_path, monkeypatch):
     conf.parent.mkdir(parents=True)
     conf.write_text(templates.render_migration_conf(generated, "14.0"))
     later = _client_on("ocb")  # a later action starts from the intake alone
-    assert wm._generated_chain_core(later) == "odoo"
+    assert wm.generated_chain_core(later) == "odoo"
 
 
 def test_generation_defaults_to_the_clients_core(monkeypatch):

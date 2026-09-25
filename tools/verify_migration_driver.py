@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.metadata
+import json
 import os
 import re
 import shutil
@@ -649,6 +650,98 @@ def main() -> int:
               broken.returncode != 0 and f"{step}: the pre-step hook" in broken.stderr
               and not (Path(hooked_env.checkpoints_dir) / f"{step}.dump").exists(),
               broken.stderr[-400:])
+
+    # --- the client-modules stage, after the target step ---------------------------
+    with tempfile.TemporaryDirectory(prefix="odwg-carry-") as tmp:
+        root = Path(tmp)
+        script, env = _build(root)
+        state = root / "steps-run"
+        calls = state / "calls"
+        target_python = env.venv_dir(TARGET) / "bin" / "python"
+        # The target's interpreter as the stage uses it: an Odoo shell reading a script on
+        # stdin (the renames, the uninstalls), or odoo-bin updating and installing. Each call
+        # is logged in order; ODWG_REFUSE makes the uninstall fail as the guard would.
+        _stub(target_python, (
+            'if [ "${1:-}" = "-" ]; then cat >/dev/null; exit 0; fi\n'
+            f'mkdir -p "$STATE"\n'
+            'if [[ " $* " == *" shell "* ]]; then body=$(cat)\n'
+            '  if [[ "$body" == *update_module_names* ]]; then echo rename >> "$STATE/calls"; fi\n'
+            '  if [[ "$body" == *button_immediate_uninstall* ]]; then\n'
+            '    [ -n "${ODWG_REFUSE:-}" ] && exit 1; echo uninstall >> "$STATE/calls"; fi\n'
+            '  exit 0; fi\n'
+            'if [[ "$*" == *" -u "* || "$*" == *" -i "* ]]; then\n'
+            '  echo "update ${*#* -d }" | sed "s/--logfile=[^ ]*//" >> "$STATE/calls"; exit 0; fi\n'
+            f'touch "$STATE/{TARGET}"; exit 0'))
+        _stub(root / "bin" / "pg_restore", 'mkdir -p "$STATE"; echo "$*" >> "$STATE/restores"')
+        psql = root / "bin" / "psql"
+        psql.rename(psql.with_name("psql.real"))
+        _stub(psql, 'if [[ "$*" == *"state IN"* ]]; then printf "old_a\\nold_b\\nold_c\\nold_d\\nbase\\n";'
+                    f' exit 0; fi; exec {psql}.real "$@"')
+        custom = Path(env.addons_custom_dir(TARGET))
+        for name in ("acme_new", "acme_repl"):
+            (custom / name / "migrations").mkdir(parents=True)
+            (custom / name / "__manifest__.py").write_text("{'version': '18.0.1.0.0'}")
+
+        def decide(entries: list[dict]) -> None:
+            Path(env.decisions_file).write_text(json.dumps({"decisions": [
+                {"source": SOURCE, "target": TARGET, **entry} for entry in entries]}))
+
+        decide([{"module": "old_a", "decision": "renamed", "to": "acme_new"},
+                {"module": "old_b", "decision": "renamed", "to": "acme_new"},
+                {"module": "old_c", "decision": "replaced", "to": ["acme_repl"]},
+                {"module": "old_d", "decision": "dropped"}])
+        stage = f"{TARGET}-modules"
+        ran = _run(root, script)
+        logged = calls.read_text().splitlines() if calls.exists() else []
+        check("the stage renames, then updates and installs in one run, then uninstalls",
+              ran.returncode == 0 and [c.split(" ")[0] for c in logged]
+              == ["rename", "update", "uninstall"]
+              and "-u acme_new" in logged[1]
+              and "-i acme_repl" in logged[1], ran.stdout[-800:] + ran.stderr[-800:])
+        check("it merges the second module renamed to the same name, and says so",
+              "[modules] old_b merged into acme_new" in ran.stderr, ran.stderr[-600:])
+        check("it writes its own checkpoint and records itself like a step",
+              (Path(env.checkpoints_dir) / f"{stage}.dump").exists()
+              and f"\t{stage}\tok\t" in Path(env.steps_file).read_text(),
+              ", ".join(_checkpoints(env)))
+        again = _run(root, script)
+        check("a completed stage is skipped on the next run",
+              again.returncode == 0 and f"[skip] {stage} already carried" in again.stdout
+              and len(calls.read_text().splitlines()) == 3, again.stdout[-400:])
+        restores_before = (state / "restores").read_text().count(f"{TARGET}.dump")
+        redo = subprocess.run(
+            ["bash", str(script), "source.dump", "--redo-modules"], cwd=root, capture_output=True,
+            text=True, env={"PATH": f"{root / 'bin'}:/usr/bin:/bin", "HOME": str(root),
+                            "STATE": str(state)})
+        check("--redo-modules restores the target checkpoint and runs only the stage again",
+              redo.returncode == 0
+              and (state / "restores").read_text().count(f"{TARGET}.dump") == restores_before + 1
+              and calls.read_text().splitlines().count("rename") == 2
+              and "[step] upgrading to" not in redo.stdout,
+              redo.stdout[-600:] + redo.stderr[-600:])
+        (Path(env.checkpoints_dir) / f"{stage}.dump").unlink()
+        calls.unlink()
+        env_refuse = {"PATH": f"{root / 'bin'}:/usr/bin:/bin", "HOME": str(root),
+                      "STATE": str(state), "ODWG_REFUSE": "1"}
+        refused = subprocess.run(["bash", str(script), "source.dump"], cwd=root,
+                                 capture_output=True, text=True, env=env_refuse)
+        check("a refused uninstall stops the stage before its checkpoint",
+              refused.returncode != 0 and "the uninstalls failed or were refused" in refused.stderr
+              and not (Path(env.checkpoints_dir) / f"{stage}.dump").exists(),
+              refused.stderr[-400:])
+        calls.unlink(missing_ok=True)
+        decide([{"module": "old_a", "decision": "renamed", "to": "not_on_disk"}])
+        missing = _run(root, script)
+        check("a module renamed to one that is not on disk stops before any database command",
+              missing.returncode != 0 and "the decisions stop the stage" in missing.stderr
+              and "not_on_disk resolves in none of the 18.0 sources" in missing.stderr
+              and not calls.exists(), missing.stderr[-400:])
+        decide([])
+        nothing = _run(root, script)
+        check("nothing to carry changes nothing and writes no checkpoint",
+              nothing.returncode == 0 and "[modules] nothing to carry" in nothing.stdout
+              and not (Path(env.checkpoints_dir) / f"{stage}.dump").exists()
+              and not calls.exists(), nothing.stdout[-400:])
 
     # --- the step's libraries, checked by its own interpreter --------------------
     with tempfile.TemporaryDirectory(prefix="odwg-pydeps-") as tmp:
