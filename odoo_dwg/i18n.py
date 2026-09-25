@@ -449,7 +449,17 @@ _ES: dict[str, str] = {
     "Install Node.js and npm": "Instalar Node.js y npm",
     "Install rtlcss globally": "Instalar rtlcss globalmente",
     "Clone OpenUpgrade {}": "Clonar OpenUpgrade {}",
-    "Clone Odoo {}": "Clonar Odoo {}",
+    "Clone {} {}": "Clonar {} {}",
+    "Core of the steps from 14.0 (the client runs {})": "Núcleo de los pasos desde la 14.0 (el cliente usa {})",
+    "Core of the steps from 14.0": "Núcleo de los pasos desde la 14.0",
+    "the client's core": "el núcleo del cliente",
+    "as generated before": "como se generó antes",
+    "Core of the steps from 14.0 (the client runs {}; the generated steps run {})":
+        "Núcleo de los pasos desde la 14.0 (el cliente usa {}; los pasos generados usan {})",
+    "your choice": "elegido por ti",
+    "no identified client core": "sin núcleo del cliente identificado",
+    "The steps from 14.0 run on {} ({}).": "Los pasos desde la 14.0 usan {} ({}).",
+    "Invalid chain core: {!r} (one of {}).": "Núcleo de la cadena no válido: {!r} (uno de {}).",
     "Create requirements directory": "Crear el directorio de requirements",
     "Create uv venv (Python {}) for Odoo {}": "Crear el venv uv (Python {}) para Odoo {}",
     "Install psycopg2-binary for Odoo {}": "Instalar psycopg2-binary para Odoo {}",
@@ -958,6 +968,35 @@ _ES: dict[str, str] = {
         '{} — ninguna fuente de este paso las tiene',
     "Audit the client's own modules":
         'Auditar los módulos propios del cliente',
+    'Find bank statement lines imported twice':
+        'Buscar líneas de extracto bancario importadas dos veces',
+    'From 14.0 every statement line already has its entry; this step is for a source up to 13.0, '
+    'and the source is {}.':
+        'Desde la 14.0 cada línea de extracto ya tiene su asiento; este paso es para un origen '
+        'hasta la 13.0, y el origen es {}.',
+    "Statements matching the bank's balances":
+        'Extractos que cuadran con los saldos del banco',
+    'Unreconciled lines':
+        'Líneas sin conciliar',
+    'Of them, certain duplicates':
+        'De ellas, duplicados seguros',
+    'Movements reconciled more than once':
+        'Movimientos conciliados más de una vez',
+    'Unreconciled lines after the lock date':
+        'Líneas sin conciliar posteriores a la fecha de bloqueo',
+    'Closed-period lines that match an open item (kept)':
+        'Líneas de periodos cerrados que coinciden con un apunte pendiente (se conservan)',
+    'Closed-period lines the accountant may leave behind':
+        'Líneas de periodos cerrados que la asesoría puede decidir no llevar',
+    'Code': 'Código',
+    'Entries': 'Asientos',
+    'Group': 'Grupo',
+    'Proposed': 'Propuesto',
+    'Journal': 'Diario',
+    'Find journal codes the target refuses':
+        'Buscar códigos de diario que la versión destino rechaza',
+    'Fix these codes in findings/data/{} and run again: {}':
+        'Corrige estos códigos en findings/data/{} y vuelve a ejecutar: {}',
     'Other modules to audit (comma-separated, optional)':
         'Otros módulos a auditar (separados por comas, opcional)',
     'Count use since (YYYY-MM-DD)':

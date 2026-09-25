@@ -51,8 +51,20 @@ Both are generated for you in `requirements/`.
 Under `~/odoo-migrations/<src>-to-<tgt>/`:
 
 - Per-version clones of `OCA/OpenUpgrade` (matching branch, shallow) in the shared `.repos/` cache. From
-  14.0 there is also a clone of `odoo/odoo`. Up to 13.0 the OpenUpgrade branch is itself a full Odoo fork, so
-  no separate clone is made.
+  14.0 there is also a clone of the **chain core**, `odoo/odoo` (`.repos/odoo-<version>`) or `OCA/OCB`
+  (`.repos/ocb-<version>`). Up to 13.0 the OpenUpgrade branch is itself a full Odoo fork, so no separate
+  clone is made.
+- **Which core the steps from 14.0 run on.** Generation asks, and the default is the core the intake
+  identified: a client on OCB is migrated on OCB, and official Odoo is the default with no intake or with a
+  patched core. A regeneration offers what the generated steps already run, and says so when that is not
+  the client's core. It matters because every step installs the modules whose `auto_install` dependencies are
+  met, and OCB turns `auto_install` off for a list of them (17 at 18.0: `iap`, `sms`, `partner_autocomplete`,
+  `mail_bot`, `base_import_module`, `account_edi_ubl_cii`…). A client on OCB migrated on official Odoo ends
+  up with modules it never had, and they stay installed if the core is switched later. Otherwise the two
+  cores are the same code, module versions and schema, so switching a running database between them is a
+  code change, not a migration. The choice is recorded only in the step configs' `addons_path`, and every
+  later action reads it back from there. OpenUpgrade's own CI tests on `odoo/odoo` only; OCA tests its
+  modules on both.
 - A `uv` virtualenv per native version (matched interpreter + `requirements.txt` + `psycopg2-binary` +
   `openupgradelib`). A per-version `requirements/overrides-<ver>.txt` is applied via
   `uv pip install --overrides` to repair pins that no longer install: the 16.0/17.0 branches pin
@@ -330,7 +342,7 @@ shared cluster. To look at it, start that step's Odoo by hand:
 
 ```bash
 cd ~/odoo-migrations/13-to-18
-.venv/odoo18/bin/python .repos/odoo-18.0/odoo-bin -c conf/odoo18.conf -d migration_13_to_18
+.venv/odoo18/bin/python .repos/odoo-18.0/odoo-bin -c conf/odoo18.conf -d migration_13_to_18   # .repos/ocb-18.0 on an OCB chain
 ```
 
 To take it away: `pg_dump -Fc -h 127.0.0.1 -U odoo migration_13_to_18 -f migrated-18.0.dump` (and the filestore
@@ -402,6 +414,36 @@ and records it in `logs/steps.tsv`. A failing hook stops the run before the step
 reversible and have the post-step hook undo exactly it. For example, record which deprecated accounts
 you make usable in a table of your own, and deprecate exactly those again. Record the decision in the
 findings ledger too.
+
+### A known OpenUpgrade 14.0 defect the driver repairs: statement lines stored as reconciled
+
+For a source up to 13.0, OpenUpgrade's 14.0 account post-migration gives every bank statement line
+without an entry one, through the ORM (`fill_statement_lines_with_no_move`). It then computes the lines'
+`is_reconciled` and `amount_residual` in raw SQL (`fill_account_bank_statement_line_reconciliation`). There
+is no flush in between. The ORM still holds the values it computed while each move had no suspense line
+yet (`is_reconciled = True`), and a later flush writes them over the SQL result.
+
+A line still waiting in the suspense account then reads as reconciled, and the reconciliation screen,
+which filters on that field, hides it. How many lines are hit depends on how many pending values the ORM
+still holds when the script ends: on the first client's copy it was part of such lines in one run and
+all of them in another.
+
+The driver repairs it right after the 14.0 step and its post hook, before the checkpoint. It selects in
+SQL the only lines the defect can leave wrong: stored as reconciled while their move still has a line on
+the journal's suspense account. It then recomputes them in `odoo-bin shell` on the 14.0 Odoo with Odoo's
+own `_compute_is_reconciled` (the same rule as in 18.0), prints how many it selected and how many are
+still reconciled, and records `repair statement-lines-is-reconciled` in `logs/steps.tsv`. Only those lines go through the ORM, so it
+takes seconds on a large database, and it selects nothing once OpenUpgrade flushes itself
+([OCA/OpenUpgrade#6005](https://github.com/OCA/OpenUpgrade/pull/6005)).
+
+### A known OCA defect the same repair covers: the SII certificate file
+
+Up to 13.0, `l10n_es_aeat_sii` keeps the AEAT certificate (the `.p12`) in a column of its own table. The
+14.0 migration of `l10n_es_aeat_sii_oca` creates one `l10n.es.aeat.certificate` per old record, but it
+moves attachments only, so the file never reaches the new model. The same run of the 14.0 repair carries
+each file from the old table, through OpenUpgrade's legacy link, when the new certificate has none, and
+records `repair sii-certificate-file` whether or not there was a file to carry (its output says how many). The keys are files on the old server's disk: on the new server,
+open each certificate and obtain the keys again with its password.
 
 ### When a module has no code anywhere: `decisions.json`
 
@@ -722,6 +764,8 @@ client-facing text is yours to write.
 | Check each installed module along the chain | Follows every installed Odoo and OCA module through each step's OpenUpgrade fate, and finds its code at each step: the core, then the client's OCA repositories. For the steps where gaps remain, it looks in **every** OCA repository, listed from GitHub's API. Gaps, and modules that moved repository, become findings; custom modules are listed to port. | OCA trees are blobless, one-commit clones cached in `.repos/oca-trees/`. A missing branch leaves an `.absent` marker; a network failure stops the step instead of being taken for one. |
 | Scan the client's own code for network calls | Every installed module that is neither Odoo's nor OCA's, for `requests`, `urllib`, `smtplib`, `ftplib`, `paramiko`, `zeep`, sockets, processes, RPC, job-queue delays and Odoo's IAP client; `tests/` and `migrations/` skipped. | Every pattern must first match its own control line, or no result is reported. "No pattern matched" is not "safe". |
 | Audit the client's own modules | Reads the reference only. For every module the intake classified as the client's own, plus any you name, it records the evidence for deciding whether to drop, replace or port it: the installed modules that depend on it; each model it created, with its rows and rows written since a date you give (a wizard: times opened, from its id sequence); each stored field it created, with the rows holding a value (`false` and `''` are not values), those written since the date, and the last write; its many2many links; its documents (in the Print menu? registered under another module's namespace, a trap when that module updates? attachments named as it names its PDF); and whether OCA publishes a module of that name at the target. Given a migrated database, it checks each field and table survived; given a web access log (Odoo's or a proxy's), it counts prints per document since the date. Each module is labelled *in use*, *in use, undated*, *not used since*, or *no data*. | Odoo records no print, and a production log at `log_level = warn` records no request: only a proxy's access log says what is printed. Files a module's code writes as attachments, rather than through a document, are not attributed to it. The label is evidence; what the module does, and whether 18 covers it, is read from its code. |
+| Find bank statement lines imported twice | For a source up to 13.0, where a statement line never reconciled has no entry: OpenUpgrade's 14.0 step gives every such line one (bank against suspense), with no switch ([OCA/OpenUpgrade#3056](https://github.com/OCA/OpenUpgrade/issues/3056)), so a statement imported twice becomes bank movements that never happened. Reads the reference only. A statement is trusted when its opening balance plus its lines equals its closing balance, both from the bank's file. A day that two trusted statements of one journal hold with the same lines and the same end-of-day balance is one bank day imported twice. Of each movement's copies one is kept (a reconciled one if any); each other unreconciled copy is a **duplicate**, each other reconciled copy a movement **reconciled twice**. Also counts the unreconciled lines, and those after the company's lock date. Writes `findings/data/bank-duplicate-lines.tsv`, a guarded `bank-duplicate-lines.sql` and one finding. It also lists the unreconciled lines dated on or before the later of the company's fiscal-year and period lock dates, other than the duplicates, in `bank-locked-unreconciled.tsv`: the file to deliver if the client's accountant decides not to carry closed periods' lines into the new version. A line whose exact amount matches an open receivable or payable item of the same partner is marked kept: it may be money never registered. `bank-locked-unreconciled.sql` leaves the others behind, still guarded (no journal item, still in a closed period), and is **optional**: it goes in the hook only on the accountant's decision. It also shortens the 14.0 step, which spends most of its time giving those lines entries. | Matching amount, date and label is not proof: two equal fees on one day are two movements. Repeats the balances cannot prove are not listed. It deletes nothing. The SQL deletes a line only while no journal item points at it and its kept twin still has the same content, so it is idempotent. Put it in the first step's pre hook (`hooks/<first step>-pre.sql`), which runs on the working copy, and re-run the step on the final copy. A movement reconciled twice is already in the books twice: the client's accountant corrects it. The Norma 43 import sets no `unique_import_id`, which is how a repeated file goes unnoticed. |
+| Find journal codes the target refuses | Reads the reference only. Per company, the journals that share a code, and those whose codes differ only by case or surrounding spaces. In each group the journal with most entries keeps its code; every other gets a proposed code of 1 to 5 letters or digits, unique in the company. Writes `findings/data/journal-codes.tsv`, a guarded `journal-codes.sql` and one finding. | Odoo declares `unique (company_id, code)`. From 15.0 each step drops it and adds it again; with a shared code it only logs `unable to add constraint`, and the migrated database keeps no constraint. Edit the `proposed` column (a bank and brand code reads better than a generated one) and run the step again: it keeps your codes and refuses, by name, one that is not 1 to 5 letters or digits or not unique. The table also takes a code for **any** other journal, the one that keeps a group's code included, for a readable scheme (for instance, bank journals by company and age). That is optional: Odoo 18 names a new entry after the journal's last entry, so a renamed journal with history keeps its numbering, but anything that selects journals by code (an accountant's export) needs the table as its equivalence. A code equal to the current one renames nothing, and a code another journal holds now is refused, since the guarded SQL renames one journal at a time. The SQL changes only `account_journal.code`, so no sequence and no existing entry number moves, and only while the journal still has its old code and the new one is free. Put it in the first step's pre hook. |
 | Rehearse uninstalling modules on a copy | For modules with no code at some step of the chain. OpenUpgrade documents no procedure for them; its maintainers leave it to the operator to port the module's scripts or uninstall it ([OCA/OpenUpgrade#5336](https://github.com/OCA/OpenUpgrade/issues/5336)). An uninstall deletes what the module owns, drops its tables and columns with `CASCADE`, and uninstalls its dependents, so this step shows what it takes on the client's data. It clones a **neutralised** working copy to a throwaway database with a hard-linked filestore, uninstalls there through the source version's `odoo-bin shell` (the Apps screen's own call), then neutralises and checks the throwaway database. Every table of the two databases is then compared by exact row count and columns. Each difference is named **module data** (owned through `ir_model_data`, reloaded on reinstall), **wizard**, **metadata**, **recomputed** (a related column), **empty**, or **data lost**. | The working copy is never modified, so a dropped column's values are counted where it still exists. Refuses the reference, a copy that is not neutralised, a module that is not installed, and an existing throwaway name; phrase `REHEARSE`. A table that lost more rows than the modules owned is data lost, a cascade included. The finding is `high` when anything is. The throwaway database is left for inspection. |
 
 The source instance is then opened like any other version, through the guarded start:

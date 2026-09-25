@@ -76,7 +76,7 @@ python tools/verify_migration_tester.py          # generate the rehearsal tester
 python tools/verify_demo_seed.py                 # run the generated demo seed against stub binaries
 python tools/verify_neutralisation.py            # neutralise, check, re-apply and restore on a throwaway PostgreSQL
 python tools/verify_neutralise_sources.py        # the catalogue vs Odoo's neutralize.sql files and the OCA sources it cites
-python tools/verify_intake.py                    # restore errors, reader role, core identification and filestore, on real tools
+python tools/verify_intake.py                    # intake on real tools: restore, reader role, core, filestore, audits, bank lines, journal codes
 ```
 
 | Tool | Needs |
@@ -124,7 +124,7 @@ environment. The unit suite can only assert the plans' text; this executes them.
 resume, a gap in the checkpoints, a dump that does not match, a checkpoint that cannot be written, a step
 whose OpenUpgrade code is not on disk, a step that fails — which must name itself and its log — and a
 12 → 14 chain, so the ≤ 13 layout's own step command and preconditions are executed too, not only the
-upgrade-path ones. The unit suite may not shell out, so this is where the *behaviour* of the generated shell is checked — run it
+upgrade-path ones, and the repairs after the 14.0 step are recorded before its checkpoint. The unit suite may not shell out, so this is where the *behaviour* of the generated shell is checked — run it
 whenever `render_run_migration_sh` changes.
 
 `verify_pg_hba_trust.py` runs the `pg_hba.conf` rewriter over every shape of that file this project has been

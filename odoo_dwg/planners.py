@@ -914,8 +914,8 @@ def plan_migration_clones(env: MigrationEnv, exists: Exists = _never) -> list[Co
             if not exists(odoo_dest):
                 commands.append(
                     Command(
-                        tf("Clone Odoo {}", version),
-                        _clone_command(env.odoo_repo_url, version, odoo_dest),
+                        tf("Clone {} {}", env.step_core_label, version),
+                        _clone_command(env.step_core_url, version, odoo_dest),
                     )
                 )
     return commands
@@ -1465,7 +1465,8 @@ def plan_seed_environment(env: MigrationEnv, exists: Exists = _never) -> list[Co
         ))
     elif core is None and not exists(clone):
         commands.append(
-            Command(tf("Clone Odoo {}", version), _clone_command(env.odoo_repo_url, version, clone))
+            Command(tf("Clone {} {}", env.step_core_label, version),
+                    _clone_command(env.step_core_url, version, clone))
         )
     python, _method = env.interpreter(version)
     if python is not None and not exists(env.venv_ready_marker(version)):

@@ -26,6 +26,7 @@ from ..models import (
     MigrationEnv,
     ModuleDecision,
     PromotedModules,
+    chain_core_from_config,
     decisions_from_json,
     interpreter_from_pyvenv,
 )
@@ -168,10 +169,50 @@ def _ask_env(with_oca: bool = False) -> MigrationEnv | None:
         # What taking in a client copy established: the source is then the
         # client's own core and add-ons, and the reference is never opened.
         env.intake = load_intake(env)
+        # The core the steps run on, as generation wrote it into their configs.
+        env.chain_core = _generated_chain_core(env)
     except ValueError as error:
         print(level_text("ERROR", str(error)))
         return None
     return env
+
+
+def _generated_chain_core(env: MigrationEnv) -> str:
+    """The core the generated steps from 14.0 run on, read back from the first
+    one's config: the only record of it. Empty before any generation."""
+    for version in env.chain():
+        if not env.uses_legacy_layout(version):
+            return chain_core_from_config(_read_text(env.config_file(version)) or "")
+    return ""
+
+
+def _choose_chain_core(env: MigrationEnv) -> bool:
+    """Ask which core the steps from 14.0 run on, defaulting to what the client
+    runs. Returns False when the operator cancels."""
+    if all(env.uses_legacy_layout(version) for version in env.chain()):
+        return True
+    client = env.intake.core.flavour if env.intake is not None and env.intake.core else ""
+    generated = env.chain_core  # what the step configs on disk run, if generated before
+    options = ["Odoo", "OCB"]
+    names = {"odoo": "Odoo", "ocb": "OCB"}
+    if client and generated and generated != client:
+        # A regeneration offers what is on disk; say so when it is not the client's core.
+        label = tf("Core of the steps from 14.0 (the client runs {}; the generated steps run {})",
+                   names[client], names[generated])
+    elif client:
+        label = tf("Core of the steps from 14.0 (the client runs {})", names[client])
+    else:
+        label = t("Core of the steps from 14.0")
+    answer = choose(label, options, default_index=options.index(env.step_core_label))
+    if answer == "":
+        return False
+    env.chain_core = answer.lower()
+    reason = (t("the client's core") if env.chain_core == client
+              else t("as generated before") if env.chain_core == generated
+              else t("your choice") if client or env.chain_core != "odoo"
+              else t("no identified client core"))
+    print(level_text("INFO", tf("The steps from 14.0 run on {} ({}).", env.step_core_label, reason)))
+    return True
 
 
 def _interpreter_rows(env: MigrationEnv) -> list[tuple[str, str, str]]:
@@ -242,6 +283,11 @@ def _generate_environment() -> None:
         return
 
     print(level_text("INFO", tf("Migration chain: {}", " -> ".join([env.source, *env.chain()]))))
+
+    # The core the steps from 14.0 run on: a client on OCB is migrated on OCB.
+    if not _choose_chain_core(env):
+        print(level_text("INFO", t("Cancelled.")))
+        return
 
     # Interpreters per step: the matrix recommends, the operator may pin.
     if not _choose_step_interpreters(env):

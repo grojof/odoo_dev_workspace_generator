@@ -368,3 +368,128 @@ not tell, and record nothing.
 
 - **WHEN** a client module declares its report action as `account.report_acme_invoice`
 - **THEN** the audit flags it, because updating `account` in the chain can remove or overwrite it
+
+### Requirement: Bank statement lines imported twice are found from the bank's own balances
+
+For a source up to 13.0, the system SHALL offer an intake step that reads the reference only and finds
+the bank statement lines imported more than once. It SHALL treat as proven only:
+- statements whose opening balance plus their lines equals their closing balance;
+- a day that two or more such statements of the same journal hold with identical content (journal, date,
+  amount, label, reference, note and partner name of every line) and the same end-of-day balance.
+
+Within such a day, each movement SHALL be its line content plus its occurrence index, so two identical
+movements inside one day are two movements. Of each movement's copies, one SHALL be kept: a reconciled one
+if any, else the lowest id.
+
+The step SHALL record:
+- each other unreconciled copy, as a duplicate with the line it duplicates;
+- each other reconciled copy, as a movement reconciled more than once;
+- how many statements match their file;
+- how many unreconciled lines remain, and how many fall after the company's lock date.
+
+It SHALL write the table, a SQL file that deletes a listed line only while it has no journal item and its
+kept twin still exists with the same content, and one finding. It SHALL delete nothing itself. A source
+from 14.0, or a reference it cannot read, SHALL be refused with the reason, and nothing recorded.
+
+#### Scenario: A bank day imported twice
+
+- **WHEN** two statements of one journal that match their files both hold 3 March with the same lines and the same end-of-day balance, and one copy's lines are reconciled
+- **THEN** the other copy's unreconciled lines are listed as duplicates of the reconciled ones
+
+#### Scenario: Two equal fees on one day are not a duplicate
+
+- **WHEN** one statement holds two identical 1.50 fee lines on the same day and no other statement holds that day
+- **THEN** neither line is listed
+
+#### Scenario: A movement reconciled in both copies
+
+- **WHEN** a day imported twice has the same movement reconciled in both statements
+- **THEN** it is recorded as reconciled more than once, and not in the SQL file
+
+#### Scenario: A statement that does not match its file proves nothing
+
+- **WHEN** a statement's lines do not add up to its closing balance
+- **THEN** none of its days is used as proof
+
+### Requirement: Journal codes the target refuses are found and renamed before the chain
+
+The system SHALL offer an intake step that reads the reference only and finds, per company, the journals
+that share a code, and those whose codes differ only by case or surrounding spaces. In each group the
+journal with most entries SHALL keep its code, the lowest id on a tie. Every other journal SHALL get a
+proposed code of 1 to 5 letters or digits, unique in its company.
+
+The step SHALL write a table the operator may edit. On a later run it SHALL keep the codes the operator
+wrote there, and refuse, naming them, codes that are not 1 to 5 letters or digits or not unique in the
+company. It SHALL write a SQL file that changes a journal's code only while the journal still has its old
+code and no journal of its company has the new one, and one finding. It SHALL change nothing itself.
+
+#### Scenario: Two journals share a code
+
+- **WHEN** journals 101 (900 entries) and 102 (40 entries) of one company both have code `BANK1`
+- **THEN** 101 keeps `BANK1`, 102 gets a proposed code unused in the company, and the SQL renames 102 only
+
+#### Scenario: Codes that differ only by a space
+
+- **WHEN** one journal has `CASH` and another `CASH `
+- **THEN** they are one confusable group, and the one with fewer entries gets a proposal
+
+#### Scenario: The operator's code is kept, a bad one refused
+
+- **WHEN** the operator writes `ACME1` for journal 102 in the table and re-runs the step
+- **THEN** the SQL uses `ACME1`, and a code such as `AC ME` or one already used in the company stops the step with its name
+
+#### Scenario: The constraint is added after the SQL
+
+- **WHEN** the SQL has run on a copy
+- **THEN** `unique (company_id, code)` can be added to `account_journal`, and running the SQL again changes nothing
+
+### Requirement: Unreconciled bank lines of closed periods can be left behind, on the accountant's decision
+
+The bank statement step SHALL also list, for a source up to 13.0, the unreconciled lines dated on or
+before the later of their company's fiscal-year and period lock dates, other than the certain duplicates.
+A line whose exact amount matches an open receivable or payable item of the same partner SHALL be kept
+and listed apart. The others SHALL be listed with journal, date, amount, label, reference, partner, note and
+statement, as the file to deliver.
+
+The step SHALL write a separate SQL file that deletes a listed line only while no journal item points at
+it and its date is still on or before its company's lock date. It SHALL change nothing itself, and its
+finding SHALL say that applying the file is the client's accountant's decision.
+
+#### Scenario: A closed-period line with no match is listed to leave behind
+
+- **WHEN** the lock date is 31 July and an unreconciled line of 3 March matches no open item
+- **THEN** it is in the table and in the SQL
+
+#### Scenario: A closed-period line matching an open invoice is kept
+
+- **WHEN** an unreconciled line of 3 March has the exact amount of an open invoice of the same partner
+- **THEN** it is listed as kept and is not in the SQL
+
+#### Scenario: A line after the lock date is ongoing work
+
+- **WHEN** an unreconciled line is dated after the lock date
+- **THEN** it is in neither the table nor the SQL
+
+### Requirement: The operator may give any journal a readable code
+
+The journal codes step SHALL accept, in the table it writes and reads back, a code for any journal of the
+company: journals outside every group, and the journal that keeps a group's code, included. A journal
+outside every group that the operator renames SHALL appear in the plan as renamed by the operator. A code
+equal to the journal's current code SHALL rename nothing. A new code that is another journal's current
+code SHALL be refused, naming both journals. Codes SHALL still be 1 to 5 letters or digits and unique in
+the company once every rename applies. The SQL SHALL be guarded as for the other renames.
+
+#### Scenario: A journal with a unique but unclear code
+
+- **WHEN** the operator writes `DEMO3` for a journal whose code `BNK1` no other journal shares
+- **THEN** the plan renames it as the operator's, and the SQL renames it while it still has `BNK1` and `DEMO3` is free
+
+#### Scenario: The journal that keeps a group's code gets a readable one
+
+- **WHEN** the operator writes `DEMO1` for the journal that would keep the shared `BANK1`
+- **THEN** it is renamed to `DEMO1`, and the others of the group get their own codes
+
+#### Scenario: A chained rename is refused
+
+- **WHEN** the operator gives journal A the current code of journal B
+- **THEN** the step stops and names both journals

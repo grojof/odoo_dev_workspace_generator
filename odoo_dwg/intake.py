@@ -19,13 +19,10 @@ import json
 import re
 from dataclasses import dataclass, field
 
-from .models import MODULE_NAME_RE
+from .models import CORE_FLAVOURS, MODULE_NAME_RE
 
 INTAKE_SCHEMA = 1
-FLAVOURS = {
-    "odoo": "https://github.com/odoo/odoo",
-    "ocb": "https://github.com/OCA/OCB",
-}
+FLAVOURS = CORE_FLAVOURS
 MANIFESTS = ("__manifest__.py", "__openerp__.py")
 
 _NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]+$")
@@ -1034,3 +1031,306 @@ def audit_label(rows: list[AuditRow], since: str) -> str:
     if any(r.kind in ("field", "model", "document") and some(r.total) for r in rows):
         return f"not used since {since}"
     return "no data"
+
+
+# --- bank statement lines imported twice (sources up to 13.0) ---------------------------
+
+#: Up to 13.0 an unreconciled statement line has no journal item: whether a line is
+#: reconciled is whether any journal item points at it.
+_BANK_LINES_CTE = """
+WITH rec AS (
+    SELECT DISTINCT statement_line_id AS id FROM account_move_line
+    WHERE statement_line_id IS NOT NULL
+), fp AS (
+    SELECT l.id, l.statement_id AS st, l.journal_id AS j, l.date, l.amount,
+           md5(concat_ws('|', l.journal_id, l.date, l.amount, l.name, l.ref, l.note,
+                         l.partner_name)) AS f,
+           rec.id IS NOT NULL AS rec
+    FROM account_bank_statement_line l LEFT JOIN rec ON rec.id = l.id
+), sc AS (
+    SELECT s.id AS st, round(s.balance_start + coalesce(sum(fp.amount), 0)
+                             - s.balance_end_real, 2) = 0 AS ok
+    FROM account_bank_statement s LEFT JOIN fp ON fp.st = s.id
+    GROUP BY s.id, s.balance_start, s.balance_end_real
+)"""
+
+#: One row per copy beyond the kept one: ``kind, line, statement, journal, date,
+#: amount, kept line``. One SELECT, because the reader may not create temporary tables.
+BANK_DUPLICATES_SQL = _BANK_LINES_CTE + """, day AS (
+    SELECT fp.st, fp.j, fp.date, md5(string_agg(fp.f, ',' ORDER BY fp.f)) AS s,
+           sum(fp.amount) AS net
+    FROM fp GROUP BY 1, 2, 3
+), eod AS (
+    SELECT day.*, round(s.balance_start + sum(day.net) OVER (PARTITION BY day.st
+                                                             ORDER BY day.date), 2) AS bal
+    FROM day JOIN account_bank_statement s ON s.id = day.st
+), twice AS (
+    SELECT DISTINCT a.st, a.date, a.s FROM eod a
+    JOIN eod b ON b.j = a.j AND b.date = a.date AND b.s = a.s AND b.bal = a.bal AND b.st <> a.st
+    JOIN sc sa ON sa.st = a.st AND sa.ok JOIN sc sb ON sb.st = b.st AND sb.ok
+), occ AS (
+    SELECT twice.s, fp.*, row_number() OVER (PARTITION BY fp.st, fp.f ORDER BY fp.id) AS k
+    FROM twice JOIN fp ON fp.st = twice.st AND fp.date = twice.date
+), ranked AS (
+    SELECT occ.*,
+           row_number() OVER w AS r,
+           first_value(occ.id) OVER w AS kept
+    FROM occ WINDOW w AS (PARTITION BY occ.j, occ.date, occ.s, occ.f, occ.k
+                          ORDER BY occ.rec DESC, occ.id)
+)
+SELECT CASE WHEN ranked.rec THEN 'reconciled twice' ELSE 'duplicate' END, ranked.id, ranked.st,
+       aj.code, ranked.date, ranked.amount, ranked.kept
+FROM ranked JOIN account_journal aj ON aj.id = ranked.j
+WHERE ranked.r > 1 ORDER BY ranked.date, ranked.id"""
+
+#: ``statements, statements matching their file, lines, unreconciled lines,
+#: unreconciled lines after their company's latest lock date``.
+BANK_LINES_STATS_SQL = _BANK_LINES_CTE + """
+SELECT (SELECT count(*) FROM sc), (SELECT count(*) FROM sc WHERE ok), count(*),
+       count(*) FILTER (WHERE NOT fp.rec),
+       count(*) FILTER (WHERE NOT fp.rec AND fp.date > coalesce(
+           greatest(c.fiscalyear_lock_date, c.period_lock_date), '0001-01-01'))
+FROM fp JOIN account_bank_statement s ON s.id = fp.st JOIN res_company c ON c.id = s.company_id"""
+
+
+@dataclass(frozen=True)
+class BankCopy:
+    kind: str       # "duplicate" | "reconciled twice"
+    line: int
+    statement: int
+    journal: str
+    date: str
+    amount: str
+    kept: int
+
+
+def parse_bank_copies(rows: list[list[str]]) -> list[BankCopy]:
+    return [BankCopy(r[0], int(r[1]), int(r[2]), r[3], r[4], r[5], int(r[6]))
+            for r in rows if len(r) >= 7]
+
+
+def bank_duplicates_sql(copies: list[BankCopy]) -> str:
+    """SQL that deletes the duplicates, for a working copy's first pre hook.
+
+    Guarded line by line, so it is idempotent and harmless on a later copy: a line
+    goes only while no journal item points at it and its kept twin still exists with
+    the same content. A movement reconciled twice is never in it."""
+    pairs = [(c.line, c.kept) for c in copies if c.kind == "duplicate"]
+    if not pairs:
+        return "-- No bank statement line imported twice.\n"
+    values = ",\n    ".join(f"({line}, {kept})" for line, kept in pairs)
+    return f"""-- Bank statement lines imported twice: {len(pairs)} unreconciled copies, each
+-- proven by two statements that match the bank's balances and hold the same day with
+-- the same end-of-day balance. Run on a working copy before the chain, never on the
+-- reference or production.
+DELETE FROM account_bank_statement_line d
+USING (VALUES
+    {values}
+) AS v(line, kept), account_bank_statement_line k
+WHERE d.id = v.line AND k.id = v.kept
+  AND NOT EXISTS (SELECT 1 FROM account_move_line m WHERE m.statement_line_id = d.id)
+  AND (k.journal_id, k.date, k.amount, k.name, k.ref, k.note, k.partner_name)
+      IS NOT DISTINCT FROM (d.journal_id, d.date, d.amount, d.name, d.ref, d.note, d.partner_name);
+"""
+
+
+def _flat(column: str) -> str:
+    """A text column on one line: psql's rows are split on tabs and newlines."""
+    return rf"regexp_replace(coalesce({column}::text, ''), '[\t\n\r]+', ' ', 'g')"
+
+
+#: ``line, journal, date, amount, label, reference, partner, note, statement, kept``:
+#: the unreconciled lines dated on or before their company's lock date. ``kept`` is
+#: ``t`` when the exact amount matches an open receivable or payable item of the same
+#: partner: it may be money never registered, and stays.
+BANK_LOCKED_SQL = _BANK_LINES_CTE + f""", lock AS (
+    SELECT id, greatest(fiscalyear_lock_date, period_lock_date) AS day FROM res_company
+), open_item AS (
+    SELECT DISTINCT aml.partner_id, abs(aml.amount_residual) AS amount
+    FROM account_move_line aml JOIN account_account aa ON aa.id = aml.account_id
+    WHERE aa.internal_type IN ('receivable', 'payable') AND NOT aml.reconciled
+      AND aml.amount_residual <> 0 AND aml.partner_id IS NOT NULL
+)
+SELECT l.id, aj.code, l.date, l.amount, {_flat("l.name")}, {_flat("l.ref")},
+       {_flat("l.partner_name")}, {_flat("l.note")}, l.statement_id,
+       EXISTS (SELECT 1 FROM open_item o WHERE o.partner_id = l.partner_id
+               AND o.amount = abs(l.amount))
+FROM fp JOIN account_bank_statement_line l ON l.id = fp.id
+JOIN account_bank_statement s ON s.id = fp.st JOIN lock ON lock.id = s.company_id
+JOIN account_journal aj ON aj.id = fp.j
+WHERE NOT fp.rec AND lock.day IS NOT NULL AND fp.date <= lock.day
+ORDER BY l.date, l.id"""
+
+
+@dataclass(frozen=True)
+class LockedLine:
+    line: int
+    journal: str
+    date: str
+    amount: str
+    label: str
+    ref: str
+    partner: str
+    note: str
+    statement: int
+    kept: bool
+
+
+def parse_locked_lines(rows: list[list[str]], duplicates: set[int]) -> list[LockedLine]:
+    """The closed-period unreconciled lines, less the certain duplicates (which go
+    anyway). The query flattens tabs and newlines in the text columns."""
+    return [LockedLine(int(r[0]), r[1], r[2], r[3], r[4], r[5], r[6], r[7], int(r[8]), r[9] == "t")
+            for r in rows if len(r) == 10 and r[0].isdigit() and int(r[0]) not in duplicates]
+
+
+def locked_lines_sql(lines: list[LockedLine]) -> str:
+    """SQL that leaves the closed-period unreconciled lines behind, for a working copy's
+    first pre hook, **only** on the client's accountant's decision. Guarded line by
+    line: still no journal item, still on or before the company's lock date."""
+    ids = [x.line for x in lines if not x.kept]
+    if not ids:
+        return "-- No unreconciled statement line of a closed period to leave behind.\n"
+    listed = ",\n    ".join(", ".join(str(i) for i in ids[k:k + 12]) for k in range(0, len(ids), 12))
+    return f"""-- OPTIONAL. Unreconciled bank statement lines of closed periods: {len(ids)} lines, delivered
+-- to the client in bank-locked-unreconciled.tsv. Apply only if the client's accountant chose
+-- not to carry them into the new version. Run on a working copy before the chain, never on
+-- the reference or production.
+DELETE FROM account_bank_statement_line d
+USING account_bank_statement s, res_company c
+WHERE d.id IN (
+    {listed}
+)
+  AND s.id = d.statement_id AND c.id = s.company_id
+  AND d.date <= greatest(c.fiscalyear_lock_date, c.period_lock_date)
+  AND NOT EXISTS (SELECT 1 FROM account_move_line m WHERE m.statement_line_id = d.id);
+"""
+
+
+# --- journal codes the target refuses ------------------------------------------------------
+
+#: ``id, company, code, name, type, active, entries, last entry``. The name is read as
+#: text, whatever the version stores it as.
+JOURNAL_CODES_SQL = f"""
+SELECT j.id, j.company_id, j.code, {_flat("j.name")}, j.type, j.active, count(m.id), max(m.date)
+FROM account_journal j LEFT JOIN account_move m ON m.journal_id = j.id
+GROUP BY j.id, j.company_id, j.code, j.name, j.type, j.active ORDER BY j.company_id, j.code, j.id"""
+
+JOURNAL_CODE_RE = re.compile(r"^[A-Za-z0-9]{1,5}$")
+
+
+@dataclass(frozen=True)
+class JournalCode:
+    id: int
+    company: int
+    code: str
+    name: str
+    type: str
+    active: bool
+    entries: int
+    last: str
+    group: str       # "shared" (breaks the constraint) | "confusable" | "operator"
+    proposed: str    # "" for the journal that keeps its code
+
+
+def _proposal(code: str, used: set[str]) -> str:
+    base = re.sub(r"[^A-Z0-9]", "", code.upper()) or "J"
+    for n in range(1, 1000):
+        digits = str(n)
+        candidate = base[: 5 - len(digits)] + digits
+        if candidate.upper() not in used:
+            used.add(candidate.upper())
+            return candidate
+    raise ValueError(f"no free code for {code!r}")  # pragma: no cover - 999 codes
+
+
+def journal_code_plan(rows: list[list[str]], edits: dict[int, str] | None = None
+                      ) -> tuple[list[JournalCode], list[str]]:
+    """``(plan, problems)``: per company, the journals that share a code or whose codes
+    differ only by case or spaces. The one with most entries keeps its code (lowest id
+    on a tie); every other gets the operator's code from ``edits`` or a proposal.
+
+    ``edits`` may also name any other journal, the one keeping a group's code included:
+    a readable scheme is the operator's to choose. A code equal to the current one renames
+    nothing, and a code another journal holds now is refused, because the guarded SQL
+    renames one journal at a time and a chain would depend on the order."""
+    edits = edits or {}
+    journals = [(int(r[0]), int(r[1]), r[2], r[3], r[4], r[5] == "t", int(r[6] or 0), r[7])
+                for r in rows if len(r) >= 8 and r[0].isdigit() and r[1].isdigit()]
+    by_company: dict[int, list] = {}
+    for j in journals:
+        by_company.setdefault(j[1], []).append(j)
+    plan: list[JournalCode] = []
+    problems: list[str] = []
+
+    def operator_code(journal) -> str:
+        code = edits[journal[0]].strip()
+        if code == journal[2]:
+            return ""
+        if not JOURNAL_CODE_RE.fullmatch(code):
+            problems.append(f"journal {journal[0]}: {code!r} is not 1 to 5 letters or digits")
+        return code
+
+    for company, members in sorted(by_company.items()):
+        used = {m[2].strip().upper() for m in members} | {
+            e.strip().upper() for jid, e in edits.items() if any(m[0] == jid for m in members)}
+        groups: dict[str, list] = {}
+        for m in members:
+            groups.setdefault(m[2].strip().upper(), []).append(m)
+        renamed: dict[int, str] = {}
+        grouped: set[int] = set()
+        for key, group in sorted(groups.items()):
+            if len(group) < 2:
+                continue
+            kind = "shared" if len({m[2] for m in group}) < len(group) else "confusable"
+            keeper = sorted(group, key=lambda m: (-m[6], m[0]))[0]
+            for m in sorted(group, key=lambda m: m[0]):
+                grouped.add(m[0])
+                if m[0] in edits:
+                    proposed = operator_code(m)
+                elif m is keeper:
+                    proposed = ""
+                else:
+                    proposed = _proposal(key, used)
+                if proposed:
+                    renamed[m[0]] = proposed
+                plan.append(JournalCode(m[0], company, m[2], m[3], m[4], m[5], m[6], m[7], kind,
+                                        proposed))
+        for m in sorted(members, key=lambda m: m[0]):
+            if m[0] in grouped or m[0] not in edits:
+                continue
+            proposed = operator_code(m)
+            if proposed:
+                renamed[m[0]] = proposed
+                plan.append(JournalCode(m[0], company, m[2], m[3], m[4], m[5], m[6], m[7],
+                                        "operator", proposed))
+        current = {m[0]: m[2].strip().upper() for m in members}
+        final = {m[0]: renamed.get(m[0], m[2]).strip().upper() for m in members}
+        for jid, code in renamed.items():
+            holder = [other for other, c in current.items() if other != jid and c == code.upper()]
+            if holder:
+                problems.append(f"journal {jid}: {code!r} is journal {holder[0]}'s current code in "
+                                f"company {company}; choose a code no journal has now")
+                continue
+            clash = [other for other, c in final.items() if other != jid and c == code.upper()]
+            if clash:
+                problems.append(f"journal {jid}: {code!r} is also journal {clash[0]}'s code in "
+                                f"company {company}")
+    return plan, problems
+
+
+def journal_codes_sql(plan: list[JournalCode]) -> str:
+    """SQL that renames the codes, for a working copy's first pre hook. It changes the
+    column only, so no sequence and no entry number moves, and only while the journal
+    still has its old code and no journal of its company has the new one."""
+    moves = [j for j in plan if j.proposed]
+    if not moves:
+        return "-- No journal code to rename.\n"
+    body = []
+    for j in moves:
+        old = j.code.replace("'", "''")
+        body.append(f"UPDATE account_journal SET code = '{j.proposed}' WHERE id = {j.id} "
+                    f"AND code = '{old}'\n  AND NOT EXISTS (SELECT 1 FROM account_journal o "
+                    f"WHERE o.company_id = {j.company} AND o.code = '{j.proposed}');")
+    return (f"-- Journal codes the target refuses: {len(moves)} renamed, so the 15.0 step can add\n"
+            "-- unique (company_id, code). The code column only: no sequence or entry number moves.\n"
+            + "\n".join(body) + "\n")

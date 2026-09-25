@@ -931,12 +931,34 @@ class PromotedModules:
             raise ValueError(" ".join(errors))
 
 
+# The cores a step can run on: official Odoo, or OCA's backports branch. OCB is the
+# same code with a handful of changes, the one that matters to a migration being
+# that it turns ``auto_install`` off for a list of modules.
+CORE_FLAVOURS = {
+    "odoo": "https://github.com/odoo/odoo",
+    "ocb": "https://github.com/OCA/OCB",
+}
+
+
+_CONFIG_CORE_RE = re.compile(r"/(odoo|ocb)-\d+\.0/addons\s*(?:,|$)", re.M)
+
+
+def chain_core_from_config(text: str) -> str:
+    """The core a generated step config runs on, from its ``addons_path``: the
+    core clone's ``addons`` directory is named ``<core>-<version>``. Empty when the
+    text names neither, as for a config generation has not written yet."""
+    for line in text.splitlines():
+        if line.replace(" ", "").startswith("addons_path="):
+            match = _CONFIG_CORE_RE.search(line)
+            return match.group(1) if match else ""
+    return ""
+
+
 @dataclass
 class MigrationEnv:
     """An OpenUpgrade migration environment for a ``source`` → ``target`` chain."""
 
     base_dir: ClassVar[str] = "~/odoo-migrations"
-    odoo_repo_url: ClassVar[str] = "https://github.com/odoo/odoo"
     openupgrade_url: ClassVar[str] = "https://github.com/OCA/OpenUpgrade"
 
     source: str
@@ -962,8 +984,33 @@ class MigrationEnv:
     # workflow — this module does no I/O. None: the source is official Odoo at the
     # branch head, as for a demo seed.
     intake: IntakeRecord | None = None
+    # The core the steps from 14.0 run on, ``odoo`` or ``ocb``. Empty follows the
+    # core the intake identified. Every step installs the modules whose
+    # ``auto_install`` dependencies are met, and OCB turns that off for a list of
+    # them: a client on OCB migrated on official Odoo gains modules it never had.
+    # Recorded only in the step configs generation writes (see ``step_core``).
+    chain_core: str = ""
 
     # --- derived ----------------------------------------------------------
+
+    @property
+    def step_core(self) -> str:
+        """The core the steps from 14.0 run on: the operator's choice, else the
+        client's, else official Odoo."""
+        if self.chain_core:
+            return self.chain_core
+        if self.intake is not None and self.intake.core is not None:
+            return self.intake.core.flavour
+        return "odoo"
+
+    @property
+    def step_core_url(self) -> str:
+        return CORE_FLAVOURS[self.step_core]
+
+    @property
+    def step_core_label(self) -> str:
+        """How a plan names the core: ``Odoo`` or ``OCB``."""
+        return "OCB" if self.step_core == "ocb" else "Odoo"
 
     @property
     def root(self) -> Path:
@@ -1161,7 +1208,9 @@ class MigrationEnv:
         self.interpreter_overrides.pop(version, None)
 
     def odoo_clone_dir(self, version: str) -> Path:
-        return self.repos_dir / f"odoo-{version}"
+        """A step's core clone, ``<repos>/<core>-<version>``: ``odoo-16.0`` or
+        ``ocb-16.0``. A <= 13 step runs its OpenUpgrade fork instead."""
+        return self.repos_dir / f"{self.step_core}-{version}"
 
     def openupgrade_clone_dir(self, version: str) -> Path:
         return self.repos_dir / f"openupgrade-{version}"
@@ -1320,6 +1369,9 @@ class MigrationEnv:
         if port_error:
             errors.append(port_error)
         errors += [e for e in (python_version_error(p) for p in self.interpreter_overrides.values()) if e]
+        if self.chain_core and self.chain_core not in CORE_FLAVOURS:
+            errors.append(tf("Invalid chain core: {!r} (one of {}).", self.chain_core,
+                             ", ".join(CORE_FLAVOURS)))
         if not isinstance(self.oca_repos, list):
             errors.append(tf("oca_repos must be a list of OCA repository names."))
         else:

@@ -86,6 +86,54 @@ AUDIT_DB = """
         ('ACME invoice - INV1.pdf', '2026-03-01'), ('ACME invoice - INV0.pdf', '2021-01-01');
 """
 
+# Bank statements for the duplicates step. Journal 1: statement 1 and 2 match their files
+# and both hold 3 March with the same lines and the same end-of-day balance (157). Two equal
+# fees in one day are two movements. Fee 1 is reconciled in both copies; the +50 only in
+# statement 1. Statement 3 repeats 4 March but does not match its file, so it proves nothing.
+# The lock date is 3 March: line 1 (10 from partner 7) matches partner 7's open 10 and is kept,
+# line 3 (a fee) is left behind if the accountant chooses; 8 and 9 are after the lock.
+BANK_DB = """
+    CREATE TABLE res_company (id int, fiscalyear_lock_date date, period_lock_date date);
+    CREATE TABLE account_journal (id int, code varchar);
+    CREATE TABLE account_bank_statement (id int, journal_id int, company_id int,
+                                         balance_start numeric, balance_end_real numeric);
+    CREATE TABLE account_bank_statement_line (id int, statement_id int, journal_id int, date date,
+        amount numeric, name varchar, ref varchar, note text, partner_name varchar, partner_id int);
+    CREATE TABLE account_account (id int, internal_type varchar);
+    CREATE TABLE account_move_line (id serial, statement_line_id int, partner_id int, account_id int,
+        reconciled boolean DEFAULT true, amount_residual numeric DEFAULT 0);
+    INSERT INTO account_account VALUES (1, 'receivable'), (2, 'liquidity');
+    INSERT INTO res_company VALUES (1, '2025-03-03', NULL);
+    INSERT INTO account_journal VALUES (1, 'BNK1');
+    INSERT INTO account_bank_statement VALUES (1, 1, 1, 100, 157), (2, 1, 1, 110, 162),
+                                              (3, 1, 1, 157, 999);
+    INSERT INTO account_bank_statement_line VALUES
+        (1, 1, 1, '2025-03-01', 10, E'transfer\twith a tab', NULL, E'two\nlines', 'ACME', 7),
+        (2, 1, 1, '2025-03-03', -1.50, 'fee', NULL, NULL, NULL, NULL),
+        (3, 1, 1, '2025-03-03', -1.50, 'fee', NULL, NULL, NULL, NULL),
+        (4, 1, 1, '2025-03-03', 50, 'payment', 'R1', NULL, 'ACME', NULL),
+        (5, 2, 1, '2025-03-03', -1.50, 'fee', NULL, NULL, NULL, NULL),
+        (6, 2, 1, '2025-03-03', -1.50, 'fee', NULL, NULL, NULL, NULL),
+        (7, 2, 1, '2025-03-03', 50, 'payment', 'R1', NULL, 'ACME', NULL),
+        (8, 2, 1, '2025-03-04', 5, 'interest', NULL, NULL, NULL, NULL),
+        (9, 3, 1, '2025-03-04', 5, 'interest', NULL, NULL, NULL, NULL);
+    INSERT INTO account_move_line (statement_line_id) VALUES (2), (4), (5);
+    INSERT INTO account_move_line (partner_id, account_id, reconciled, amount_residual)
+        VALUES (7, 1, false, 10), (8, 1, false, 1.50);
+"""
+
+# Journals for the codes step: 1 and 2 share BANK1 (1 has more entries), 3 and 4 differ by a space.
+JOURNAL_DB = """
+    CREATE TABLE account_journal (id int, company_id int, code varchar, name varchar, type varchar,
+                                  active boolean);
+    CREATE TABLE account_move (id serial, journal_id int, date date);
+    INSERT INTO account_journal VALUES (1, 1, 'BANK1', 'Bank A', 'bank', true),
+        (2, 1, 'BANK1', 'Bank B', 'bank', true), (3, 1, 'CASH', 'Cash A', 'cash', true),
+        (4, 1, 'CASH ', 'Cash B', 'cash', true), (5, 2, 'BANK1', 'Other company', 'bank', true);
+    INSERT INTO account_move (journal_id, date) VALUES (1, '2025-01-01'), (1, '2025-01-02'),
+        (2, '2025-01-03'), (3, '2025-01-04');
+"""
+
 
 def _bash(command: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["bash", "-c", command], capture_output=True, text=True,
@@ -301,6 +349,75 @@ def main() -> int:
             trap = next((r.note for r in audited if r.kind == "document"), "")
             check("a document registered under another module's namespace is flagged",
                   "registered as account.*" in trap, trap)
+
+            # --- bank statement lines imported twice, on a real database ------------------------
+            cluster.sql("CREATE DATABASE bank")
+            cluster.value(BANK_DB + " SELECT 1", "bank")
+            q = {"host": env.db_host, "port": env.db_port, "user": env.db_user}
+            copies = intake.parse_bank_copies(
+                system.psql_rows(intake.BANK_DUPLICATES_SQL, "bank", **q) or [])
+            got = {(c.kind, c.line, c.kept) for c in copies}
+            check("a bank day imported twice: each unreconciled copy is a duplicate of the kept one",
+                  {("duplicate", 6, 3), ("duplicate", 7, 4)} <= got, got)
+            check("two equal fees in one day stay two movements; a movement reconciled in both "
+                  "copies is recorded apart",
+                  ("reconciled twice", 5, 2) in got and not any(c.line in (2, 3) for c in copies),
+                  got)
+            check("a statement that does not match its file proves nothing",
+                  not any(c.line in (8, 9) for c in copies) and len(copies) == 3, got)
+            stats = system.psql_rows(intake.BANK_LINES_STATS_SQL, "bank", **q)
+            check("statements matching their file, unreconciled lines, and those after the lock",
+                  stats == [["3", "2", "9", "6", "2"]], stats)
+            guarded = intake.bank_duplicates_sql(copies)
+            first = cluster.sql(guarded, "bank")
+            second = cluster.sql(guarded, "bank")
+            left = cluster.value("SELECT string_agg(id::text, ',' ORDER BY id) "
+                                 "FROM account_bank_statement_line", "bank")
+            locked = intake.parse_locked_lines(
+                system.psql_rows(intake.BANK_LOCKED_SQL, "bank", **q) or [],
+                {c.line for c in copies if c.kind == "duplicate"})
+            check("closed-period lines: a match with an open item is kept, text is on one line",
+                  [(x.line, x.kept) for x in locked] == [(1, True), (3, False)]
+                  and locked[0].label == "transfer with a tab" and locked[0].note == "two lines",
+                  locked)
+            check("the guarded SQL deletes the duplicates only, and a second run deletes nothing",
+                  "DELETE 2" in first.stdout and "DELETE 0" in second.stdout
+                  and left == "1,2,3,4,5,8,9", (first.stdout, second.stdout, left))
+            behind = cluster.sql(intake.locked_lines_sql(locked), "bank")
+            left = cluster.value("SELECT string_agg(id::text, ',' ORDER BY id) "
+                                 "FROM account_bank_statement_line", "bank")
+            check("the optional SQL leaves behind the unmatched closed-period line only",
+                  "DELETE 1" in behind.stdout and left == "1,2,4,5,8,9", (behind.stdout, left))
+
+            # --- journal codes the target refuses, on a real database -------------------------
+            cluster.sql("CREATE DATABASE journals")
+            cluster.value(JOURNAL_DB + " SELECT 1", "journals")
+            plan, problems = intake.journal_code_plan(
+                system.psql_rows(intake.JOURNAL_CODES_SQL, "journals", **q) or [])
+            renamed = {j.id: j.proposed for j in plan if j.proposed}
+            check("the journal with most entries keeps the code; the others get one",
+                  not problems and set(renamed) == {2, 4}, (plan, problems))
+            constraint = "ALTER TABLE account_journal ADD CONSTRAINT u UNIQUE (company_id, code)"
+            refused = cluster.sql(constraint, "journals").returncode != 0
+            first = cluster.sql(intake.journal_codes_sql(plan), "journals")
+            second = cluster.sql(intake.journal_codes_sql(plan), "journals")
+            check("the constraint is refused before the SQL and added after; a second run changes "
+                  "nothing", refused and cluster.sql(constraint, "journals").returncode == 0
+                  and first.stdout.count("UPDATE 1") == 2 and second.stdout.count("UPDATE 0") == 2,
+                  (first.stdout, second.stdout))
+            # The operator's scheme: the keeper and a journal outside any group renamed too.
+            cluster.sql("CREATE DATABASE journals2")
+            cluster.value(JOURNAL_DB + " SELECT 1", "journals2")
+            plan, problems = intake.journal_code_plan(
+                system.psql_rows(intake.JOURNAL_CODES_SQL, "journals2", **q) or [],
+                {1: "DEMO1", 2: "DEMO2", 5: "OTH01"})
+            applied = cluster.sql(intake.journal_codes_sql(plan), "journals2")
+            codes = cluster.value("SELECT string_agg(id || '=' || code, ',' ORDER BY id) "
+                                  "FROM account_journal", "journals2")
+            check("the operator renames the keeper and a journal outside any group",
+                  not problems and applied.returncode == 0
+                  and codes.startswith("1=DEMO1,2=DEMO2,") and codes.endswith("5=OTH01")
+                  and cluster.sql(constraint, "journals2").returncode == 0, (problems, codes))
 
             # --- the uninstall command, against a stub interpreter ---------------------------
             record = intake.IntakeRecord("ACME_original", "acme_reader", "client-src/acme",
