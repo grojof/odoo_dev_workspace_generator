@@ -7,6 +7,21 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **The client's own modules can be carried to new names after the chain.** Optional, per module, as
+  decisions: `renamed` (one module; several renamed to one are merged), `replaced` (the replacements are
+  installed, then the old module goes) and `dropped`. The driver runs a client-modules stage after the
+  target step: pre hook, renames through OpenUpgrade's `update_module_names`, one plain Odoo run that
+  updates and installs (so the new modules' own migration scripts run on the old data), the uninstalls
+  last and never taking along a module no decision drops, post hook, neutralise, and its own checkpoint.
+  `run_migration.sh <dump> --redo-modules` repeats only that stage, for porting.
+  - `odoo-dwg migrate modules --source A --target B [--database X]` prints the plan and what would stop
+    it, from the same code the driver embeds.
+  - `odoo-dwg migrate decide MODULE … --decision KIND [--to M…]` records a decision, and writes
+    `decisions.json` only with `--write`. It is the first command that writes, and it writes only the
+    environment's own record.
+  - **`dropped` now has an effect:** the stage uninstalls a `dropped` module still installed at the
+    target, which used to be done by hand. An existing decisions file gets it on the next run of a
+    regenerated driver; `migrate modules` lists every uninstall first.
 - **`odoo-dwg migrate audit --database <db>`: one database's coherence, at any stage.** It is read-only,
   and it exits 0, 1 or 2 like the other checks. It runs:
   - on a source copy: journal codes shared within a company, bank lines imported twice, unreconciled

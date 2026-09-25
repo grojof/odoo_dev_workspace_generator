@@ -124,13 +124,20 @@ not tell — and exit 2 is never a clean result.
 | `odoo-dwg migrate findings validate --source A --target B` | Whether the ledger is one the tool accepts; every problem named. |
 | `odoo-dwg migrate findings report --source A --target B [--kind client\|extended] [--report-lang en\|es]` | A report rendered from the ledger, to stdout (the menu action writes the files). |
 | `odoo-dwg migrate findings links --source A --target B` | Every reference link in the ledger, requested; the ones that do not answer, named. Never a URL recorded as evidence. |
+| `odoo-dwg migrate modules --source A --target B [--database X]` | What the driver's client-modules stage will do: renames and merges, updates, installs, uninstalls, and what would stop it ([running](../migration/running.md#the-clients-own-modules-under-new-names-the-client-modules-stage)). Exit 1 when the stage would stop. |
 
-Anything that changes the host stays in the menus behind its confirmation phrase. A read-only command that
+One command writes, and only the environment's own record: `odoo-dwg migrate decide MODULE --source A
+--target B --decision KIND [--to M…] [--reason TEXT]` prints the decision it would record, and writes it
+to `decisions.json` only with `--write`.
+
+Anything that changes the host or a database stays in the menus behind its confirmation phrase, or in
+the driver you start. A read-only command that
 finds something to act on names the menu action; it does not perform it. Four skills in `.claude/skills/`
 are thin wrappers over these commands: migration triage (`migrate report`, `migrate probes`), the
 migration coherence check (`migrate audit`), the OpenSnitch rule check and Mailpit configuration.
 
 ## The generated driver
 
-`run_migration.sh <source-dump>`, inside an environment, runs the chain with a checkpoint per step and
-resumes from the last one: [running a migration](../migration/running.md#running-the-migration).
+`run_migration.sh <source-dump> [--redo-modules]`, inside an environment, runs the chain with a checkpoint
+per step and resumes from the last one, then the client-modules stage; `--redo-modules` repeats only that
+stage: [running a migration](../migration/running.md#running-the-migration).

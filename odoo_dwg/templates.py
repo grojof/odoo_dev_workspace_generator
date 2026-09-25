@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import shlex
+from importlib import resources
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -997,6 +998,143 @@ def _render_step_repair(env: MigrationEnv, version: str) -> str:
     )
 
 
+#: The client-modules stage's checkpoint and step-record name, after the target step.
+def modules_stage(env: MigrationEnv) -> str:
+    return f"{env.target}-modules"
+
+
+def carry_source() -> str:
+    """``odoo_dwg/carry.py`` as the driver embeds it: the file itself, so the driver and
+    ``migrate modules`` compute the same plan."""
+    return resources.files("odoo_dwg").joinpath("carry.py").read_text(encoding="utf-8")
+
+
+#: Run by the target's Odoo shell: the renames the plan lists, with OpenUpgrade's own
+#: library (in every chain venv, since OpenUpgrade requires it). ``merge_modules`` folds a
+#: module into one that already exists, so several old modules can share one new name.
+_MODULES_RENAME = """\
+import json, os
+from openupgradelib import openupgrade
+with open(os.environ["ODWG_MODULES_PLAN"], encoding="utf-8") as handle:
+    plan = json.load(handle)
+pairs = [tuple(pair) for pair in plan["renames"]]
+if pairs:
+    openupgrade.update_module_names(env.cr, pairs, merge_modules=True)
+    env.cr.commit()
+for old, new in pairs:
+    print("[modules] %s -> %s" % (old, new))
+"""
+
+#: Run by the same shell once everything is installed: the plan's uninstalls. Odoo also
+#: uninstalls whatever depends on them, so a module no decision drops stops it first.
+_MODULES_UNINSTALL = """\
+import json, os
+with open(os.environ["ODWG_MODULES_PLAN"], encoding="utf-8") as handle:
+    plan = json.load(handle)
+Module = env["ir.module.module"]
+wanted = set(plan["updates"]) | set(plan["installs"])
+done = set(Module.search([("name", "in", list(wanted)), ("state", "=", "installed")]).mapped("name"))
+if wanted - done:
+    # Odoo skips a module it cannot load and still exits 0: never uninstall the old
+    # modules when what replaces them is not there.
+    print("[modules] not installed after the update: %s; nothing uninstalled"
+          % ", ".join(sorted(wanted - done)))
+    raise SystemExit(1)
+modules = Module.search(
+    [("name", "in", plan["uninstalls"]), ("state", "in", ("installed", "to upgrade"))])
+along = modules.downstream_dependencies() - modules
+if along:
+    print("[modules] uninstalling %s would also remove %s, which no decision drops or replaces"
+          % (", ".join(sorted(modules.mapped("name"))), ", ".join(sorted(along.mapped("name")))))
+    raise SystemExit(1)
+if modules:
+    modules.button_immediate_uninstall()
+print("[modules] uninstalled: %s" % (", ".join(sorted(modules.mapped("name"))) or "none"))
+"""
+
+
+def _render_modules_stage(env: MigrationEnv) -> str:
+    """The client's modules at the target: renamed, replaced or dropped as decided.
+
+    After the target step the client's old modules are still installed with no code, their
+    tables and identifiers intact; that is what a rename needs. The decisions are read when
+    the stage runs, through ``carry.py`` embedded verbatim, so editing them needs no
+    regeneration. Plain Odoo runs here, without OpenUpgrade's framework: the client's modules
+    migrate with their own scripts. The order is the point: renames, then one run that
+    updates and installs, then the uninstalls, since an old module can be the only owner of a
+    table its replacement adopts."""
+    q = shlex.quote
+    target = env.target
+    stage = modules_stage(env)
+    binary = f"{q(f'{env.venv_dir(target)}/bin/python')} {q(str(env.odoo_bin(target)))}"
+    args = (f'-c {q(str(env.config_file(target)))} -d "$DB" '
+            f'--logfile={q(str(env.logs_dir / f"{stage}.log"))}')
+    odoo = f"{binary} {args}"
+    shell = f"{binary} shell {args} --no-http"
+    sources = " ".join(q(str(p)) for p in env.coverage_dirs(target))
+    return f"""
+# --- stage: the client's modules at {target} (renamed, replaced, dropped) ---
+# carry.py, embedded verbatim: the plan `odoo-dwg migrate modules` prints. It is computed
+# once, against the database, so a module the database does not have is only skipped.
+carry() {{
+  python3 - {q(str(env.decisions_file))} {q(env.source)} {q(target)} "$MODULES_PLAN" {sources} <<'ODWG_CARRY'
+{carry_source()}ODWG_CARRY
+}}
+modules_fail() {{ mark "{stage}" fail "$1"; die "{stage}: $2"; }}
+if have_ck "{stage}"; then
+  echo "[skip] {stage} already carried"
+  mark "{stage}" skip
+else
+  if [ "$AT_TARGET" != 1 ] && [ -f "$MODULES_DIRTY" ]; then
+    # An earlier carry changed the working database and left no checkpoint (it failed,
+    # or --redo-modules removed it): only the target checkpoint can be trusted.
+    mark - restore "{target}"
+    restore_ck "{target}"
+    rm -f "$MODULES_DIRTY"
+  fi
+  installed=$(psql -X -At -d "$DB" -c \\
+    "SELECT name FROM ir_module_module WHERE state IN ('installed', 'to upgrade')") \\
+    || die "{stage}: could not list the installed modules"
+  code=0
+  ODWG_INSTALLED="$installed" carry > "$LOGS/{stage}.lists" || code=$?
+  if [ "$code" -eq 3 ]; then
+    echo "[modules] nothing to carry"
+    mark "{stage}" skip "nothing to carry"
+  elif [ "$code" -ne 0 ]; then
+    modules_fail "$code" "stopped before changing the database (see [modules] lines above)"
+  else
+    {{ read -r UPDATES; read -r INSTALLS; }} < "$LOGS/{stage}.lists"
+    echo "[step] carrying the client's modules at {target}"
+    mark "{stage}" start
+    # From here the working database is no longer the target checkpoint until this
+    # stage writes its own; a run that stops before that restores the target first.
+    : > "$MODULES_DIRTY"
+    ( step_hook "{stage}" pre ) || modules_fail hook "the pre hook failed"
+    ODWG_MODULES_PLAN="$MODULES_PLAN" {shell} <<'ODWG_RENAME' \\
+      || modules_fail rename "the renames failed — see the output above and {env.logs_dir}/{stage}.log"
+{_MODULES_RENAME}ODWG_RENAME
+    mark "{stage}" renamed "$(python3 -c 'import json, sys; print(" ".join("%s>%s" % tuple(p) for p in json.load(open(sys.argv[1]))["renames"]))' "$MODULES_PLAN")"
+    if [ -n "$UPDATES$INSTALLS" ]; then
+      code=0
+      {odoo} ${{UPDATES:+-u "$UPDATES"}} ${{INSTALLS:+-i "$INSTALLS"}} --stop-after-init || code=$?
+      [ "$code" -eq 0 ] \\
+        || modules_fail "$code" "updating and installing failed — see {env.logs_dir}/{stage}.log"
+      mark "{stage}" updated "$UPDATES"
+      mark "{stage}" installed "$INSTALLS"
+    fi
+    ODWG_MODULES_PLAN="$MODULES_PLAN" {shell} <<'ODWG_UNINSTALL' \\
+      || modules_fail uninstall "the uninstalls failed or were refused — see [modules] lines above"
+{_MODULES_UNINSTALL}ODWG_UNINSTALL
+    mark "{stage}" uninstalled "$(python3 -c 'import json, sys; print(" ".join(json.load(open(sys.argv[1]))["uninstalls"]))' "$MODULES_PLAN")"
+    ( step_hook "{stage}" post ) || modules_fail hook "the post hook failed"
+    neutralise "{stage}"
+    checkpoint "{stage}"
+    rm -f "$MODULES_DIRTY"
+    mark "{stage}" ok
+  fi
+fi"""
+
+
 def render_migration_constraints(version: str) -> str | None:
     """Build constraints for a step whose dependencies a current toolchain cannot
     build as pinned, or ``None`` when the step needs none.
@@ -1373,7 +1511,21 @@ def render_run_migration_sh(env: MigrationEnv) -> str:
 # Generated by odoo_dwg — OpenUpgrade migration {env.source} -> {env.target}.
 set -euo pipefail
 
-SRC_DUMP="${{1:?usage: run_migration.sh <source-db-custom-format-dump>}}"
+SRC_DUMP="${{1:?usage: run_migration.sh <source-db-custom-format-dump> [--redo-modules]}}"
+# --redo-modules: run the client-modules stage again, from the target checkpoint.
+REDO_MODULES=0
+case "${{2:-}}" in
+  "") ;;
+  --redo-modules) REDO_MODULES=1 ;;
+  *) echo "usage: run_migration.sh <source-db-custom-format-dump> [--redo-modules]" >&2; exit 2 ;;
+esac
+MODULES_CK={shlex.quote(modules_stage(env))}
+MODULES_PLAN={shlex.quote(str(env.logs_dir / f"{modules_stage(env)}-plan.json"))}
+# Present while the client-modules stage has changed the working database without a
+# checkpoint of its own: the stage then starts again from the target checkpoint.
+MODULES_DIRTY={shlex.quote(str(env.checkpoints_dir / f"{modules_stage(env)}.dirty"))}
+# Whether the working database is known to be exactly at the target checkpoint.
+AT_TARGET=0
 DB={shlex.quote(env.database)}
 export PGHOST={shlex.quote(env.db_host)} PGPORT={int(env.db_port)} PGUSER={shlex.quote(env.db_user)}
 CK={shlex.quote(str(env.checkpoints_dir))}
@@ -1451,7 +1603,7 @@ mark - run-start "{env.source} -> {env.target}"
 if ! have_ck 00_source; then
   # A fresh run owns the checkpoint directory: step dumps left by an earlier run
   # belong to another attempt and would be skipped as if they were this one's.
-  rm -f "$CK"/*.dump "$CK"/*.dump.tmp "$CK/source.sha256"
+  rm -f "$CK"/*.dump "$CK"/*.dump.tmp "$CK"/*.dirty "$CK/source.sha256"
   mark - restore 00_source
   echo "[init] restoring source dump into working DB '$DB'"
   dropdb --if-exists "$DB"
@@ -1475,6 +1627,14 @@ else
   elif [ "$CK_SHA" != "$SRC_SHA" ]; then
     die "checkpoints in $CK came from another source dump — remove that whole directory to start over"
   fi
+  if [ "$REDO_MODULES" = 1 ]; then
+    # The working database holds the stage's result: the stage restores the target first.
+    if have_ck "$MODULES_CK"; then
+      rm -f "$CK/$MODULES_CK.dump"
+      : > "$MODULES_DIRTY"
+    fi
+    echo "[init] --redo-modules: the client-modules stage runs again"
+  fi
   # A failed step leaves the working DB half-migrated: resume from the newest
   # checkpoint, not from whatever the DB holds now.
   LAST=00_source
@@ -1489,7 +1649,13 @@ else
       rm -f "$CK/$step.dump"
     fi
   done
-  if [ "$LAST" = "{env.target}" ]; then
+  # The client-modules stage comes after the target step, and follows the same rule.
+  if [ "$gap" = 0 ] && have_ck "$MODULES_CK"; then
+    LAST="$MODULES_CK"
+  else
+    rm -f "$CK/$MODULES_CK.dump"
+  fi
+  if [ "$LAST" = "{env.target}" ] || [ "$LAST" = "$MODULES_CK" ]; then
     echo "[init] every step already has a checkpoint"
   else
     mark - restore "$LAST"
@@ -1525,6 +1691,13 @@ else
   mark "{version}" ok
 fi"""
         )
+    # The target step just ran, or was skipped: only when it ran is the working database
+    # known to be exactly at the target checkpoint.
+    done = f'  mark "{env.target}" ok\nfi'
+    if not steps[-1].endswith(done):
+        raise AssertionError("the target step no longer ends where AT_TARGET is set")
+    steps[-1] = steps[-1][: -len(done)] + (f'  mark "{env.target}" ok\n  AT_TARGET=1\n  rm -f "$MODULES_DIRTY"\nfi')
+    steps.append(_render_modules_stage(env))
     footer = (
         '\n\nmark - run-ok\n'
         f'echo "[done] migration complete — working DB is now Odoo {env.target}"\n'

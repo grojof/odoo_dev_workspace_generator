@@ -263,6 +263,67 @@ continuously: a module recorded as dead a year ago may have a branch today.
 The file is the operator's, carried between clients: the fates of Odoo and OCA modules are facts the tool
 derives every time, and this records the one thing no source states.
 
+Record or change a decision without editing the file by hand:
+
+```bash
+odoo-dwg migrate decide website_sale_product_attribute_filter_category --source 12.0 --target 19.0 \
+  --decision dropped --reason "OCA has not ported it to 16.0 or 19.0"          # prints the entry
+odoo-dwg migrate decide … --write                                              # records it
+```
+
+The kinds are `kept`, `deferred`, `dropped`, `renamed` and `replaced`; the last two name the module(s)
+that carry this one with `--to`. The entry for the same module and pair is replaced where it stands, and
+nothing else in the file changes.
+
+### The client's own modules under new names: the client-modules stage
+
+A client's own modules reach the target one of two ways, and you choose per module:
+
+- **Adapted in place**: same name, its target-version code in `addons/odoo<major>/custom`. The target step
+  migrates it with its own scripts. Nothing more to do.
+- **Refactored while porting**: new names (often under a prefix you use for that client), several old
+  modules folded into one, some replaced by an OCA or standard module, some retired. Record each fate as
+  a decision for the source → target pair:
+
+| Decision | `--to` | At the target |
+|---|---|---|
+| `renamed` | one module | the old module's record and identifiers become the new module's; several renamed to one are merged into it; then the new module is updated, so its `migrations/<version>/` scripts run on the old data |
+| `replaced` | one or more | the replacements are installed, then the old module is uninstalled |
+| `dropped` | — | uninstalled, if still installed |
+| `kept`, `deferred` | — | left as they are; named if still installed with no code |
+
+After the target step the driver runs a **client-modules stage** from those decisions, read when it runs
+(no regeneration after editing them):
+
+1. `hooks/<target>-modules-pre.sql`, when present;
+2. the renames, with OpenUpgrade's own `update_module_names` (merging);
+3. one plain Odoo run (no OpenUpgrade framework): `-u` the renamed modules, `-i` the replacements;
+4. the uninstalls, last: an old module can be the only owner of a table its replacement adopts. The stage
+   refuses an uninstall that would take along a module no decision drops or replaces;
+5. `hooks/<target>-modules-post.sql`, neutralise, and a checkpoint `<target>-modules`.
+
+Before touching the database it refuses a `to` module that is not in the target's sources, has an
+unreadable manifest, is not installable, or has a version of another series. It uninstalls nothing unless
+what it updated and installed is installed. With nothing to carry it says so and writes no checkpoint. A
+stage that stopped half-way leaves a marker, and the next run restores the target checkpoint before
+anything else. **`dropped` decisions made before this stage existed now take effect:** the modules still
+installed are uninstalled, which used to be done by hand. Check the plan first, against the migrated database if you have one:
+
+```bash
+odoo-dwg migrate modules --source 12.0 --target 18.0 --database migration_12_to_18
+```
+
+While porting, repeat only this stage from the target checkpoint, without the chain:
+
+```bash
+./run_migration.sh data/source.dump --redo-modules
+```
+
+Renaming a field is the new module's job, in its own `migrations/<version>/pre-migration.py`
+(`openupgrade.rename_fields`, which also carries saved filters and export templates). Splitting one old
+module into several is too: rename it to the part that owns its data, and let the other parts take their
+records in their own scripts.
+
 ### Following a run while it happens
 
 You start the driver by hand, and a 12 → 19 chain takes hours. **Menu → Migration → Follow a running

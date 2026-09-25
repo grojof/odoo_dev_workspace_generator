@@ -170,14 +170,27 @@ def _ask_env(with_oca: bool = False) -> MigrationEnv | None:
         # client's own core and add-ons, and the reference is never opened.
         env.intake = load_intake(env)
         # The core the steps run on, as generation wrote it into their configs.
-        env.chain_core = _generated_chain_core(env)
+        env.chain_core = generated_chain_core(env)
     except ValueError as error:
         print(level_text("ERROR", str(error)))
         return None
     return env
 
 
-def _generated_chain_core(env: MigrationEnv) -> str:
+def env_as_generated(source: str, target: str) -> MigrationEnv:
+    """The environment as generation left it on disk, for the actions that ask nothing:
+    its linked OCA repositories, its intake and its chain core. Without them a reader
+    resolves modules in fewer directories than the driver does. Raises ValueError for an
+    invalid pair."""
+    probe = MigrationEnv(source=source, target=target)
+    env = MigrationEnv(source=source, target=target, oca_repos=linked_oca_repos(probe))
+    env.validate()
+    env.intake = load_intake(env)
+    env.chain_core = generated_chain_core(env)
+    return env
+
+
+def generated_chain_core(env: MigrationEnv) -> str:
     """The core the generated steps from 14.0 run on, read back from the first
     one's config: the only record of it. Empty before any generation."""
     for version in env.chain():

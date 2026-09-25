@@ -14,11 +14,12 @@ import os
 import sys
 
 from . import __version__
+from .carry import KINDS
 from .i18n import set_language, t, tf
 from .models import DEFAULT_DB_ROLE
 from .prompts import choose, clear_screen
 from .system import set_verbose
-from .workflows import checks, migration_menu, provision_menu, workspace_menu
+from .workflows import checks, decide, migration_menu, provision_menu, workspace_menu
 
 _LANG_ENV = "ODWG_LANG"
 
@@ -46,7 +47,10 @@ def _select_language(preferred: str | None = None, *, ask: bool = True) -> None:
     set_language("es" if lang == "Español" else "en")
 
 
-_READ_ONLY_MIGRATE_ACTIONS = frozenset({"report", "probes", "audit", "findings"})
+#: The migrate actions that run without a menu. `decide` writes the operator's decisions
+#: file, and only with --write; it never prompts either.
+_READ_ONLY_MIGRATE_ACTIONS = frozenset({"report", "probes", "audit", "findings", "modules",
+                                        "decide"})
 
 
 def _is_read_only(args: argparse.Namespace) -> bool:
@@ -165,6 +169,24 @@ def _build_parser() -> argparse.ArgumentParser:
     audit.add_argument("--db-host", default="127.0.0.1")
     audit.add_argument("--db-port", type=int, default=5432)
     audit.add_argument("--db-user", default=DEFAULT_DB_ROLE)
+    modules = migrate_actions.add_parser(
+        "modules", parents=[common, chain],
+        help=t("Show what the client-modules stage will do at the target. Reads only."))
+    modules.add_argument("--database", help=t("Also read which modules this database has."))
+    modules.add_argument("--db-host", default="127.0.0.1")
+    modules.add_argument("--db-port", type=int, default=5432)
+    modules.add_argument("--db-user", default=DEFAULT_DB_ROLE)
+    decide = migrate_actions.add_parser(
+        "decide", parents=[common, chain],
+        help=t("Record what happens to a module; writes decisions.json only with --write."))
+    decide.add_argument("module", help=t("The module's technical name."))
+    decide.add_argument("--decision", required=True, choices=list(KINDS),
+                        help=t("What happens to it."))
+    decide.add_argument("--to", nargs="+", default=[],
+                        help=t("The module(s) that carry it: one for renamed, any for replaced."))
+    decide.add_argument("--reason", default="", help=t("Why, in a sentence."))
+    decide.add_argument("--write", action="store_true",
+                        help=t("Write it; without this, only print it."))
     findings = migrate_actions.add_parser(
         "findings", parents=[common],
         help=t("Read the findings ledger and render its reports. Writes nothing."))
@@ -288,6 +310,12 @@ def main(argv: list[str] | None = None) -> int:
                 )
             if action == "findings":
                 return _findings_command(args)
+            if action == "modules":
+                return checks.client_modules(args.source, args.target, args.database,
+                                             args.db_host, args.db_port, args.db_user)
+            if action == "decide":
+                return decide.record_decision(args.module, args.source, args.target,
+                                              args.decision, args.to, args.reason, args.write)
             migration_menu()
     except (KeyboardInterrupt, EOFError):
         print(t("\nExiting."))

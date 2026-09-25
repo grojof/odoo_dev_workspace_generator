@@ -1072,6 +1072,54 @@ _ES: dict[str, str] = {
     'recompute.':
         'La reparación del driver tras la 14.0 las recalcula; una base migrada sin ella necesita '
         'el mismo recálculo.',
+    # The client-modules stage (migrate modules / migrate decide).
+    "Show what the client-modules stage will do at the target. Reads only.":
+        "Muestra qué hará la etapa de módulos del cliente en la versión destino. Solo lee.",
+    "Also read which modules this database has.":
+        "Lee también qué módulos tiene esta base de datos.",
+    "Record what happens to a module; writes decisions.json only with --write.":
+        "Registra qué se hace con un módulo; escribe decisions.json solo con --write.",
+    "The module's technical name.": "El nombre técnico del módulo.",
+    "What happens to it.": "Qué se hace con él.",
+    "The module(s) that carry it: one for renamed, any for replaced.":
+        "El módulo o módulos que lo recogen: uno para renamed, los que sean para replaced.",
+    "Why, in a sentence.": "Por qué, en una frase.",
+    "Write it; without this, only print it.": "Escribirlo; sin esto, solo se muestra.",
+    "Nothing was changed.": "No se ha cambiado nada.",
+    "The client-modules stage would stop before changing the database.":
+        "La etapa de módulos del cliente se detendría antes de cambiar la base de datos.",
+    "Nothing to carry: the stage will change nothing.":
+        "Nada que trasladar: la etapa no cambiará nada.",
+    "{} is merged into {}": "{} se fusiona en {}",
+    "{} is renamed to {}": "{} se renombra a {}",
+    "Update: {}": "Actualizar: {}",
+    "Install: {}": "Instalar: {}",
+    "Uninstall: {}": "Desinstalar: {}",
+    "{}: not installed, nothing to carry": "{}: no está instalado, nada que trasladar",
+    "{}: still installed with no code at {} (kept as decided)":
+        "{}: sigue instalado sin código en la {} (se mantiene, como se decidió)",
+    "The decisions file holds no list of decisions.":
+        "El fichero de decisiones no contiene una lista de decisiones.",
+    "{} is not a module name.": "{} no es un nombre de módulo.",
+    "No migration environment at {}.": "No hay ningún entorno de migración en {}.",
+    "permission denied": "permiso denegado",
+    "Not written. Add --write to record it in {}.":
+        "No se ha escrito. Añada --write para registrarlo en {}.",
+    "unknown decision {}: the stage ignores it": "decisión desconocida {}: la etapa la ignora",
+    "{} names no module in `to`": "{} no indica ningún módulo en `to`",
+    "renamed to more than one module ({})": "renombrado a más de un módulo ({})",
+    "`to` is only for renamed or replaced, not {}":
+        "`to` es solo para renamed o replaced, no para {}",
+    "{} is not a module name": "{} no es un nombre de módulo",
+    "carried to itself": "se traslada a sí mismo",
+    "{} resolves in none of the {} sources": "{} no está en ninguna de las fuentes de la {}",
+    "{} has no readable manifest": "{} no tiene un manifiesto legible",
+    "{} is version {}, not {}": "{} es la versión {}, no la {}",
+    "{} has no migrations/ scripts": "{} no tiene scripts en migrations/",
+    "{} is not installable (its manifest says installable: False)":
+        "{} no es instalable (su manifiesto dice installable: False)",
+    "{} is already installed: merging into it runs none of its migration scripts":
+        "{} ya está instalado: al fusionar en él no se ejecuta ninguno de sus scripts de migración",
 }
 
 # Runtime lookup: English (the in-code source) → Spanish.

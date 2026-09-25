@@ -229,6 +229,11 @@ items are host-dependent.
   bank-line problems of sources up to 13.0, declared constraints PostgreSQL does not have, required fields
   left empty and stale reconciled flags, on a source copy, a checkpoint or the migrated database.
 
+  Then the client's own modules under new names (change `carry-client-modules`): renamed, merged,
+  replaced or dropped as decided, in a stage after the target step with its own checkpoint, repeatable
+  alone while porting; `migrate modules` shows the plan and `migrate decide` records a decision from the
+  command line.
+
   Not done yet: a client's own module whose manifest declares Odoo S.A. as its author is reported
   "dropped by Odoo; OpenUpgrade removes it". With an intake, where the module loads from is known, and
   that should decide it rather than the author.

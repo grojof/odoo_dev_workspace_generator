@@ -834,6 +834,9 @@ class ModuleDecision:
     decision: str
     reason: str = ""
     evidence: dict = field(default_factory=dict)
+    #: The module(s) that carry this one at the target: one for ``renamed``, one or
+    #: more for ``replaced``. Kept as read, so a wrong ``to`` is reported, not lost.
+    to: tuple[str, ...] = ()
 
     def key(self) -> tuple[str, str, str]:
         return (self.module, self.source, self.target)
@@ -846,6 +849,7 @@ class ModuleDecision:
             "decision": self.decision,
             "reason": self.reason,
             "evidence": dict(self.evidence),
+            **({"to": self.to[0] if len(self.to) == 1 else list(self.to)} if self.to else {}),
         }
 
     @classmethod
@@ -859,6 +863,7 @@ class ModuleDecision:
         if not all(isinstance(data.get(key), str) and data.get(key) for key in needed):
             return None
         evidence = data.get("evidence")
+        to = data.get("to")
         return cls(
             module=data["module"],
             source=data["source"],
@@ -866,6 +871,8 @@ class ModuleDecision:
             decision=data["decision"],
             reason=data.get("reason") if isinstance(data.get("reason"), str) else "",
             evidence=evidence if isinstance(evidence, dict) else {},
+            to=(to,) if isinstance(to, str) else tuple(str(t) for t in to)
+            if isinstance(to, list) else (),
         )
 
 
