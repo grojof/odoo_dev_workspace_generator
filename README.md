@@ -15,7 +15,7 @@ never changes the host without first showing you every command it will run.
 | **Workspaces** | A workspace per client and several Odoo versions (12.0–19.0) side by side. Odoo and OCA code is cloned once and shared. Each instance gets its own venv, `odoo.conf`, `addons-custom` / `addons-oca`, VS Code files set up for the official Odoo extension, and a README. |
 | **Host provisioning** *(optional)* | Build dependencies, PostgreSQL and its role, wkhtmltopdf and rtlcss. Optionally, an outbound firewall that denies by default and asks first (OpenSnitch), and local mail capture (Mailpit). |
 | **Taking in a client copy** | Restores the dump into a reference database that nobody modifies, and creates a read-only role that cannot see secrets. It classifies the client's add-ons and identifies their core (official or OCB, down to the commit). It audits their own modules from their data, and finds data the target will refuse. |
-| **Migration 12 → 19** | Each version uses its own interpreter through `uv`. A preflight checks the host, the dump and add-on coverage. Custom modules are staged. The driver takes a checkpoint after each step, runs your own pre and post hooks, and repairs known OpenUpgrade defects. |
+| **Migration 12 → 19** | Each version uses its own interpreter through `uv`. A preflight checks the host, the dump and add-on coverage. Custom modules are staged. The driver takes a checkpoint after each step, runs your own pre and post hooks, and repairs known OpenUpgrade defects. After the chain it can carry the client's own modules to new names: renamed, merged, replaced or retired, as you decided. |
 | **Safe copies of production** | Neutralises crons, tax and EDI links, payments, IAP and mail, and records every change inside the database. The driver neutralises again after every step, and giving production's settings back is always your own explicit action. |
 | **Checks and findings** | `migrate audit` looks for the data problems that break or distort a migration. A findings ledger keeps the evidence and the client's decisions, and renders the client and internal reports in English or Spanish. |
 
@@ -79,12 +79,14 @@ a migration runs. The exit code is the verdict: 0 clean, 1 found something, 2 co
 ```bash
 odoo-dwg migrate audit --database <db>     # data that breaks or distorts a migration
 odoo-dwg migrate report --source 12.0 --target 18.0
+odoo-dwg migrate modules --source 12.0 --target 18.0   # what the client-modules stage will do
 odoo-dwg neutralise check --database <db>  # can this copy still act on the outside?
 odoo-dwg mail check --database <db>        # can its mail leave?
 odoo-dwg egress check                      # are the firewall rules still the tool's?
 ```
 
-Every command, menu action and confirmation phrase is in [commands](docs/reference/commands.md).
+`odoo-dwg migrate decide` records a module's fate in the environment's decisions, and writes only with
+`--write`. Every command, menu action and confirmation phrase is in [commands](docs/reference/commands.md).
 
 **Requirements:**
 - a Linux host (Ubuntu 24.04 is the target; with nothing yet, follow the [WSL 2 setup](docs/host/wsl-setup.md));
