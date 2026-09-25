@@ -7,6 +7,17 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **`odoo-dwg migrate audit --database <db>`: one database's coherence, at any stage.** It is read-only,
+  and it exits 0, 1 or 2 like the other checks. It runs:
+  - on a source copy: journal codes shared within a company, bank lines imported twice, unreconciled
+    lines matching a payment posted on the bank account (counted twice from 14.0), and closed-period
+    lines (information);
+  - on any database: declared unique and check constraints PostgreSQL does not have (OpenUpgrade only
+    logs them), and required fields left empty, binaries by their attachment;
+  - from 14.0: statement lines stored as reconciled with a line still in suspense.
+
+  Each check applies by the shape of the database, and names its fix without applying it. A thin skill,
+  `migration-coherence-check`, tells an assistant when to run it and how to read it.
 - **The SII certificate file reaches the new certificate model.** From a 12.0 or 13.0 source, the OCA
   14.0 migration of `l10n_es_aeat_sii_oca` creates the new certificates but leaves each `.p12` in the old
   table. The driver's 14.0 repair now carries it through the ORM and reminds you to obtain the keys again

@@ -654,6 +654,38 @@ tail -f ~/odoo-migrations/12-to-19/logs/steps.tsv    # where the chain is
 tail -f ~/odoo-migrations/12-to-19/logs/15.0.log     # what that step is saying
 ```
 
+### Checking a database's coherence: `migrate audit`
+
+A step can succeed and still leave the database wrong. OpenUpgrade logs "unable to add constraint" and
+carries on, a required field arrives empty, and a flag is stored stale. Some problems are in the source
+before the chain starts. One read-only command asks a database for all of them:
+
+```bash
+odoo-dwg migrate audit --database <db> [--db-user <reader>]
+```
+
+It writes nothing and changes nothing. It exits 0 when nothing was found, 1 when a check found something,
+and 2 when it could not tell. Each check applies by what the database has, not by a version you state. So
+run it:
+- on the reference before the chain;
+- on a restored checkpoint between steps, to see which step broke something;
+- on the migrated database.
+
+| Check | Where | Verdict |
+|---|---|---|
+| Journal codes shared within a company | any | found; codes differing only by case or spaces are information |
+| Bank statement lines imported twice | sources up to 13.0 | found, by the intake's proof |
+| Unreconciled lines matching a payment posted on the bank account | sources up to 13.0 | found, split by closed and open periods; from 14.0 the bank counts each twice |
+| Unreconciled lines of closed periods | sources up to 13.0 | information: carrying them is the accountant's decision |
+| Declared unique and check constraints PostgreSQL does not have | any | found; names compared as PostgreSQL truncates them, foreign keys not read |
+| Required fields left empty | any | found on active records; archived-only is information; binaries by their attachment |
+| Statement lines stored as reconciled with a line still in suspense | from 14.0 | found; the same selection as the 14.0 repair |
+
+Each finding names its fix (an intake step, a data correction on the working copy, the client's
+decision) and applies none. Examples carry ids, codes and model names, never partner names or statement
+labels. The skill `migration-coherence-check` in `.claude/skills/` tells an assistant when to run it and
+how to read it.
+
 ### The report: what happened, and what is still open
 
 **Menu → Migration → Report on the runs so far** reads the step log, each step's Odoo log and the firewall's

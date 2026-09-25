@@ -133,7 +133,7 @@ By surface:
   (one ledger per migration of everything found, with the evidence, the query that re-derives it and the
   client's decision; the client and extended reports are rendered from it, in English or Spanish).
 - **Read-only checks without the menu** — `odoo-dwg egress check`, `mail check`, `migrate report`,
-  `migrate probes`, `migrate findings …`, `neutralise check`: they write nothing, prompt for nothing, and carry their verdict
+  `migrate probes`, `migrate audit`, `migrate findings …`, `neutralise check`: they write nothing, prompt for nothing, and carry their verdict
   in the exit code, so they work in a script or in a second terminal while a migration runs.
 - **Editor** — [`docs/editor-integration.md`](docs/editor-integration.md) (the official Odoo extension, what a
   workspace emits for it, and how to keep up with its releases).
