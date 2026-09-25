@@ -1228,7 +1228,7 @@ class JournalCode:
     active: bool
     entries: int
     last: str
-    group: str       # "shared" (breaks the constraint) | "confusable" (case or spaces)
+    group: str       # "shared" (breaks the constraint) | "confusable" | "operator"
     proposed: str    # "" for the journal that keeps its code
 
 
@@ -1247,7 +1247,12 @@ def journal_code_plan(rows: list[list[str]], edits: dict[int, str] | None = None
                       ) -> tuple[list[JournalCode], list[str]]:
     """``(plan, problems)``: per company, the journals that share a code or whose codes
     differ only by case or spaces. The one with most entries keeps its code (lowest id
-    on a tie); every other gets the operator's code from ``edits`` or a proposal."""
+    on a tie); every other gets the operator's code from ``edits`` or a proposal.
+
+    ``edits`` may also name any other journal, the one keeping a group's code included:
+    a readable scheme is the operator's to choose. A code equal to the current one renames
+    nothing, and a code another journal holds now is refused, because the guarded SQL
+    renames one journal at a time and a chain would depend on the order."""
     edits = edits or {}
     journals = [(int(r[0]), int(r[1]), r[2], r[3], r[4], r[5] == "t", int(r[6] or 0), r[7])
                 for r in rows if len(r) >= 8 and r[0].isdigit() and r[1].isdigit()]
@@ -1256,32 +1261,56 @@ def journal_code_plan(rows: list[list[str]], edits: dict[int, str] | None = None
         by_company.setdefault(j[1], []).append(j)
     plan: list[JournalCode] = []
     problems: list[str] = []
+
+    def operator_code(journal) -> str:
+        code = edits[journal[0]].strip()
+        if code == journal[2]:
+            return ""
+        if not JOURNAL_CODE_RE.fullmatch(code):
+            problems.append(f"journal {journal[0]}: {code!r} is not 1 to 5 letters or digits")
+        return code
+
     for company, members in sorted(by_company.items()):
-        used = {m[2].strip().upper() for m in members}
+        used = {m[2].strip().upper() for m in members} | {
+            e.strip().upper() for jid, e in edits.items() if any(m[0] == jid for m in members)}
         groups: dict[str, list] = {}
         for m in members:
             groups.setdefault(m[2].strip().upper(), []).append(m)
         renamed: dict[int, str] = {}
+        grouped: set[int] = set()
         for key, group in sorted(groups.items()):
             if len(group) < 2:
                 continue
             kind = "shared" if len({m[2] for m in group}) < len(group) else "confusable"
             keeper = sorted(group, key=lambda m: (-m[6], m[0]))[0]
             for m in sorted(group, key=lambda m: m[0]):
-                if m is keeper:
+                grouped.add(m[0])
+                if m[0] in edits:
+                    proposed = operator_code(m)
+                elif m is keeper:
                     proposed = ""
-                elif m[0] in edits:
-                    proposed = edits[m[0]].strip()
-                    if not JOURNAL_CODE_RE.fullmatch(proposed):
-                        problems.append(f"journal {m[0]}: {proposed!r} is not 1 to 5 letters or digits")
                 else:
                     proposed = _proposal(key, used)
                 if proposed:
                     renamed[m[0]] = proposed
                 plan.append(JournalCode(m[0], company, m[2], m[3], m[4], m[5], m[6], m[7], kind,
                                         proposed))
+        for m in sorted(members, key=lambda m: m[0]):
+            if m[0] in grouped or m[0] not in edits:
+                continue
+            proposed = operator_code(m)
+            if proposed:
+                renamed[m[0]] = proposed
+                plan.append(JournalCode(m[0], company, m[2], m[3], m[4], m[5], m[6], m[7],
+                                        "operator", proposed))
+        current = {m[0]: m[2].strip().upper() for m in members}
         final = {m[0]: renamed.get(m[0], m[2]).strip().upper() for m in members}
         for jid, code in renamed.items():
+            holder = [other for other, c in current.items() if other != jid and c == code.upper()]
+            if holder:
+                problems.append(f"journal {jid}: {code!r} is journal {holder[0]}'s current code in "
+                                f"company {company}; choose a code no journal has now")
+                continue
             clash = [other for other, c in final.items() if other != jid and c == code.upper()]
             if clash:
                 problems.append(f"journal {jid}: {code!r} is also journal {clash[0]}'s code in "

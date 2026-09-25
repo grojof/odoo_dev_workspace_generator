@@ -50,7 +50,34 @@ def test_the_operators_code_is_kept_and_a_bad_one_refused():
     _, problems = it.journal_code_plan(ROWS, {102: "AC ME"})
     assert "not 1 to 5 letters or digits" in problems[0]
     _, problems = it.journal_code_plan(ROWS, {102: "BANK2"})
-    assert "also journal 103" in problems[0]
+    assert "journal 103's current code" in problems[0]
+    _, problems = it.journal_code_plan(ROWS, {102: "NEW01", 105: "NEW01"})
+    assert any("also journal" in p for p in problems)
+
+
+def test_the_operator_may_rename_a_journal_outside_any_group():
+    plan, problems = it.journal_code_plan(ROWS, {103: "TAR01"})
+    renamed = _by_id(plan)[103]
+    assert not problems and renamed.group == "operator" and renamed.proposed == "TAR01"
+    assert "SET code = 'TAR01' WHERE id = 103 AND code = 'BANK2'" in it.journal_codes_sql(plan)
+
+
+def test_the_journal_keeping_a_groups_code_may_get_a_readable_one():
+    plan, problems = it.journal_code_plan(ROWS, {101: "ESB01", 102: "ESB02"})
+    by = _by_id(plan)
+    assert not problems and by[101].proposed == "ESB01" and by[102].proposed == "ESB02"
+
+
+def test_writing_the_current_code_renames_nothing():
+    plan, problems = it.journal_code_plan(ROWS, {103: "BANK2"})
+    assert not problems and 103 not in _by_id(plan)
+    plan, _ = it.journal_code_plan(ROWS, {101: "BANK1"})
+    assert _by_id(plan)[101].proposed == ""
+
+
+def test_a_generated_proposal_never_takes_a_code_the_operator_chose():
+    plan, problems = it.journal_code_plan(ROWS, {103: "BANK3"})
+    assert not problems and _by_id(plan)[102].proposed != "BANK3"
 
 
 def test_the_sql_renames_only_while_the_old_code_holds_and_the_new_is_free():

@@ -215,7 +215,7 @@ items are host-dependent.
   bank's own balances, for a source up to 13.0, with a guarded SQL for the first step's pre hook.
   The same step lists closed periods' unreconciled lines, optionally left behind on the accountant's
   decision (change `leave-locked-bank-lines-behind`). And journal codes the target refuses are renamed
-  before the chain (change `rename-duplicate-journal-codes`). The second rehearsal found that
+  before the chain (change `rename-duplicate-journal-codes`), and any journal may get a readable code from the operator (change `rename-any-journal-code`). The second rehearsal found that
   OpenUpgrade 14.0 leaves statement lines stored as reconciled, and the driver now repairs them
   after that step (change `repair-statement-line-reconciled-flag`). The upstream fix, a flush in
   OpenUpgrade, is proposed as a draft in OCA/OpenUpgrade#6005.

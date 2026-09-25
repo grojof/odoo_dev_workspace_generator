@@ -1043,8 +1043,10 @@ def find_journal_codes(env: MigrationEnv) -> None:
         _next_run_id(env, "journal-codes"), "high" if shared else ("low" if plan else "info"),
         "account_journal",
         f"{len(renamed)} journal(s) to rename: {len(shared)} journal(s) share a code in their "
-        f"company, {len(plan) - len(shared)} have codes that differ only by case or spaces. From "
-        "15.0 the migration cannot add unique (company_id, code) and only logs it.",
+        f"company, {len([j for j in plan if j.group == 'confusable'])} have codes that differ only "
+        f"by case or spaces, {len([j for j in plan if j.group == 'operator'])} renamed by the "
+        "operator for a readable scheme. From 15.0 the migration cannot add unique "
+        "(company_id, code) while a code is shared, and only logs it.",
         {"renamed": {str(j.id): [j.code, j.proposed] for j in renamed},
          "operator_codes": len([j for j in renamed if j.id in edits])},
         f"findings/data/{table}",

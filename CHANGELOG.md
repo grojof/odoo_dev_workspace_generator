@@ -7,6 +7,11 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Any journal may get a readable code.** The journal codes step's table now takes a code for any
+  journal, not only for those the target refuses, including the one that keeps a group's code. This
+  gives a readable scheme, such as bank journals by company and age. A code equal to the current one
+  renames nothing, and a code another journal holds now is refused. Renamed journals with history keep
+  their entry numbering: Odoo 18 follows the journal's last entry.
 - **The 14.0 step repairs statement lines stored as reconciled.** For a source up to 13.0,
   OpenUpgrade's 14.0 account post-migration creates entries for unreconciled statement lines through
   the ORM, and then computes their `is_reconciled` in SQL with no flush in between. The ORM's stale
