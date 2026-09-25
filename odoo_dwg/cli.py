@@ -265,6 +265,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.section == "egress":
             return checks.egress_check()
         elif args.section == "mail":
+            if getattr(args, "action", None) != "check":
+                parser.error(t("mail: the only action is 'check'"))
             return checks.mail_check(
                 args.database, args.db_host, args.db_port, args.db_user
             )

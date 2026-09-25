@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from odoo_dwg import egress
+from odoo_dwg import cli, egress
 from odoo_dwg.workflows import checks
 
 
@@ -99,3 +99,10 @@ def test_mail_check_exits_on_whether_mail_can_leave(monkeypatch, state, expected
 def test_a_database_that_cannot_be_read_is_not_a_clean_result(monkeypatch):
     monkeypatch.setattr(checks, "mail_state", lambda *a, **k: None)
     assert checks.mail_check("acme_copy", "127.0.0.1", 5432, "odoo") == checks.UNKNOWN
+
+
+def test_mail_without_its_action_is_a_usage_error_not_a_traceback(capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["mail"])
+    assert exit_info.value.code == 2
+    assert "the only action is 'check'" in capsys.readouterr().err

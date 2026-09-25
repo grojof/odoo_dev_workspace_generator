@@ -499,8 +499,11 @@ _ES: dict[str, str] = {
     'The {} rules are as the tool wrote them.':
         'Las reglas {} están como las escribió la herramienta.',
     '{} rule(s) to look at.': 'Hay {} regla(s) que mirar.',
-    "Nothing was changed. Menu -> Provision -> Outbound firewall and mail capture rewrites the tool's own rules; your own are yours to judge.":
-        'No se cambió nada. Menú -> Provision -> Cortafuegos de salida y captura de correo reescribe las reglas propias de la herramienta; las tuyas las juzgas tú.',
+    "Nothing was changed. Menu -> Provision -> Apply (install what's missing), answering yes "
+    "to the outbound firewall, rewrites the tool's own rules; your own are yours to judge.":
+        'No se cambió nada. Menú -> Provision -> Aplicar (instalar lo que falte), respondiendo sí '
+        'al cortafuegos de salida, reescribe las reglas propias de la herramienta; las tuyas las '
+        'juzgas tú.',
     "Menu -> Migration -> Capture a database's mail in Mailpit stops it.":
         'Menú -> Migración -> Capturar en Mailpit el correo de una base de datos lo detiene.',
     'No run recorded yet in {}.': 'Todavía no hay ninguna ejecución registrada en {}.',
@@ -748,6 +751,7 @@ _ES: dict[str, str] = {
     "Report crons, tax, payment and other integrations still able to act.":
         "Informa de los crons, integraciones fiscales, de pago y demás que aún pueden actuar.",
     "neutralise: the only action is 'check'": "neutralise: la única acción es 'check'",
+    "mail: the only action is 'check'": "mail: la única acción es 'check'",
     "Neutralise database {} (crons, tax and EDI, payments, IAP, links)":
         "Neutralizar la base de datos {} (crons, fiscal y EDI, pagos, IAP, enlaces)",
     "Give database {} its production settings back":
