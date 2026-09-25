@@ -911,15 +911,25 @@ def _native_step_command(env: MigrationEnv, version: str) -> str:
 #: The step after which OpenUpgrade has left statement lines' ``is_reconciled`` stale.
 STATEMENT_LINES_REPAIR_STEP = "14.0"
 
-#: Run by the 14.0 Odoo's shell: Odoo's own rule, on every statement line.
+#: Run by the 14.0 Odoo's shell: Odoo's own rule, on the only lines the defect can leave
+#: wrong — stored as reconciled while their move still has a line on the journal's
+#: suspense account. Selected in SQL, so a database with many reconciled lines does not
+#: load them all.
 _STATEMENT_LINES_REPAIR = """\
-lines = env["account.bank.statement.line"].with_context(active_test=False).search([])
-before = len(lines.filtered("is_reconciled"))
+env.cr.execute(\"\"\"
+    SELECT l.id FROM account_bank_statement_line l
+    JOIN account_move m ON m.id = l.move_id
+    JOIN account_journal j ON j.id = m.journal_id
+    WHERE l.is_reconciled AND EXISTS (
+        SELECT 1 FROM account_move_line aml
+        WHERE aml.move_id = m.id AND aml.account_id = j.suspense_account_id)
+\"\"\")
+lines = env["account.bank.statement.line"].browse([row[0] for row in env.cr.fetchall()])
 lines._compute_is_reconciled()
 lines.flush()
 env.cr.commit()
-print("[repair] statement lines: %d, reconciled before %d, after %d"
-      % (len(lines), before, len(lines.filtered("is_reconciled"))))
+print("[repair] statement lines stored as reconciled with a suspense line: %d, still "
+      "reconciled after the recompute: %d" % (len(lines), len(lines.filtered("is_reconciled"))))
 """
 
 
@@ -931,8 +941,9 @@ def _render_step_repair(env: MigrationEnv, version: str) -> str:
     with no flush in between, so the ORM's stale values (computed before the suspense
     line existed) are written over it. Lines still in the suspense account end up
     stored as reconciled and the reconciliation screen hides them. Odoo's own
-    ``_compute_is_reconciled``, identical in 14.0 and 18.0, recomputes them. Only for a
-    source up to 13.0: from 14.0 every line already has its entry."""
+    ``_compute_is_reconciled``, identical in 14.0 and 18.0, recomputes them: only the
+    lines stored as reconciled that still have a suspense line. Only for a source up to
+    13.0: from 14.0 every line already has its entry."""
     if version != STATEMENT_LINES_REPAIR_STEP or \
             odoo_major(env.source) > LEGACY_LAYOUT_MAX_MAJOR:
         return ""

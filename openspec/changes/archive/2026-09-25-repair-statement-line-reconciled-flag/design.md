@@ -13,6 +13,14 @@ field whose rule (liquidity, suspense and other lines of the move, and the resid
 lives in Odoo. Re-implementing it in SQL would copy the rule, and the defect already came from a copy. The
 shell reads its script from stdin. `--no-http` is set, and the shell starts no cron thread.
 
+## Which lines
+
+Only the lines stored as reconciled whose move still has a line on the journal's suspense account,
+selected in SQL. A stale value can only be `True`, set while the move had no suspense line, and a line
+that really is reconciled has had its suspense line replaced by its counterpart. Recomputing every line
+would load all of them into the ORM, which costs minutes on a large database. On the first client's
+first rehearsal the selection was exactly the lines left wrong, and none on a run with OpenUpgrade fixed.
+
 ## When
 
 Only for a source up to 13.0, where lines without an entry can exist. From 14.0 every line already has its

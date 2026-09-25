@@ -5,9 +5,11 @@
 ### Requirement: A known OpenUpgrade 14.0 defect on statement lines is repaired after its step
 
 For a chain whose source is 13.0 or older, the driver SHALL recompute, right after the 14.0 step and its
-post hook and before neutralising and checkpointing, the `is_reconciled` and `amount_residual` of every
-bank statement line. It SHALL use Odoo's own method, through `odoo-bin shell` on the step's Odoo, venv and
-config, with HTTP off. It SHALL print the number of lines reconciled before and after, record the repair in
+post hook and before neutralising and checkpointing, the `is_reconciled` and `amount_residual` of the bank
+statement lines stored as reconciled whose move still has a line on the journal's suspense account: the
+only lines the defect can leave wrong. It SHALL select them in SQL, and recompute them with Odoo's own
+method through `odoo-bin shell` on the step's Odoo, venv and config, with HTTP off. It SHALL print how many
+lines it selected and how many are still reconciled after, record the repair in
 the step record, and stop the run if the repair fails. A chain whose source is 14.0 or later SHALL NOT run
 it.
 

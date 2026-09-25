@@ -552,6 +552,9 @@ def test_the_14_step_repairs_the_statement_lines_flag_for_a_source_up_to_13():
     block = driver[driver.index('step_hook "14.0" post'):driver.index('checkpoint "14.0"')]
     assert "shell -c" in block and "--no-http" in block and "odoo14" in block
     assert "_compute_is_reconciled()" in block and "env.cr.commit()" in block
+    # Only the lines the defect can leave wrong go through the ORM.
+    assert "WHERE l.is_reconciled AND EXISTS" in block and "j.suspense_account_id" in block
+    assert ".search([])" not in block
     assert 'mark "14.0" repair statement-lines-is-reconciled' in block
     assert block.index("ODWG_REPAIR") < block.index('neutralise "14.0"')
     assert driver.count("ODWG_REPAIR") == 2  # one heredoc, in the 14.0 step only

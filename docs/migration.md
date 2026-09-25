@@ -424,14 +424,16 @@ yet (`is_reconciled = True`), and a later flush writes them over the SQL result.
 
 A line still waiting in the suspense account then reads as reconciled, and the reconciliation screen,
 which filters on that field, hides it. How many lines are hit depends on how many pending values the ORM
-still holds when the script ends: on the first client's copy it was about 7 % of such lines in one run and
+still holds when the script ends: on the first client's copy it was part of such lines in one run and
 all of them in another.
 
-The driver repairs it right after the 14.0 step and its post hook, before the checkpoint. It runs
-`odoo-bin shell` on the 14.0 Odoo, recomputes every statement line with Odoo's own
-`_compute_is_reconciled` (the same rule as in 18.0), prints how many lines were reconciled before and
-after, and records `repair` in `logs/steps.tsv`. It takes seconds, and changes nothing once OpenUpgrade
-flushes itself.
+The driver repairs it right after the 14.0 step and its post hook, before the checkpoint. It selects in
+SQL the only lines the defect can leave wrong: stored as reconciled while their move still has a line on
+the journal's suspense account. It then recomputes them in `odoo-bin shell` on the 14.0 Odoo with Odoo's
+own `_compute_is_reconciled` (the same rule as in 18.0), prints how many it selected and how many are
+still reconciled, and records `repair` in `logs/steps.tsv`. Only those lines go through the ORM, so it
+takes seconds on a large database, and it selects nothing once OpenUpgrade flushes itself
+([OCA/OpenUpgrade#6005](https://github.com/OCA/OpenUpgrade/pull/6005)).
 
 ### When a module has no code anywhere: `decisions.json`
 

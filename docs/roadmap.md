@@ -218,7 +218,7 @@ items are host-dependent.
   before the chain (change `rename-duplicate-journal-codes`). The second rehearsal found that
   OpenUpgrade 14.0 leaves statement lines stored as reconciled, and the driver now repairs them
   after that step (change `repair-statement-line-reconciled-flag`). The upstream fix, a flush in
-  OpenUpgrade, is to be proposed there.
+  OpenUpgrade, is proposed as a draft in OCA/OpenUpgrade#6005.
 
   Not done yet: a client's own module whose manifest declares Odoo S.A. as its author is reported
   "dropped by Odoo; OpenUpgrade removes it". With an intake, where the module loads from is known, and

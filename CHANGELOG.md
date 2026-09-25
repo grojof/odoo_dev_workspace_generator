@@ -12,7 +12,8 @@ All notable changes to this project are documented here. The format is based on
   the ORM, and then computes their `is_reconciled` in SQL with no flush in between. The ORM's stale
   values overwrite the result, and lines still in the suspense account are hidden from the
   reconciliation screen. The driver recomputes them with Odoo's own method right after the step,
-  before its checkpoint.
+  before its checkpoint. Only the lines that can be wrong are selected (stored as reconciled with a
+  suspense line still on their move). The upstream fix is proposed in OCA/OpenUpgrade#6005.
 - **Find journal codes the target refuses.** A new step in Take in a client copy. Odoo declares a
   journal's code unique per company, and from 15.0 a migration that meets a shared code only logs that
   it could not add the constraint. The step finds, per company, shared codes and codes that differ only
