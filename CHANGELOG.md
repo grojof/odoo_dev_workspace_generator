@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **The 14.0 step repairs statement lines stored as reconciled.** For a source up to 13.0,
+  OpenUpgrade's 14.0 account post-migration creates entries for unreconciled statement lines through
+  the ORM, and then computes their `is_reconciled` in SQL with no flush in between. The ORM's stale
+  values overwrite the result, and lines still in the suspense account are hidden from the
+  reconciliation screen. The driver recomputes them with Odoo's own method right after the step,
+  before its checkpoint.
 - **Find journal codes the target refuses.** A new step in Take in a client copy. Odoo declares a
   journal's code unique per company, and from 15.0 a migration that meets a shared code only logs that
   it could not add the constraint. The step finds, per company, shared codes and codes that differ only

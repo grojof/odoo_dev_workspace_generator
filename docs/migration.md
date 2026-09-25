@@ -414,6 +414,25 @@ reversible and have the post-step hook undo exactly it. For example, record whic
 you make usable in a table of your own, and deprecate exactly those again. Record the decision in the
 findings ledger too.
 
+### A known OpenUpgrade 14.0 defect the driver repairs: statement lines stored as reconciled
+
+For a source up to 13.0, OpenUpgrade's 14.0 account post-migration gives every bank statement line
+without an entry one, through the ORM (`fill_statement_lines_with_no_move`). It then computes the lines'
+`is_reconciled` and `amount_residual` in raw SQL (`fill_account_bank_statement_line_reconciliation`). There
+is no flush in between. The ORM still holds the values it computed while each move had no suspense line
+yet (`is_reconciled = True`), and a later flush writes them over the SQL result.
+
+A line still waiting in the suspense account then reads as reconciled, and the reconciliation screen,
+which filters on that field, hides it. How many lines are hit depends on how many pending values the ORM
+still holds when the script ends: on the first client's copy it was about 7 % of such lines in one run and
+all of them in another.
+
+The driver repairs it right after the 14.0 step and its post hook, before the checkpoint. It runs
+`odoo-bin shell` on the 14.0 Odoo, recomputes every statement line with Odoo's own
+`_compute_is_reconciled` (the same rule as in 18.0), prints how many lines were reconciled before and
+after, and records `repair` in `logs/steps.tsv`. It takes seconds, and changes nothing once OpenUpgrade
+flushes itself.
+
 ### When a module has no code anywhere: `decisions.json`
 
 Coverage stops a run when an installed module resolves in no source of a step and OpenUpgrade declares no

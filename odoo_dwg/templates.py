@@ -908,6 +908,48 @@ def _native_step_command(env: MigrationEnv, version: str) -> str:
     )
 
 
+#: The step after which OpenUpgrade has left statement lines' ``is_reconciled`` stale.
+STATEMENT_LINES_REPAIR_STEP = "14.0"
+
+#: Run by the 14.0 Odoo's shell: Odoo's own rule, on every statement line.
+_STATEMENT_LINES_REPAIR = """\
+lines = env["account.bank.statement.line"].with_context(active_test=False).search([])
+before = len(lines.filtered("is_reconciled"))
+lines._compute_is_reconciled()
+lines.flush()
+env.cr.commit()
+print("[repair] statement lines: %d, reconciled before %d, after %d"
+      % (len(lines), before, len(lines.filtered("is_reconciled"))))
+"""
+
+
+def _render_step_repair(env: MigrationEnv, version: str) -> str:
+    """What a step's known OpenUpgrade defect needs, after its post hook.
+
+    OpenUpgrade's 14.0 account post-migration gives every statement line without an
+    entry one through the ORM, then computes the lines' ``is_reconciled`` in raw SQL
+    with no flush in between, so the ORM's stale values (computed before the suspense
+    line existed) are written over it. Lines still in the suspense account end up
+    stored as reconciled and the reconciliation screen hides them. Odoo's own
+    ``_compute_is_reconciled``, identical in 14.0 and 18.0, recomputes them. Only for a
+    source up to 13.0: from 14.0 every line already has its entry."""
+    if version != STATEMENT_LINES_REPAIR_STEP or \
+            odoo_major(env.source) > LEGACY_LAYOUT_MAX_MAJOR:
+        return ""
+    q = shlex.quote
+    python = q(f"{env.venv_dir(version)}/bin/python")
+    shell = (f'{python} {q(str(env.odoo_bin(version)))} shell -c {q(str(env.config_file(version)))} '
+             f'-d "$DB" --no-http --logfile={q(str(env.logs_dir / f"{version}.log"))}')
+    return (
+        "  # OpenUpgrade 14.0 stores unreconciled statement lines as reconciled (an ORM\n"
+        "  # flush over its own SQL); Odoo's own method recomputes them.\n"
+        f"  {shell} <<'ODWG_REPAIR' || die \"{version}: repairing the statement lines' "
+        "reconciled flag failed\"\n"
+        f"{_STATEMENT_LINES_REPAIR}ODWG_REPAIR\n"
+        f'  mark "{version}" repair statement-lines-is-reconciled\n'
+    )
+
+
 def render_migration_constraints(version: str) -> str | None:
     """Build constraints for a step whose dependencies a current toolchain cannot
     build as pinned, or ``None`` when the step needs none.
@@ -1431,7 +1473,7 @@ else
     die "step {version} failed — see {env.logs_dir}/{version}.log"
   fi
   step_hook "{version}" post
-  neutralise "{version}"
+{_render_step_repair(env, version)}  neutralise "{version}"
   checkpoint "{version}"
   mark "{version}" ok
 fi"""

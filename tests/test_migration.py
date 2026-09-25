@@ -545,3 +545,19 @@ def test_a_step_whose_odoo_needs_packaging_to_read_a_version_gets_it(monkeypatch
     Path(reader).write_text("msg = 'Package `packaging` is required to parse'\n")
     assert step_python_requirements(env, ["backup"]) == {
         "13.0": ["paramiko<4.0.0"], "14.0": ["paramiko<4.0.0", "packaging"]}
+
+
+def test_the_14_step_repairs_the_statement_lines_flag_for_a_source_up_to_13():
+    driver = templates.render_run_migration_sh(MigrationEnv(source="12.0", target="18.0"))
+    block = driver[driver.index('step_hook "14.0" post'):driver.index('checkpoint "14.0"')]
+    assert "shell -c" in block and "--no-http" in block and "odoo14" in block
+    assert "_compute_is_reconciled()" in block and "env.cr.commit()" in block
+    assert 'mark "14.0" repair statement-lines-is-reconciled' in block
+    assert block.index("ODWG_REPAIR") < block.index('neutralise "14.0"')
+    assert driver.count("ODWG_REPAIR") == 2  # one heredoc, in the 14.0 step only
+
+
+def test_a_source_from_14_needs_no_statement_lines_repair():
+    for source in ("14.0", "15.0"):
+        assert "ODWG_REPAIR" not in templates.render_run_migration_sh(
+            MigrationEnv(source=source, target="18.0"))

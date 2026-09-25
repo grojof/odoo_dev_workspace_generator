@@ -263,6 +263,13 @@ def main() -> int:
             legacy.returncode == 0 and "[done]" in legacy.stdout,
             legacy.stdout + legacy.stderr,
         )
+        steps = Path(env.steps_file).read_text(encoding="utf-8")
+        check(
+            "the 14.0 step repairs the statement lines' flag, before its checkpoint",
+            "\t14.0\trepair\tstatement-lines-is-reconciled" in steps
+            and steps.index("\t14.0\trepair") < steps.index("\t14.0\tok"),
+            steps,
+        )
     # Fresh state, or the completed checkpoints above would skip the step.
     with tempfile.TemporaryDirectory(prefix="odwg-driver-") as tmp:
         root = Path(tmp)
