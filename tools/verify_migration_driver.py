@@ -670,6 +670,7 @@ def main() -> int:
             '    [ -n "${ODWG_REFUSE:-}" ] && exit 1; echo uninstall >> "$STATE/calls"; fi\n'
             '  exit 0; fi\n'
             'if [[ "$*" == *" -u "* || "$*" == *" -i "* ]]; then\n'
+            '  [ -n "${ODWG_FAIL_UPDATE:-}" ] && exit 1\n'
             '  echo "update ${*#* -d }" | sed "s/--logfile=[^ ]*//" >> "$STATE/calls"; exit 0; fi\n'
             f'touch "$STATE/{TARGET}"; exit 0'))
         _stub(root / "bin" / "pg_restore", 'mkdir -p "$STATE"; echo "$*" >> "$STATE/restores"')
@@ -730,18 +731,38 @@ def main() -> int:
               and not (Path(env.checkpoints_dir) / f"{stage}.dump").exists(),
               refused.stderr[-400:])
         calls.unlink(missing_ok=True)
+
+        def restores() -> int:
+            return (state / "restores").read_text().count(f"{TARGET}.dump")
+
+        before = restores()
         decide([{"module": "old_a", "decision": "renamed", "to": "not_on_disk"}])
         missing = _run(root, script)
-        check("a module renamed to one that is not on disk stops before any database command",
-              missing.returncode != 0 and "the decisions stop the stage" in missing.stderr
+        check("after a refused carry, the target is restored before the plan, which then stops"
+              " before any change",
+              missing.returncode != 0 and "stopped before changing the database" in missing.stderr
               and "not_on_disk resolves in none of the 18.0 sources" in missing.stderr
-              and not calls.exists(), missing.stderr[-400:])
+              and restores() == before + 1 and not calls.exists(), missing.stderr[-400:])
         decide([])
         nothing = _run(root, script)
         check("nothing to carry changes nothing and writes no checkpoint",
               nothing.returncode == 0 and "[modules] nothing to carry" in nothing.stdout
               and not (Path(env.checkpoints_dir) / f"{stage}.dump").exists()
-              and not calls.exists(), nothing.stdout[-400:])
+              and restores() == before + 1 and not calls.exists(), nothing.stdout[-400:])
+        # The case the review found: the renames committed, the update failed, then the
+        # decisions were emptied. The next run must not call that database migrated.
+        decide([{"module": "old_a", "decision": "renamed", "to": "acme_new"}])
+        failed = subprocess.run(["bash", str(script), "source.dump"], cwd=root,
+                                capture_output=True, text=True,
+                                env={**env_refuse, "ODWG_REFUSE": "", "ODWG_FAIL_UPDATE": "1"})
+        decide([])
+        after = _run(root, script)
+        check("a carry that failed half-way is undone by restoring the target, even with nothing"
+              " left to carry",
+              failed.returncode != 0 and f"\t{stage}\tfail\t" in Path(env.steps_file).read_text()
+              and after.returncode == 0 and restores() == before + 2
+              and "[modules] nothing to carry" in after.stdout,
+              failed.stderr[-300:] + after.stdout[-300:])
 
     # --- the step's libraries, checked by its own interpreter --------------------
     with tempfile.TemporaryDirectory(prefix="odwg-pydeps-") as tmp:

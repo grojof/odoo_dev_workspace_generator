@@ -303,8 +303,11 @@ After the target step the driver runs a **client-modules stage** from those deci
 5. `hooks/<target>-modules-post.sql`, neutralise, and a checkpoint `<target>-modules`.
 
 Before touching the database it refuses a `to` module that is not in the target's sources, has an
-unreadable manifest, or a version of another series. With nothing to carry it says so and writes no
-checkpoint. Check the plan first, against the migrated database if you have one:
+unreadable manifest, is not installable, or has a version of another series. It uninstalls nothing unless
+what it updated and installed is installed. With nothing to carry it says so and writes no checkpoint. A
+stage that stopped half-way leaves a marker, and the next run restores the target checkpoint before
+anything else. **`dropped` decisions made before this stage existed now take effect:** the modules still
+installed are uninstalled, which used to be done by hand. Check the plan first, against the migrated database if you have one:
 
 ```bash
 odoo-dwg migrate modules --source 12.0 --target 18.0 --database migration_12_to_18

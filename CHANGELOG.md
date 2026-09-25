@@ -19,6 +19,9 @@ All notable changes to this project are documented here. The format is based on
   - `odoo-dwg migrate decide MODULE … --decision KIND [--to M…]` records a decision, and writes
     `decisions.json` only with `--write`. It is the first command that writes, and it writes only the
     environment's own record.
+  - **`dropped` now has an effect:** the stage uninstalls a `dropped` module still installed at the
+    target, which used to be done by hand. An existing decisions file gets it on the next run of a
+    regenerated driver; `migrate modules` lists every uninstall first.
 - **`odoo-dwg migrate audit --database <db>`: one database's coherence, at any stage.** It is read-only,
   and it exits 0, 1 or 2 like the other checks. It runs:
   - on a source copy: journal codes shared within a company, bank lines imported twice, unreconciled

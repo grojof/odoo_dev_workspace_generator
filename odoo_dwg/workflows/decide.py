@@ -9,7 +9,9 @@ every other entry, and anything else in the file, is left as it was.
 from __future__ import annotations
 
 import json
+import os
 from datetime import date
+from pathlib import Path
 
 from .. import carry
 from ..i18n import t, tf
@@ -65,14 +67,27 @@ def record_decision(module: str, source: str, target: str, kind: str, to: list[s
     if any(level == carry.BLOCKING for level, _, _ in problems):
         return FOUND
     print(json.dumps(entry, indent=2, ensure_ascii=False))
+    if not env.root.is_dir():
+        print(level_text("ERROR", tf("No migration environment at {}.", str(env.root))))
+        return UNKNOWN
+    # Written where it really is: a decisions file linked from a shared one stays linked.
+    path = Path(os.path.realpath(env.decisions_file))
+    text = read_text(str(path))
+    if text is None and path.exists():
+        # Unreadable is not empty: writing would replace every decision in it.
+        print(level_text("ERROR", tf("Cannot read {}: {}", str(path), t("permission denied"))))
+        return UNKNOWN
     try:
-        content = merged(read_text(str(env.decisions_file)), entry)
+        content = merged(text, entry)
     except ValueError as error:
-        print(level_text("ERROR", tf("Cannot read {}: {}", str(env.decisions_file), error)))
+        print(level_text("ERROR", tf("Cannot read {}: {}", str(path), error)))
         return UNKNOWN
     if not write:
-        print(level_text("INFO", tf("Not written. Add --write to record it in {}.",
-                                    str(env.decisions_file))))
+        print(level_text("INFO", tf("Not written. Add --write to record it in {}.", str(path))))
         return CLEAN
-    apply_commands(write_text_file_command(env.decisions_file, content))
+    mode = f"{path.stat().st_mode & 0o777:o}" if path.exists() else "644"
+    try:
+        apply_commands(write_text_file_command(path, content, mode))
+    except RuntimeError:
+        return UNKNOWN
     return CLEAN

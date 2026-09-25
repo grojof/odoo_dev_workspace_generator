@@ -1101,18 +1101,25 @@ _ES: dict[str, str] = {
     "The decisions file holds no list of decisions.":
         "El fichero de decisiones no contiene una lista de decisiones.",
     "{} is not a module name.": "{} no es un nombre de módulo.",
+    "No migration environment at {}.": "No hay ningún entorno de migración en {}.",
+    "permission denied": "permiso denegado",
     "Not written. Add --write to record it in {}.":
         "No se ha escrito. Añada --write para registrarlo en {}.",
     "unknown decision {}: the stage ignores it": "decisión desconocida {}: la etapa la ignora",
     "{} names no module in `to`": "{} no indica ningún módulo en `to`",
     "renamed to more than one module ({})": "renombrado a más de un módulo ({})",
-    "`to` is only for renamed or replaced, not {}": "`to` es solo para renamed o replaced, no para {}",
+    "`to` is only for renamed or replaced, not {}":
+        "`to` es solo para renamed o replaced, no para {}",
     "{} is not a module name": "{} no es un nombre de módulo",
     "carried to itself": "se traslada a sí mismo",
     "{} resolves in none of the {} sources": "{} no está en ninguna de las fuentes de la {}",
     "{} has no readable manifest": "{} no tiene un manifiesto legible",
     "{} is version {}, not {}": "{} es la versión {}, no la {}",
     "{} has no migrations/ scripts": "{} no tiene scripts en migrations/",
+    "{} is not installable (its manifest says installable: False)":
+        "{} no es instalable (su manifiesto dice installable: False)",
+    "{} is already installed: merging into it runs none of its migration scripts":
+        "{} ya está instalado: al fusionar en él no se ejecuta ninguno de sus scripts de migración",
 }
 
 # Runtime lookup: English (the in-code source) → Spanish.

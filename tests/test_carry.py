@@ -66,10 +66,17 @@ def test_a_replacement_already_installed_is_not_installed_again():
     assert result["installs"] == [] and result["uninstalls"] == ["old"]
 
 
-def test_a_rename_onto_an_installed_module_is_a_merge():
+def test_a_rename_onto_an_installed_module_is_a_merge_that_runs_no_scripts():
     result = carry.plan([_entry("old", "renamed", "acme_sale")], "12.0", "18.0",
                         _reader(TARGET), installed={"old", "acme_sale"})
     assert result["merges"] == ["acme_sale"] and not carry.blocked(result)
+    assert _codes(result) == {("old", "warning", "merge-installed")}
+
+
+def test_a_module_odoo_would_not_install_blocks():
+    read = _reader({"acme_sale": {"version": "18.0.1.0.0", "installable": False}})
+    result = carry.plan([_entry("old", "renamed", "acme_sale")], "12.0", "18.0", read)
+    assert carry.blocked(result) and result["renames"] == []
 
 
 def test_modules_not_installed_are_skipped_and_named():
@@ -229,16 +236,53 @@ def test_decide_refuses_an_unreadable_file():
         raise AssertionError(f"accepted {text!r}")
 
 
-def test_decide_prints_without_writing(monkeypatch, capsys):
+def _environment_at(tmp_path, monkeypatch):
+    monkeypatch.setattr(MigrationEnv, "base_dir", str(tmp_path))
+    env = MigrationEnv(source="12.0", target="18.0")
+    env.root.mkdir(parents=True)
+    return env
+
+
+def test_decide_prints_without_writing(tmp_path, monkeypatch, capsys):
+    _environment_at(tmp_path, monkeypatch)
     applied = []
     monkeypatch.setattr(decide, "apply_commands", applied.append)
-    monkeypatch.setattr(decide, "read_text", lambda path: None)
     code = decide.record_decision("old", "12.0", "18.0", "renamed", ["acme_sale"], "", write=False)
     assert code == checks.CLEAN and applied == []
     assert '"to": "acme_sale"' in capsys.readouterr().out
     assert decide.record_decision("old", "12.0", "18.0", "renamed", ["acme_sale"], "",
                                   write=True) == checks.CLEAN
     assert len(applied) == 1
+
+
+def test_decide_writes_through_a_link_and_keeps_the_mode(tmp_path, monkeypatch):
+    env = _environment_at(tmp_path, monkeypatch)
+    shared = tmp_path / "shared-decisions.json"
+    shared.write_text('{"decisions": []}')
+    shared.chmod(0o600)
+    env.decisions_file.symlink_to(shared)
+    applied = []
+    monkeypatch.setattr(decide, "apply_commands", applied.append)
+    decide.record_decision("old", "12.0", "18.0", "dropped", [], "", write=True)
+    command = applied[0][0].command
+    assert str(shared) in command and "chmod 600" in command
+
+
+def test_decide_refuses_a_file_it_cannot_read(tmp_path, monkeypatch):
+    env = _environment_at(tmp_path, monkeypatch)
+    env.decisions_file.write_text('{"decisions": []}')
+    monkeypatch.setattr(decide, "read_text", lambda path: None)
+    applied = []
+    monkeypatch.setattr(decide, "apply_commands", applied.append)
+    assert decide.record_decision("old", "12.0", "18.0", "dropped", [], "", write=True) \
+        == checks.UNKNOWN
+    assert applied == []
+
+
+def test_decide_needs_an_environment(tmp_path, monkeypatch):
+    monkeypatch.setattr(MigrationEnv, "base_dir", str(tmp_path))
+    assert decide.record_decision("old", "12.0", "18.0", "dropped", [], "", write=True) \
+        == checks.UNKNOWN
 
 
 def test_decide_refuses_a_rename_without_target(monkeypatch):
@@ -258,7 +302,8 @@ def test_migrate_modules_exit_codes(monkeypatch, capsys):
     monkeypatch.setattr(checks.carry, "read_decisions",
                         lambda path: [_entry("pack_line", "renamed", "acme_sale")])
     monkeypatch.setattr(checks.carry, "reader", lambda sources: _reader(TARGET))
-    monkeypatch.setattr(checks.migration, "generated_chain_core", lambda env: "")
+    monkeypatch.setattr(checks.migration, "env_as_generated",
+                        lambda source, target: MigrationEnv(source=source, target=target))
     assert checks.client_modules("12.0", "18.0", None, "h", 5432, "u") == checks.CLEAN
     assert "pack_line is renamed to acme_sale" in capsys.readouterr().out
     monkeypatch.setattr(checks, "psql_rows", lambda *args, **kwargs: None)
@@ -270,6 +315,10 @@ def test_migrate_modules_exit_codes(monkeypatch, capsys):
                         lambda path: [_entry("pack_line", "renamed", "missing")])
     assert checks.client_modules("12.0", "18.0", None, "h", 5432, "u") == checks.FOUND
     assert checks.client_modules("12.0", "18.0", "bad name;", "h", 5432, "u") == checks.UNKNOWN
+    monkeypatch.setattr(checks.migration, "env_as_generated",
+                        lambda source, target: MigrationEnv(source=source, target=target)
+                        .validate())
+    assert checks.client_modules("12.0", "11.0", None, "h", 5432, "u") == checks.UNKNOWN
 
 
 # --- the driver ---------------------------------------------------------------------------
@@ -288,7 +337,7 @@ def test_the_driver_embeds_carry_verbatim():
 
 def test_the_stage_runs_after_the_target_step_in_order():
     sh = _driver()
-    target_done = sh.index('mark "18.0" ok\n  AT_TARGET=1\nfi')
+    target_done = sh.index('mark "18.0" ok\n  AT_TARGET=1\n  rm -f "$MODULES_DIRTY"\nfi')
     stage = sh.index("# --- stage: the client's modules at 18.0")
     order = [sh.index(marker, stage) for marker in (
         'step_hook "18.0-modules" pre', "update_module_names(env.cr, pairs, merge_modules=True)",
@@ -317,17 +366,38 @@ def test_nothing_to_carry_writes_no_checkpoint():
     assert 'checkpoint "18.0-modules"' not in stage[:nothing]
 
 
-def test_the_stage_restores_the_target_unless_it_just_ran():
+def test_a_database_an_earlier_carry_changed_is_restored_first():
     stage = _driver().split("# --- stage: the client's modules", 1)[1]
-    assert 'if [ "$AT_TARGET" != 1 ]; then' in stage
-    assert stage.index('restore_ck "18.0"') < stage.index('mark "18.0-modules" start')
+    restore = stage.index('if [ "$AT_TARGET" != 1 ] && [ -f "$MODULES_DIRTY" ]; then')
+    # Before anything is decided, even that there is nothing to carry.
+    assert restore < stage.index('restore_ck "18.0"') < stage.index("carry >")
+    assert stage.index("carry >") < stage.index(': > "$MODULES_DIRTY"') \
+        < stage.index('step_hook "18.0-modules" pre')
+    assert stage.index('checkpoint "18.0-modules"') < stage.rindex('rm -f "$MODULES_DIRTY"')
+
+
+def test_stage_failures_are_recorded_as_failures():
+    stage = _driver().split("# --- stage: the client's modules", 1)[1]
+    assert 'modules_fail() { mark "18.0-modules" fail "$1"; die "18.0-modules: $2"; }' in stage
+    for failure in ("|| modules_fail hook", "|| modules_fail rename", "|| modules_fail uninstall",
+                    '|| modules_fail "$code"'):
+        assert failure in stage, failure
+
+
+def test_nothing_is_uninstalled_unless_everything_was_installed():
+    stage = _driver().split("# --- stage: the client's modules", 1)[1]
+    check = stage.index("if wanted - done:")
+    assert check < stage.index("button_immediate_uninstall()")
 
 
 def test_redo_modules_and_the_resume():
     sh = _driver()
     assert 'MODULES_CK=18.0-modules' in sh
     assert '--redo-modules) REDO_MODULES=1 ;;' in sh
-    redo = sh.index('rm -f "$CK/$MODULES_CK.dump"\n    echo "[init] --redo-modules')
-    resume = sh.index('if [ "$gap" = 0 ] && have_ck "$MODULES_CK"; then')
-    assert redo < resume
+    redo = sh.index('if [ "$REDO_MODULES" = 1 ]; then\n    # The working database')
+    # Only once the checkpoints are known to be this dump's.
+    assert sh.index("came from another source dump") < redo
+    assert redo < sh.index('if [ "$gap" = 0 ] && have_ck "$MODULES_CK"; then')
+    assert ': > "$MODULES_DIRTY"' in sh[redo:redo + 300]
+    assert 'rm -f "$CK"/*.dump "$CK"/*.dump.tmp "$CK"/*.dirty' in sh
     assert 'if [ "$LAST" = "18.0" ] || [ "$LAST" = "$MODULES_CK" ]; then' in sh

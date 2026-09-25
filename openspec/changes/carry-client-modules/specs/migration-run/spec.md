@@ -20,19 +20,24 @@ and applies them in this order:
 The stage SHALL run plain Odoo at the target, without OpenUpgrade's framework.
 
 Before touching the database, the stage SHALL refuse to start when a `to` module resolves nowhere in the
-target's sources, or when its manifest is unreadable or its version is outside the target series. It
-SHALL name each refused module.
+target's sources, or when its manifest is unreadable, declares it not installable, or has a version
+outside the target series. It SHALL name each refused module. It SHALL uninstall nothing unless every
+module it updated or installed is installed afterwards, since Odoo skips a module it cannot load and still
+succeeds.
 
 A decided module that is not installed SHALL be skipped and named. A `kept` or `deferred` module still
 installed with no code at the target SHALL be named, and left as it is.
 
 When no decision asks for anything, the stage SHALL say so and change nothing. Otherwise the stage SHALL
 neutralise the database, write its own checkpoint `<target>-modules`, and record itself in the step record
-like a step, with each rename, install and uninstall named. A resumed run SHALL treat the stage like a step:
-skipped when its checkpoint exists, and run from the target checkpoint otherwise.
+like a step, with each rename, install and uninstall named, and a failure recorded as the stage's failure.
+A resumed run SHALL treat the stage like a step: skipped when its checkpoint exists, and run from the target
+checkpoint otherwise. A working database the stage changed without writing its checkpoint SHALL be
+replaced by the target checkpoint before the stage decides anything, including that there is nothing to
+carry; the run SHALL never end on a database carried half-way.
 
-The driver SHALL accept `--redo-modules`, which removes the stage's checkpoint before resuming, so the stage
-alone runs again from the target checkpoint.
+The driver SHALL accept `--redo-modules`, which removes the stage's checkpoint once the checkpoints are known
+to come from the given dump, so the stage alone runs again from the target checkpoint.
 
 #### Scenario: Two old modules folded into one new module
 
@@ -61,6 +66,12 @@ alone runs again from the target checkpoint.
 - **WHEN** the environment's decisions hold no `renamed`, `replaced` or `dropped` entry for an installed
   module
 - **THEN** the stage says there is nothing to carry, and writes no checkpoint
+
+#### Scenario: A carry that stopped half-way
+
+- **WHEN** a stage committed its renames, then failed while updating, and the next run's decisions carry
+  nothing
+- **THEN** that run restores the target checkpoint before saying there is nothing to carry
 
 #### Scenario: Repeating the stage while porting
 

@@ -72,6 +72,10 @@ The plan:
 - A `renamed` or `replaced` entry without `to`, or a `to` on any other kind, is reported by `migrate
   modules` as blocking, and the stage stops before touching the database.
 - An unknown kind is reported and ignored by the stage.
+- **`dropped` gains an effect.** Before this change it only settled coverage; now the stage uninstalls a
+  `dropped` module still installed at the target. That is what dropping meant, and until now it was done by
+  hand after the chain. An existing decisions file gets this effect on the next run of a regenerated
+  driver, so `migrate modules` should be read first: it lists every uninstall.
 
 ## Checks before touching the database
 
@@ -79,7 +83,15 @@ The stage refuses to start when any of these is true:
 - a `to` does not resolve in the target sources (custom first, then OCA and core, the same order as the
   addons path);
 - its manifest's `version` does not start with the target series;
-- its manifest does not parse.
+- its manifest does not parse, or says `installable: False`.
+
+The plan is computed once, against the database: a decided module the database does not have is only
+skipped, whatever its `to`. Odoo exits 0 after skipping a module it cannot load, so the uninstall script
+first checks that every module the plan updated or installed is installed, and uninstalls nothing
+otherwise.
+
+A rename onto a module already installed merges into it, keeping its version: its `migrations/` scripts do
+not run for the merged data, and `migrate modules` warns about it.
 
 A renamed module whose target has no `migrations/` directory is a warning, not a block: some renames need
 no data change. `migrate modules` reports the same, and adds what only a database can tell:
@@ -88,13 +100,24 @@ no data change. `migrate modules` reports the same, and adds what only a databas
 
 ## `--redo-modules`
 
-`run_migration.sh <dump> --redo-modules` removes `checkpoints/<target>-modules.dump` before the resume
-logic runs. The resume then finds the target checkpoint as the newest one, restores it and runs only the
-stage. This is the loop for porting: edit a module, redo, look.
+`run_migration.sh <dump> --redo-modules` removes `checkpoints/<target>-modules.dump`, once the
+checkpoints are known to be that dump's. The loop for porting: edit a module, redo, look.
+
+**Which database the stage starts from.** Only the target checkpoint can be trusted. The working database
+is exactly that when the target step ran in this run. Otherwise the stage looks for
+`checkpoints/<target>-modules.dirty`. The stage creates that marker just before it first changes the
+database and removes it once its own checkpoint is written, and `--redo-modules` creates it when it
+removes a checkpoint. If the marker is there, the stage restores the target checkpoint before deciding
+anything, including that there is nothing to carry. A carry that failed half-way is therefore never left
+as the result. Without the marker, the working database is the target checkpoint's, and a run with nothing
+to carry costs no restore.
 
 ## `migrate decide`
 
-- It reads the environment from `--source` and `--target`, as `findings` does.
+- It reads the environment from `--source` and `--target`, as `findings` does, and refuses a pair with no
+  environment on disk.
+- It refuses a decisions file that exists but cannot be read, instead of taking it for empty.
+- It writes the file where it really is, so a link to a shared file stays a link, and keeps its mode.
 - It builds the entry with `evidence: {"checked": <today>, "recorded_by": "migrate decide"}`, prints it,
   and with `--write` replaces any entry for the same module and pair.
 - The file is written through a temporary file and a rename.

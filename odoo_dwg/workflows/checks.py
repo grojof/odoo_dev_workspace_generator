@@ -331,10 +331,11 @@ def client_modules(source: str, target: str, database: str | None,
 
     The same plan the driver computes (``carry.py``), over the environment's decisions and the
     target's sources; with a database, also which decided modules are installed there."""
-    env = _environment(source, target)
-    if env is None:
+    try:
+        env = migration.env_as_generated(source, target)
+    except ValueError as error:
+        print(level_text("ERROR", str(error)))
         return UNKNOWN
-    env.chain_core = migration.generated_chain_core(env) or env.chain_core
     installed = None
     if database:
         if not DB_NAME_RE.fullmatch(database):

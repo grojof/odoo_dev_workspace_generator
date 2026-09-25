@@ -43,6 +43,9 @@ MESSAGES = {
     "no-manifest": "{} has no readable manifest",
     "wrong-series": "{} is version {}, not {}",
     "no-migrations": "{} has no migrations/ scripts",
+    "not-installable": "{} is not installable (its manifest says installable: False)",
+    "merge-installed":
+        "{} is already installed: merging into it runs none of its migration scripts",
 }
 
 
@@ -152,6 +155,10 @@ def plan(entries: list, source: str, target: str, read, installed=None) -> dict:
         if version and not _series_ok(version, target):
             problem(module, BLOCKING, "wrong-series", [name, version, target])
             return False
+        if manifest.get("installable", True) is False:
+            # Odoo would skip it and still exit 0, and the old module would then go.
+            problem(module, BLOCKING, "not-installable", [name])
+            return False
         return True
 
     pair = [e for e in entries if isinstance(e, dict)
@@ -178,6 +185,8 @@ def plan(entries: list, source: str, target: str, read, installed=None) -> dict:
             continue
         if kind == "renamed":
             renames.append([module, to[0]])
+            if installed is not None and to[0] in installed:
+                problem(module, WARNING, "merge-installed", [to[0]])
             found = read(to[0])
             if found is not None and not found["migrations"]:
                 problem(module, WARNING, "no-migrations", [to[0]])

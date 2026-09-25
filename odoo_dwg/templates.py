@@ -1031,7 +1031,16 @@ _MODULES_UNINSTALL = """\
 import json, os
 with open(os.environ["ODWG_MODULES_PLAN"], encoding="utf-8") as handle:
     plan = json.load(handle)
-modules = env["ir.module.module"].search(
+Module = env["ir.module.module"]
+wanted = set(plan["updates"]) | set(plan["installs"])
+done = set(Module.search([("name", "in", list(wanted)), ("state", "=", "installed")]).mapped("name"))
+if wanted - done:
+    # Odoo skips a module it cannot load and still exits 0: never uninstall the old
+    # modules when what replaces them is not there.
+    print("[modules] not installed after the update: %s; nothing uninstalled"
+          % ", ".join(sorted(wanted - done)))
+    raise SystemExit(1)
+modules = Module.search(
     [("name", "in", plan["uninstalls"]), ("state", "in", ("installed", "to upgrade"))])
 along = modules.downstream_dependencies() - modules
 if along:
@@ -1065,68 +1074,63 @@ def _render_modules_stage(env: MigrationEnv) -> str:
     sources = " ".join(q(str(p)) for p in env.coverage_dirs(target))
     return f"""
 # --- stage: the client's modules at {target} (renamed, replaced, dropped) ---
-# carry.py, embedded verbatim: the plan `odoo-dwg migrate modules` prints.
+# carry.py, embedded verbatim: the plan `odoo-dwg migrate modules` prints. It is computed
+# once, against the database, so a module the database does not have is only skipped.
 carry() {{
   python3 - {q(str(env.decisions_file))} {q(env.source)} {q(target)} "$MODULES_PLAN" {sources} <<'ODWG_CARRY'
 {carry_source()}ODWG_CARRY
 }}
+modules_fail() {{ mark "{stage}" fail "$1"; die "{stage}: $2"; }}
 if have_ck "{stage}"; then
   echo "[skip] {stage} already carried"
   mark "{stage}" skip
 else
-  # The decisions alone first: most chains carry nothing and need no database read.
+  if [ "$AT_TARGET" != 1 ] && [ -f "$MODULES_DIRTY" ]; then
+    # An earlier carry changed the working database and left no checkpoint (it failed,
+    # or --redo-modules removed it): only the target checkpoint can be trusted.
+    mark - restore "{target}"
+    restore_ck "{target}"
+    rm -f "$MODULES_DIRTY"
+  fi
+  installed=$(psql -X -At -d "$DB" -c \\
+    "SELECT name FROM ir_module_module WHERE state IN ('installed', 'to upgrade')") \\
+    || die "{stage}: could not list the installed modules"
   code=0
-  carry > /dev/null || code=$?
+  ODWG_INSTALLED="$installed" carry > "$LOGS/{stage}.lists" || code=$?
   if [ "$code" -eq 3 ]; then
     echo "[modules] nothing to carry"
     mark "{stage}" skip "nothing to carry"
   elif [ "$code" -ne 0 ]; then
-    die "{stage}: the decisions stop the stage (see [modules] lines above)"
+    modules_fail "$code" "stopped before changing the database (see [modules] lines above)"
   else
-    if [ "$AT_TARGET" != 1 ]; then
-      # The working database may hold an earlier carry: start again from the target.
-      mark - restore "{target}"
-      restore_ck "{target}"
-    fi
+    {{ read -r UPDATES; read -r INSTALLS; }} < "$LOGS/{stage}.lists"
     echo "[step] carrying the client's modules at {target}"
     mark "{stage}" start
-    installed=$(psql -X -At -d "$DB" -c \\
-      "SELECT name FROM ir_module_module WHERE state IN ('installed', 'to upgrade')") \\
-      || die "{stage}: could not list the installed modules"
-    code=0
-    ODWG_INSTALLED="$installed" carry > "$LOGS/{stage}.lists" || code=$?
-    if [ "$code" -eq 3 ]; then
-      echo "[modules] nothing to carry in this database"
-      mark "{stage}" skip "nothing to carry"
-    elif [ "$code" -ne 0 ]; then
-      mark "{stage}" fail "$code"
-      die "{stage}: stopped before changing the database (see [modules] lines above)"
-    else
-      {{ read -r UPDATES; read -r INSTALLS; }} < "$LOGS/{stage}.lists"
-      step_hook "{stage}" pre
-      ODWG_MODULES_PLAN="$MODULES_PLAN" {shell} <<'ODWG_RENAME' \\
-        || die "{stage}: the renames failed — see {env.logs_dir}/{stage}.log"
+    # From here the working database is no longer the target checkpoint until this
+    # stage writes its own; a run that stops before that restores the target first.
+    : > "$MODULES_DIRTY"
+    ( step_hook "{stage}" pre ) || modules_fail hook "the pre hook failed"
+    ODWG_MODULES_PLAN="$MODULES_PLAN" {shell} <<'ODWG_RENAME' \\
+      || modules_fail rename "the renames failed — see the output above and {env.logs_dir}/{stage}.log"
 {_MODULES_RENAME}ODWG_RENAME
-      mark "{stage}" renamed "$(python3 -c 'import json, sys; print(" ".join("%s>%s" % tuple(p) for p in json.load(open(sys.argv[1]))["renames"]))' "$MODULES_PLAN")"
-      if [ -n "$UPDATES$INSTALLS" ]; then
-        code=0
-        {odoo} ${{UPDATES:+-u "$UPDATES"}} ${{INSTALLS:+-i "$INSTALLS"}} --stop-after-init || code=$?
-        if [ "$code" -ne 0 ]; then
-          mark "{stage}" fail "$code"
-          die "{stage}: updating and installing failed — see {env.logs_dir}/{stage}.log"
-        fi
-        mark "{stage}" updated "$UPDATES"
-        mark "{stage}" installed "$INSTALLS"
-      fi
-      ODWG_MODULES_PLAN="$MODULES_PLAN" {shell} <<'ODWG_UNINSTALL' \\
-        || die "{stage}: the uninstalls failed or were refused — see [modules] lines above"
-{_MODULES_UNINSTALL}ODWG_UNINSTALL
-      mark "{stage}" uninstalled "$(python3 -c 'import json, sys; print(" ".join(json.load(open(sys.argv[1]))["uninstalls"]))' "$MODULES_PLAN")"
-      step_hook "{stage}" post
-      neutralise "{stage}"
-      checkpoint "{stage}"
-      mark "{stage}" ok
+    mark "{stage}" renamed "$(python3 -c 'import json, sys; print(" ".join("%s>%s" % tuple(p) for p in json.load(open(sys.argv[1]))["renames"]))' "$MODULES_PLAN")"
+    if [ -n "$UPDATES$INSTALLS" ]; then
+      code=0
+      {odoo} ${{UPDATES:+-u "$UPDATES"}} ${{INSTALLS:+-i "$INSTALLS"}} --stop-after-init || code=$?
+      [ "$code" -eq 0 ] \\
+        || modules_fail "$code" "updating and installing failed — see {env.logs_dir}/{stage}.log"
+      mark "{stage}" updated "$UPDATES"
+      mark "{stage}" installed "$INSTALLS"
     fi
+    ODWG_MODULES_PLAN="$MODULES_PLAN" {shell} <<'ODWG_UNINSTALL' \\
+      || modules_fail uninstall "the uninstalls failed or were refused — see [modules] lines above"
+{_MODULES_UNINSTALL}ODWG_UNINSTALL
+    mark "{stage}" uninstalled "$(python3 -c 'import json, sys; print(" ".join(json.load(open(sys.argv[1]))["uninstalls"]))' "$MODULES_PLAN")"
+    ( step_hook "{stage}" post ) || modules_fail hook "the post hook failed"
+    neutralise "{stage}"
+    checkpoint "{stage}"
+    rm -f "$MODULES_DIRTY"
+    mark "{stage}" ok
   fi
 fi"""
 
@@ -1517,6 +1521,9 @@ case "${{2:-}}" in
 esac
 MODULES_CK={shlex.quote(modules_stage(env))}
 MODULES_PLAN={shlex.quote(str(env.logs_dir / f"{modules_stage(env)}-plan.json"))}
+# Present while the client-modules stage has changed the working database without a
+# checkpoint of its own: the stage then starts again from the target checkpoint.
+MODULES_DIRTY={shlex.quote(str(env.checkpoints_dir / f"{modules_stage(env)}.dirty"))}
 # Whether the working database is known to be exactly at the target checkpoint.
 AT_TARGET=0
 DB={shlex.quote(env.database)}
@@ -1596,7 +1603,7 @@ mark - run-start "{env.source} -> {env.target}"
 if ! have_ck 00_source; then
   # A fresh run owns the checkpoint directory: step dumps left by an earlier run
   # belong to another attempt and would be skipped as if they were this one's.
-  rm -f "$CK"/*.dump "$CK"/*.dump.tmp "$CK/source.sha256"
+  rm -f "$CK"/*.dump "$CK"/*.dump.tmp "$CK"/*.dirty "$CK/source.sha256"
   mark - restore 00_source
   echo "[init] restoring source dump into working DB '$DB'"
   dropdb --if-exists "$DB"
@@ -1612,10 +1619,6 @@ else
   # recorded at all. Calling the third one "another source dump" was false, and
   # the remedy it named threw away every completed step of the chain.
   CK_SHA=$(cat "$CK/source.sha256" 2>/dev/null || true)
-  if [ "$REDO_MODULES" = 1 ]; then
-    rm -f "$CK/$MODULES_CK.dump"
-    echo "[init] --redo-modules: the client-modules stage runs again"
-  fi
   if [ -z "$CK_SHA" ]; then
     die "the checkpoints in $CK do not record which dump they came from.
   If they came from $SRC_DUMP, adopt them with:
@@ -1623,6 +1626,14 @@ else
   If they came from another dump, remove $CK to start over."
   elif [ "$CK_SHA" != "$SRC_SHA" ]; then
     die "checkpoints in $CK came from another source dump — remove that whole directory to start over"
+  fi
+  if [ "$REDO_MODULES" = 1 ]; then
+    # The working database holds the stage's result: the stage restores the target first.
+    if have_ck "$MODULES_CK"; then
+      rm -f "$CK/$MODULES_CK.dump"
+      : > "$MODULES_DIRTY"
+    fi
+    echo "[init] --redo-modules: the client-modules stage runs again"
   fi
   # A failed step leaves the working DB half-migrated: resume from the newest
   # checkpoint, not from whatever the DB holds now.
@@ -1685,7 +1696,7 @@ fi"""
     done = f'  mark "{env.target}" ok\nfi'
     if not steps[-1].endswith(done):
         raise AssertionError("the target step no longer ends where AT_TARGET is set")
-    steps[-1] = steps[-1][: -len(done)] + f'  mark "{env.target}" ok\n  AT_TARGET=1\nfi'
+    steps[-1] = steps[-1][: -len(done)] + (f'  mark "{env.target}" ok\n  AT_TARGET=1\n  rm -f "$MODULES_DIRTY"\nfi')
     steps.append(_render_modules_stage(env))
     footer = (
         '\n\nmark - run-ok\n'
