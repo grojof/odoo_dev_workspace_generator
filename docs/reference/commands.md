@@ -128,7 +128,8 @@ not tell — and exit 2 is never a clean result.
 
 One command writes, and only the environment's own record: `odoo-dwg migrate decide MODULE --source A
 --target B --decision KIND [--to M…] [--reason TEXT]` prints the decision it would record, and writes it
-to `decisions.json` only with `--write`.
+to `decisions.json` only with `--write`. `--to` takes several modules for a split: the first takes the
+old module, the others are installed.
 
 Anything that changes the host or a database stays in the menus behind its confirmation phrase, or in
 the driver you start. A read-only command that

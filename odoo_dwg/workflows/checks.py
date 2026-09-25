@@ -365,6 +365,9 @@ def _print_carry_plan(result: dict) -> None:
             print(level_text("INFO", tf("{} is merged into {}", old, new)))
         else:
             print(level_text("INFO", tf("{} is renamed to {}", old, new)))
+        if old in result.get("splits", {}):
+            print(level_text("INFO", tf("{} is split: its other parts {} are installed",
+                                        old, ", ".join(result["splits"][old]))))
     for label, key in (("Update: {}", "updates"), ("Install: {}", "installs"),
                        ("Uninstall: {}", "uninstalls")):
         if result[key]:

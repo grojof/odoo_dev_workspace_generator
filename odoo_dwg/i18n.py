@@ -1092,6 +1092,8 @@ _ES: dict[str, str] = {
         "Nada que trasladar: la etapa no cambiará nada.",
     "{} is merged into {}": "{} se fusiona en {}",
     "{} is renamed to {}": "{} se renombra a {}",
+    "{} is split: its other parts {} are installed":
+        "{} se divide: sus otras partes {} se instalan",
     "Update: {}": "Actualizar: {}",
     "Install: {}": "Instalar: {}",
     "Uninstall: {}": "Desinstalar: {}",
@@ -1107,7 +1109,6 @@ _ES: dict[str, str] = {
         "No se ha escrito. Añada --write para registrarlo en {}.",
     "unknown decision {}: the stage ignores it": "decisión desconocida {}: la etapa la ignora",
     "{} names no module in `to`": "{} no indica ningún módulo en `to`",
-    "renamed to more than one module ({})": "renombrado a más de un módulo ({})",
     "`to` is only for renamed or replaced, not {}":
         "`to` es solo para renamed o replaced, no para {}",
     "{} is not a module name": "{} no es un nombre de módulo",

@@ -1,7 +1,8 @@
 """The client-modules stage: what it does with the operator's decisions at the target.
 
 After the chain, a client's own modules can be carried to new names: ``renamed`` to one
-module (several renamed to the same one are merged into it), ``replaced`` by one or more
+module (several renamed to the same one are merged into it; one renamed to several is split:
+the first takes it, the others are installed), ``replaced`` by one or more
 modules, or ``dropped``. This module turns the decisions into the stage's plan and names
 what would stop it.
 
@@ -35,7 +36,6 @@ WARNING = "warning"
 MESSAGES = {
     "unknown-kind": "unknown decision {}: the stage ignores it",
     "no-to": "{} names no module in `to`",
-    "many-to": "renamed to more than one module ({})",
     "to-on-kind": "`to` is only for renamed or replaced, not {}",
     "bad-name": "{} is not a module name",
     "to-itself": "carried to itself",
@@ -72,8 +72,6 @@ def entry_problems(entry: dict) -> list[tuple[str, str, list]]:
         return [(WARNING, "unknown-kind", [kind])]
     if kind in ("renamed", "replaced") and not to:
         problems.append((BLOCKING, "no-to", [kind]))
-    if kind == "renamed" and len(to) > 1:
-        problems.append((BLOCKING, "many-to", [", ".join(to)]))
     if kind not in ("renamed", "replaced") and "to" in entry:
         problems.append((BLOCKING, "to-on-kind", [kind]))
     for name in to:
@@ -132,6 +130,7 @@ def plan(entries: list, source: str, target: str, read, installed=None) -> dict:
     database was read: then every decided module is planned as if installed.
     """
     renames: list[list[str]] = []
+    splits: dict[str, list[str]] = {}
     installs: list[str] = []
     uninstalls: list[str] = []
     skipped: list[str] = []
@@ -184,7 +183,13 @@ def plan(entries: list, source: str, target: str, read, installed=None) -> dict:
         if not all([check_target(module, name) for name in to]):
             continue
         if kind == "renamed":
+            # Several modules: a split. The first takes the old module and its data; the
+            # others are new parts, installed in the same run.
             renames.append([module, to[0]])
+            if len(to) > 1:
+                splits[module] = to[1:]
+            installs.extend(name for name in to[1:]
+                            if installed is None or name not in installed)
             if installed is not None and to[0] in installed:
                 problem(module, WARNING, "merge-installed", [to[0]])
             found = read(to[0])
@@ -207,6 +212,7 @@ def plan(entries: list, source: str, target: str, read, installed=None) -> dict:
         "target": target,
         "renames": renames,
         "merges": merges,
+        "splits": splits,
         "updates": sorted(set(news)),
         "installs": sorted(set(installs) - set(news)),
         "uninstalls": sorted(set(uninstalls)),
@@ -231,6 +237,9 @@ def describe(result: dict) -> list[str]:
     for old, new in result["renames"]:
         how = "merged into" if new in result["merges"] else "renamed to"
         lines.append(f"{old} {how} {new}")
+        if old in result.get("splits", {}):
+            lines.append(f"{old} split: its other parts {', '.join(result['splits'][old])} "
+                         "are installed")
     for key in ("updates", "installs", "uninstalls"):
         if result[key]:
             lines.append(f"{key[:-1]}: {', '.join(result[key])}")

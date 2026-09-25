@@ -287,7 +287,7 @@ A client's own modules reach the target one of two ways, and you choose per modu
 
 | Decision | `--to` | At the target |
 |---|---|---|
-| `renamed` | one module | the old module's record and identifiers become the new module's; several renamed to one are merged into it; then the new module is updated, so its `migrations/<version>/` scripts run on the old data |
+| `renamed` | one module, or several for a split | the old module's record and identifiers become the (first) new module's; several renamed to one are merged into it; then the new module is updated, so its `migrations/<version>/` scripts run on the old data. For a split, the other modules named are installed in the same run |
 | `replaced` | one or more | the replacements are installed, then the old module is uninstalled |
 | `dropped` | — | uninstalled, if still installed |
 | `kept`, `deferred` | — | left as they are; named if still installed with no code |
@@ -320,9 +320,17 @@ While porting, repeat only this stage from the target checkpoint, without the ch
 ```
 
 Renaming a field is the new module's job, in its own `migrations/<version>/pre-migration.py`
-(`openupgrade.rename_fields`, which also carries saved filters and export templates). Splitting one old
-module into several is too: rename it to the part that owns its data, and let the other parts take their
-records in their own scripts.
+(`openupgrade.rename_fields`, which also carries saved filters and export templates). To split one old
+module into several, name them all in `--to`, the part that owns its data first:
+
+```bash
+odoo-dwg migrate decide acme_custom --source 12.0 --target 18.0 --decision renamed \
+  --to acme_stock_inventory acme_report acme_mrp --write
+```
+
+The first is renamed from it and runs its migration scripts; the others are installed new, and a new
+install runs none. Whatever the old module owned that belongs to them is the first module's to hand over
+in its own pre-migration (moving the `ir_model_data` rows to the part's name), or theirs to rebuild.
 
 ### Following a run while it happens
 

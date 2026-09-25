@@ -763,6 +763,17 @@ def main() -> int:
               and after.returncode == 0 and restores() == before + 2
               and "[modules] nothing to carry" in after.stdout,
               failed.stderr[-300:] + after.stdout[-300:])
+        # A module split while porting: the first module takes it, the others are installed.
+        calls.unlink(missing_ok=True)
+        decide([{"module": "old_a", "decision": "renamed", "to": ["acme_new", "acme_repl"]}])
+        split = _run(root, script)
+        logged = calls.read_text().splitlines() if calls.exists() else []
+        check("a split renames to the first module and installs the others in the same run",
+              split.returncode == 0 and [c.split(" ")[0] for c in logged]
+              == ["rename", "update", "uninstall"]
+              and "-u acme_new" in logged[1] and "-i acme_repl" in logged[1]
+              and "old_a split: its other parts acme_repl are installed" in split.stderr,
+              split.stderr[-500:])
 
     # --- the step's libraries, checked by its own interpreter --------------------
     with tempfile.TemporaryDirectory(prefix="odwg-pydeps-") as tmp:

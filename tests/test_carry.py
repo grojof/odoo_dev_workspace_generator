@@ -51,6 +51,24 @@ def test_renames_fold_several_modules_into_one():
     assert not carry.blocked(result) and carry.has_work(result)
 
 
+def test_a_split_renames_to_the_first_and_installs_the_others():
+    result = carry.plan([_entry("mixed", "renamed", ["acme_stock", "acme_sale", "sale"])],
+                        "12.0", "18.0", _reader(TARGET), installed={"mixed", "sale"})
+    assert result["renames"] == [["mixed", "acme_stock"]]
+    assert result["updates"] == ["acme_stock"]
+    # sale is installed already: only the new part is installed.
+    assert result["installs"] == ["acme_sale"]
+    assert result["splits"] == {"mixed": ["acme_sale", "sale"]}
+    assert "mixed split: its other parts acme_sale, sale are installed" in carry.describe(result)
+
+
+def test_every_part_of_a_split_is_checked():
+    result = carry.plan([_entry("mixed", "renamed", ["acme_stock", "not_on_disk"])],
+                        "12.0", "18.0", _reader(TARGET))
+    assert _codes(result) == {("mixed", "blocking", "unresolved")}
+    assert result["renames"] == []
+
+
 def test_replaced_installs_first_and_uninstalls_the_old_module():
     entries = [_entry("old_inventory_numbering", "replaced", ["stock_inventory"]),
                _entry("old_glue", "dropped")]
@@ -104,7 +122,6 @@ def _codes(result):
 def test_what_stops_the_stage():
     entries = [
         _entry("a", "renamed"),                           # no `to`
-        _entry("b", "renamed", ["acme_sale", "acme_stock"]),
         _entry("c", "dropped", "acme_sale"),               # `to` on the wrong kind
         _entry("d", "renamed", "Bad-Name"),
         _entry("e", "renamed", "e"),
@@ -115,14 +132,14 @@ def test_what_stops_the_stage():
     read = _reader({**TARGET, "unreadable": None, "old_series": {"version": "12.0.1.0.0"}})
     result = carry.plan(entries, "12.0", "18.0", read)
     assert _codes(result) == {
-        ("a", "blocking", "no-to"), ("b", "blocking", "many-to"),
+        ("a", "blocking", "no-to"),
         ("c", "blocking", "to-on-kind"), ("d", "blocking", "bad-name"),
         ("e", "blocking", "to-itself"), ("f", "blocking", "unresolved"),
         ("g", "blocking", "no-manifest"), ("h", "blocking", "wrong-series"),
     }
     assert carry.blocked(result)
     # A decision that is wrong on its own is not planned at all.
-    assert all(old not in {"a", "b", "c", "d", "e"} for old, _ in result["renames"])
+    assert all(old not in {"a", "c", "d", "e"} for old, _ in result["renames"])
 
 
 def test_warnings_do_not_stop_the_stage():
