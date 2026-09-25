@@ -556,6 +556,11 @@ def test_the_14_step_repairs_the_statement_lines_flag_for_a_source_up_to_13():
     assert "WHERE l.is_reconciled AND EXISTS" in block and "j.suspense_account_id" in block
     assert ".search([])" not in block
     assert 'mark "14.0" repair statement-lines-is-reconciled' in block
+    # The same run carries the SII certificate file the OCA 14.0 migration leaves behind,
+    # guarded by the tables and OpenUpgrade's legacy link.
+    assert "openupgrade_legacy_14_0_l10n_es_aeat_sii_id" in block and "certificate.file = " in block
+    assert "if not certificate.file:" in block
+    assert 'mark "14.0" repair sii-certificate-file' in block
     assert block.index("ODWG_REPAIR") < block.index('neutralise "14.0"')
     assert driver.count("ODWG_REPAIR") == 2  # one heredoc, in the 14.0 step only
 

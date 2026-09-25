@@ -267,6 +267,7 @@ def main() -> int:
         check(
             "the 14.0 step repairs the statement lines' flag, before its checkpoint",
             "\t14.0\trepair\tstatement-lines-is-reconciled" in steps
+            and "\t14.0\trepair\tsii-certificate-file" in steps
             and steps.index("\t14.0\trepair") < steps.index("\t14.0\tok"),
             steps,
         )

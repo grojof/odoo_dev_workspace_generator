@@ -435,6 +435,15 @@ still reconciled, and records `repair` in `logs/steps.tsv`. Only those lines go 
 takes seconds on a large database, and it selects nothing once OpenUpgrade flushes itself
 ([OCA/OpenUpgrade#6005](https://github.com/OCA/OpenUpgrade/pull/6005)).
 
+### A known OCA defect the same repair covers: the SII certificate file
+
+Up to 13.0, `l10n_es_aeat_sii` keeps the AEAT certificate (the `.p12`) in a column of its own table. The
+14.0 migration of `l10n_es_aeat_sii_oca` creates one `l10n.es.aeat.certificate` per old record, but it
+moves attachments only, so the file never reaches the new model. The same run of the 14.0 repair carries
+each file from the old table, through OpenUpgrade's legacy link, when the new certificate has none, and
+records `repair sii-certificate-file`. The keys are files on the old server's disk: on the new server,
+open each certificate and obtain the keys again with its password.
+
 ### When a module has no code anywhere: `decisions.json`
 
 Coverage stops a run when an installed module resolves in no source of a step and OpenUpgrade declares no

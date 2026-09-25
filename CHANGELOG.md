@@ -7,6 +7,10 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **The SII certificate file reaches the new certificate model.** From a 12.0 or 13.0 source, the OCA
+  14.0 migration of `l10n_es_aeat_sii_oca` creates the new certificates but leaves each `.p12` in the old
+  table. The driver's 14.0 repair now carries it through the ORM and reminds you to obtain the keys again
+  with the certificate's password.
 - **Any journal may get a readable code.** The journal codes step's table now takes a code for any
   journal, not only for those the target refuses, including the one that keeps a group's code. This
   gives a readable scheme, such as bank journals by company and age. A code equal to the current one

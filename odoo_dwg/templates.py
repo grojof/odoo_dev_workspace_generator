@@ -932,6 +932,35 @@ print("[repair] statement lines stored as reconciled with a suspense line: %d, s
       "reconciled after the recompute: %d" % (len(lines), len(lines.filtered("is_reconciled"))))
 """
 
+#: Run by the same shell: the SII certificate file the OCA 14.0 migration of
+#: ``l10n_es_aeat_sii_oca`` leaves behind. It creates each certificate from the old
+#: ``l10n_es_aeat_sii`` record but moves attachments only, and in 12.0 the file is a
+#: column (base64, the form the ORM takes). Guarded: nothing without both tables and
+#: OpenUpgrade's legacy link.
+_SII_CERTIFICATE_REPAIR = """\
+env.cr.execute(\"\"\"
+    SELECT count(*) = 3 FROM information_schema.columns
+    WHERE (table_name, column_name) IN (('l10n_es_aeat_sii', 'file'),
+        ('l10n_es_aeat_certificate', 'openupgrade_legacy_14_0_l10n_es_aeat_sii_id'),
+        ('l10n_es_aeat_certificate', 'id'))
+\"\"\")
+carried = 0
+if env.cr.fetchone()[0] and "l10n.es.aeat.certificate" in env:
+    env.cr.execute(\"\"\"
+        SELECT c.id, s.file FROM l10n_es_aeat_certificate c
+        JOIN l10n_es_aeat_sii s ON s.id = c.openupgrade_legacy_14_0_l10n_es_aeat_sii_id
+        WHERE s.file IS NOT NULL
+    \"\"\")
+    for certificate_id, data in env.cr.fetchall():
+        certificate = env["l10n.es.aeat.certificate"].browse(certificate_id)
+        if not certificate.file:
+            certificate.file = bytes(data)
+            carried += 1
+    env.cr.commit()
+print("[repair] SII certificate files carried to the new model: %d%s" % (carried,
+      "; obtain the keys again on the new server, with the certificate's password" if carried else ""))
+"""
+
 
 def _render_step_repair(env: MigrationEnv, version: str) -> str:
     """What a step's known OpenUpgrade defect needs, after its post hook.
@@ -942,8 +971,10 @@ def _render_step_repair(env: MigrationEnv, version: str) -> str:
     line existed) are written over it. Lines still in the suspense account end up
     stored as reconciled and the reconciliation screen hides them. Odoo's own
     ``_compute_is_reconciled``, identical in 14.0 and 18.0, recomputes them: only the
-    lines stored as reconciled that still have a suspense line. Only for a source up to
-    13.0: from 14.0 every line already has its entry."""
+    lines stored as reconciled that still have a suspense line. The same run carries the
+    SII certificate file the OCA 14.0 migration leaves in the old table. Only for a
+    source up to 13.0: from 14.0 every line already has its entry, and the certificate
+    model already exists."""
     if version != STATEMENT_LINES_REPAIR_STEP or \
             odoo_major(env.source) > LEGACY_LAYOUT_MAX_MAJOR:
         return ""
@@ -953,11 +984,13 @@ def _render_step_repair(env: MigrationEnv, version: str) -> str:
              f'-d "$DB" --no-http --logfile={q(str(env.logs_dir / f"{version}.log"))}')
     return (
         "  # OpenUpgrade 14.0 stores unreconciled statement lines as reconciled (an ORM\n"
-        "  # flush over its own SQL); Odoo's own method recomputes them.\n"
+        "  # flush over its own SQL); Odoo's own method recomputes them. The OCA 14.0\n"
+        "  # SII migration leaves the certificate file behind; it is carried here.\n"
         f"  {shell} <<'ODWG_REPAIR' || die \"{version}: repairing the statement lines' "
         "reconciled flag failed\"\n"
-        f"{_STATEMENT_LINES_REPAIR}ODWG_REPAIR\n"
+        f"{_STATEMENT_LINES_REPAIR}{_SII_CERTIFICATE_REPAIR}ODWG_REPAIR\n"
         f'  mark "{version}" repair statement-lines-is-reconciled\n'
+        f'  mark "{version}" repair sii-certificate-file\n'
     )
 
 
