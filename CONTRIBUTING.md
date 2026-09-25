@@ -77,6 +77,7 @@ python tools/verify_demo_seed.py                 # run the generated demo seed a
 python tools/verify_neutralisation.py            # neutralise, check, re-apply and restore on a throwaway PostgreSQL
 python tools/verify_neutralise_sources.py        # the catalogue vs Odoo's neutralize.sql files and the OCA sources it cites
 python tools/verify_intake.py                    # intake on real tools: restore, reader role, core, filestore, audits, bank lines, journal codes
+python tools/verify_migration_audit.py           # migrate audit on 12.0- and 18.0-shaped databases, and a role refused one table
 ```
 
 | Tool | Needs |
@@ -84,7 +85,7 @@ python tools/verify_intake.py                    # intake on real tools: restore
 | `verify_support_matrix.py`, `verify_odools_config.py`, `verify_egress_pins.py` | the network |
 | `verify_workspace_versions.py` | the network **and** a host it may change (it previews, asks, and cleans up) |
 | `verify_generated_shell.py` | `shellcheck` on the host |
-| `verify_pg_hba_trust.py`, `verify_mail_capture.py`, `verify_migration_tester.py`, `verify_neutralisation.py`, `verify_intake.py` (also `git` and `tar`) | the host's PostgreSQL binaries; each runs a cluster of its own |
+| `verify_pg_hba_trust.py`, `verify_mail_capture.py`, `verify_migration_tester.py`, `verify_neutralisation.py`, `verify_migration_audit.py`, `verify_intake.py` (also `git` and `tar`) | the host's PostgreSQL binaries; each runs a cluster of its own |
 | `verify_neutralise_sources.py` | the local clones under `~/odoo-migrations/.repos` (`git` may fetch an OCA file it cites) |
 | `verify_migration_driver.py`, `verify_demo_seed.py` | nothing but `bash` |
 | `verify_promoted_modules.py` | nothing but `bash` and `git` |
@@ -95,6 +96,14 @@ first, each chosen module is installed in its own call, a module that will not i
 is produced without it, an existing dump or database is refused rather than replaced, and a `pg_dump` that
 fails leaves neither a dump nor a half-written one. That last case passed against a script that *did* leave
 the partial file, until the stub was made to fail the way a real `pg_dump` fails — after writing something.
+
+`verify_migration_audit.py` runs `migrate audit` through the CLI against a cluster of its own. On a
+12.0-shaped copy it must find a shared journal code (and a case-only one as information), a bank day
+imported twice, a line matching a payment on the bank and a closed-period line. On an 18.0-shaped database
+it must find the missing unique constraint and not the truncated one, the foreign key or an uninstalled
+module's; the empty required fields, with the archived-only one as information and a transient model not
+read; and the one statement line stored as reconciled with a suspense line. Read by a role refused one
+table, that check must be unreadable and the others must stand.
 
 `verify_migration_tester.py` generates the rehearsal tester from analysis lines copied verbatim out of
 OpenUpgrade's files, then asks whether the result is a *module*: every `.py` compiles, the manifest

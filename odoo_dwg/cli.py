@@ -46,7 +46,7 @@ def _select_language(preferred: str | None = None, *, ask: bool = True) -> None:
     set_language("es" if lang == "Español" else "en")
 
 
-_READ_ONLY_MIGRATE_ACTIONS = frozenset({"report", "probes", "findings"})
+_READ_ONLY_MIGRATE_ACTIONS = frozenset({"report", "probes", "audit", "findings"})
 
 
 def _is_read_only(args: argparse.Namespace) -> bool:
@@ -158,6 +158,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "probes", parents=[common, chain],
         help=t("Report what each tester probe found in a database. Reads only."))
     probes.add_argument("--database", required=True, help=t("Database to read."))
+    audit = migrate_actions.add_parser(
+        "audit", parents=[common],
+        help=t("Check one database for what breaks or distorts a migration. Reads only."))
+    audit.add_argument("--database", required=True, help=t("Database to read."))
+    audit.add_argument("--db-host", default="127.0.0.1")
+    audit.add_argument("--db-port", type=int, default=5432)
+    audit.add_argument("--db-user", default=DEFAULT_DB_ROLE)
     findings = migrate_actions.add_parser(
         "findings", parents=[common],
         help=t("Read the findings ledger and render its reports. Writes nothing."))
@@ -273,6 +280,10 @@ def main(argv: list[str] | None = None) -> int:
                 return checks.migration_report(args.source, args.target)
             if action == "probes":
                 return checks.probe_check(args.source, args.target, args.database)
+            if action == "audit":
+                return checks.migration_audit(
+                    args.database, args.db_host, args.db_port, args.db_user
+                )
             if action == "findings":
                 return _findings_command(args)
             migration_menu()

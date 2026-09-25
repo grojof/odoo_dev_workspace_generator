@@ -223,6 +223,11 @@ items are host-dependent.
   OCA 14.0 migration of `l10n_es_aeat_sii_oca` leaves in the old table (change
   `carry-the-sii-certificate-file`).
 
+  Then every check the first client's migration needed by hand became one read-only command, `migrate
+  audit`, with a thin skill over it (change `audit-migration-coherence`). It covers journal codes, the
+  bank-line problems of sources up to 13.0, declared constraints PostgreSQL does not have, required fields
+  left empty and stale reconciled flags, on a source copy, a checkpoint or the migrated database.
+
   Not done yet: a client's own module whose manifest declares Odoo S.A. as its author is reported
   "dropped by Odoo; OpenUpgrade removes it". With an intake, where the module loads from is known, and
   that should decide it rather than the author.

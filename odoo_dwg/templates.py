@@ -911,18 +911,21 @@ def _native_step_command(env: MigrationEnv, version: str) -> str:
 #: The step after which OpenUpgrade has left statement lines' ``is_reconciled`` stale.
 STATEMENT_LINES_REPAIR_STEP = "14.0"
 
-#: Run by the 14.0 Odoo's shell: Odoo's own rule, on the only lines the defect can leave
-#: wrong — stored as reconciled while their move still has a line on the journal's
-#: suspense account. Selected in SQL, so a database with many reconciled lines does not
-#: load them all.
-_STATEMENT_LINES_REPAIR = """\
-env.cr.execute(\"\"\"
-    SELECT l.id FROM account_bank_statement_line l
+#: The only lines the defect can leave wrong: stored as reconciled while their move still
+#: has a line on the journal's suspense account. The repair and ``migrate audit`` both
+#: select them with this, so they agree on what is affected.
+STALE_RECONCILED_LINES_FROM = """FROM account_bank_statement_line l
     JOIN account_move m ON m.id = l.move_id
     JOIN account_journal j ON j.id = m.journal_id
     WHERE l.is_reconciled AND EXISTS (
         SELECT 1 FROM account_move_line aml
-        WHERE aml.move_id = m.id AND aml.account_id = j.suspense_account_id)
+        WHERE aml.move_id = m.id AND aml.account_id = j.suspense_account_id)"""
+
+#: Run by the 14.0 Odoo's shell: Odoo's own rule, on those lines. Selected in SQL, so a
+#: database with many reconciled lines does not load them all.
+_STATEMENT_LINES_REPAIR = f"""\
+env.cr.execute(\"\"\"
+    SELECT l.id {STALE_RECONCILED_LINES_FROM}
 \"\"\")
 lines = env["account.bank.statement.line"].browse([row[0] for row in env.cr.fetchall()])
 lines._compute_is_reconciled()

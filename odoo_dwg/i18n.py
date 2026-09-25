@@ -1015,6 +1015,59 @@ _ES: dict[str, str] = {
         'No se pudo leer la base de datos {}; no se registra nada.',
     'Could not read {}; nothing recorded.':
         'No se pudo leer {}; no se registra nada.',
+    # migrate audit
+    'Check one database for what breaks or distorts a migration. Reads only.':
+        'Comprobar en una base de datos lo que rompe o distorsiona una migración. Solo lee.',
+    '{}: not applicable to this database.': '{}: no aplica a esta base de datos.',
+    '{}: could not be read.': '{}: no se pudo leer.',
+    '{}: none.': '{}: sin hallazgos.',
+    '... and {} more': '... y {} más',
+    'Cannot read the database {}.': 'No se puede leer la base de datos {}.',
+    '{} is not an Odoo database.': '{} no es una base de datos de Odoo.',
+    'Nothing was changed. Examples show ids and codes only; the fixes are named, not applied.':
+        'No se ha cambiado nada. Los ejemplos solo muestran ids y códigos; las correcciones se '
+        'nombran, no se aplican.',
+    'Journal codes shared within a company': 'Códigos de diario repetidos en una compañía',
+    'From 15.0 unique(company_id, code) refuses them and OpenUpgrade only logs it. Menu -> '
+    'Migration -> Take in a client copy -> Find journal codes the target refuses renames '
+    'them on the working copy.':
+        'Desde la 15.0 unique(company_id, code) los rechaza y OpenUpgrade solo lo anota en el log. '
+        'Menú -> Migración -> Recibir una copia de cliente -> Buscar códigos de diario que la '
+        'versión destino rechaza los renombra en la copia de trabajo.',
+    'Bank statement lines imported twice': 'Líneas de extracto bancario importadas dos veces',
+    'Menu -> Migration -> Take in a client copy -> Find bank statement lines imported twice '
+    'writes the SQL that drops them on the working copy.':
+        'Menú -> Migración -> Recibir una copia de cliente -> Buscar líneas de extracto '
+        'bancario importadas dos veces escribe el SQL que las quita en la copia de trabajo.',
+    'Unreconciled bank lines matching a payment posted on the bank account':
+        'Líneas bancarias sin conciliar que coinciden con un pago contabilizado en la cuenta '
+        'del banco',
+    "From 14.0 the bank counts each twice. The client's accountant reconciles them in the "
+    'source before the final copy; an equal amount is not proof.':
+        'Desde la 14.0 el banco cuenta cada una dos veces. El contable del cliente las concilia '
+        'en el origen antes de la copia final; que coincida el importe no es una prueba.',
+    'Unreconciled bank lines of closed periods':
+        'Líneas bancarias sin conciliar de periodos cerrados',
+    "Whether to carry them is the client's accountant's decision; the bank-lines intake step "
+    'lists them.':
+        'Llevarlas o no lo decide el contable del cliente; el paso de intake de las líneas '
+        'bancarias las lista.',
+    'Declared constraints PostgreSQL does not have':
+        'Restricciones declaradas que PostgreSQL no tiene',
+    'The data breaks them. Correct it on the working copy before the step that adds the '
+    'constraint, and run the chain again.':
+        'Los datos las incumplen: se corrigen en la copia de trabajo antes del paso que añade la '
+        'restricción, y se vuelve a ejecutar la cadena.',
+    'Required fields left empty': 'Campos obligatorios vacíos',
+    'Fill them on the working copy as a data correction, or record why they may stay empty.':
+        'Se rellenan en la copia de trabajo como corrección de datos, o se registra por qué pueden '
+        'quedar vacíos.',
+    'Bank statement lines stored as reconciled with a line still in suspense':
+        'Líneas de extracto guardadas como conciliadas con un apunte aún en la cuenta transitoria',
+    "The driver's 14.0 repair recomputes them; a database migrated without it needs the same "
+    'recompute.':
+        'La reparación del driver tras la 14.0 las recalcula; una base migrada sin ella necesita '
+        'el mismo recálculo.',
 }
 
 # Runtime lookup: English (the in-code source) → Spanish.

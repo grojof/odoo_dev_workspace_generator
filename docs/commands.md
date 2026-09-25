@@ -96,6 +96,7 @@ not tell — and exit 2 is never a clean result.
 | `odoo-dwg mail check --database X` | Can mail leave this database? |
 | `odoo-dwg migrate report --source A --target B` | The cumulative run report, to stdout (the menu action writes a file; this does not). |
 | `odoo-dwg migrate probes --source A --target B --database X` | What became of each rehearsal probe's subject. |
+| `odoo-dwg migrate audit --database X [--db-user R]` | What in this database breaks or distorts a migration: journal codes, bank lines, missing constraints, empty required fields, stale reconciled flags. Checks apply by the database's shape ([migration](migration.md#checking-a-databases-coherence-migrate-audit)). |
 | `odoo-dwg neutralise check --database X` | Can anything in this database still act on the outside? Rule by rule, with the mail verdict. |
 | `odoo-dwg migrate findings list --source A --target B` | The findings and their decisions; exit 1 while one is still pending. |
 | `odoo-dwg migrate findings show ID --source A --target B` | One finding in full, as the ledger holds it. |
@@ -104,8 +105,9 @@ not tell — and exit 2 is never a clean result.
 | `odoo-dwg migrate findings links --source A --target B` | Every reference link in the ledger, requested; the ones that do not answer, named. Never a URL recorded as evidence. |
 
 Anything that changes the host stays in the menus behind its confirmation phrase. A read-only command that
-finds something to act on names the menu action; it does not perform it. Three skills in `.claude/skills/`
-are thin wrappers over the first four commands.
+finds something to act on names the menu action; it does not perform it. Four skills in `.claude/skills/`
+are thin wrappers over these commands: migration triage (`migrate report`, `migrate probes`), the
+migration coherence check (`migrate audit`), the OpenSnitch rule check and Mailpit configuration.
 
 | Seed a demo source database | Prepares the source version (plain Odoo clone, venv, config — none of which the chain itself builds) and writes `seed_demo.sh`, which builds a database with Odoo's demo data and dumps it in the format the driver takes ([migration](migration.md#rehearsing-before-there-is-a-client-dump)). | Previewed, confirmed |
 | Module fates in this chain | Reads only. For each module named: renamed to X, absorbed into Y, or nothing declared — from each step's own `apriori.py`. | — |

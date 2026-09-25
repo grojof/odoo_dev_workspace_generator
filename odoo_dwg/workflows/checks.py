@@ -15,11 +15,11 @@ from __future__ import annotations
 import json
 from datetime import date
 
-from .. import egress
+from .. import audit, egress
 from .. import findings as fl
 from ..i18n import t, tf
 from ..models import DB_NAME_RE, MigrationEnv
-from ..system import read_dir_files, read_text
+from ..system import psql_rows, read_dir_files, read_text
 from ..ui import level_text
 from . import findings, migration
 from .common import armed_state, mail_state, report_armed, report_mail_state
@@ -82,6 +82,124 @@ def neutralise_check(database: str, host: str, port: int, user: str) -> int:
             "turns it off.")))
         return FOUND
     return CLEAN
+
+
+#: Each check's title, and what fixes a finding. The audit applies none of them.
+_AUDIT_TEXT = {
+    "journal-codes": (
+        "Journal codes shared within a company",
+        "From 15.0 unique(company_id, code) refuses them and OpenUpgrade only logs it. Menu -> "
+        "Migration -> Take in a client copy -> Find journal codes the target refuses renames "
+        "them on the working copy."),
+    "bank-duplicates": (
+        "Bank statement lines imported twice",
+        "Menu -> Migration -> Take in a client copy -> Find bank statement lines imported twice "
+        "writes the SQL that drops them on the working copy."),
+    "bank-payments": (
+        "Unreconciled bank lines matching a payment posted on the bank account",
+        "From 14.0 the bank counts each twice. The client's accountant reconciles them in the "
+        "source before the final copy; an equal amount is not proof."),
+    "bank-closed-lines": (
+        "Unreconciled bank lines of closed periods",
+        "Whether to carry them is the client's accountant's decision; the bank-lines intake step "
+        "lists them."),
+    "constraints-missing": (
+        "Declared constraints PostgreSQL does not have",
+        "The data breaks them. Correct it on the working copy before the step that adds the "
+        "constraint, and run the chain again."),
+    "required-empty": (
+        "Required fields left empty",
+        "Fill them on the working copy as a data correction, or record why they may stay empty."),
+    "statement-lines-reconciled": (
+        "Bank statement lines stored as reconciled with a line still in suspense",
+        "The driver's 14.0 repair recomputes them; a database migrated without it needs the same "
+        "recompute."),
+}
+
+
+def _audit_query(query: str, database: str, host: str, port: int, user: str
+                 ) -> list[list[str]] | None:
+    return psql_rows(query, database, host, port, user)
+
+
+def _run_audit(database: str, host: str, port: int, user: str,
+               catalogue: audit.Catalogue) -> list[audit.Result]:
+    results: list[audit.Result] = []
+    duplicates: set[int] = set()
+    for check in audit.CHECKS:
+        if not audit.applies(check, catalogue):
+            results.append(audit.Result(check, audit.NOT_APPLICABLE))
+            continue
+        rows = _audit_query(audit.QUERIES[check], database, host, port, user)
+        if rows is not None and check == "required-empty":
+            counts = audit.required_counts_sql(audit.parse_candidates(rows))
+            rows = [] if counts is None else _audit_query(counts, database, host, port, user)
+        if rows is None:
+            results.append(audit.Result(check, audit.UNREADABLE))
+            continue
+        match check:
+            case "journal-codes":
+                results.append(audit.journal_codes_result(rows))
+            case "bank-duplicates":
+                result, duplicates = audit.bank_duplicates_result(rows)
+                results.append(result)
+            case "bank-payments":
+                results.append(audit.bank_payments_result(rows, duplicates))
+            case "bank-closed-lines":
+                results.append(audit.bank_closed_lines_result(rows, duplicates))
+            case "constraints-missing":
+                results.append(audit.constraints_result(rows))
+            case "required-empty":
+                results.append(audit.required_result(rows))
+            case _:
+                results.append(audit.stale_reconciled_result(rows))
+    return results
+
+
+def _print_audit_result(result: audit.Result) -> None:
+    title, fix = _AUDIT_TEXT[result.check]
+    title = t(title)
+    match result.verdict:
+        case audit.NOT_APPLICABLE:
+            print(level_text("INFO", tf("{}: not applicable to this database.", title)))
+            return
+        case audit.UNREADABLE:
+            print(level_text("ERROR", tf("{}: could not be read.", title)))
+            return
+        case audit.CLEAN:
+            print(level_text("OK", tf("{}: none.", title)))
+            return
+    level = "WARN" if result.verdict == audit.FOUND else "INFO"
+    print(level_text(level, f"{title}: {result.count}"))
+    for example in result.examples:
+        print(f"    {example}")
+    if result.more:
+        print("    " + tf("... and {} more", str(result.more)))
+    if result.detail:
+        print(f"    {result.detail}")
+    print("    " + t(fix))
+
+
+def migration_audit(database: str, host: str, port: int, user: str) -> int:
+    """The coherence checks that apply to one database, and what each found."""
+    if not DB_NAME_RE.fullmatch(database):
+        print(level_text("ERROR", tf("Invalid database name: {}", database)))
+        return UNKNOWN
+    rows = _audit_query(audit.CATALOGUE_SQL, database, host, port, user)
+    if rows is None:
+        print(level_text("ERROR", tf("Cannot read the database {}.", database)))
+        return UNKNOWN
+    catalogue = audit.parse_catalogue(rows)
+    if not audit.is_odoo(catalogue):
+        print(level_text("ERROR", tf("{} is not an Odoo database.", database)))
+        return UNKNOWN
+    results = _run_audit(database, host, port, user, catalogue)
+    for result in results:
+        _print_audit_result(result)
+    code = audit.exit_code(results)
+    print(level_text("INFO", t(
+        "Nothing was changed. Examples show ids and codes only; the fixes are named, not applied.")))
+    return {1: FOUND, 2: UNKNOWN}.get(code, CLEAN)
 
 
 def _environment(source: str, target: str) -> MigrationEnv | None:
