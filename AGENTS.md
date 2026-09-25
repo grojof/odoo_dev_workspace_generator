@@ -1,4 +1,4 @@
-# odoo_dwg — AI Agent Guide (CLAUDE.md)
+# odoo_dwg — AI Agent Guide (AGENTS.md)
 
 A zero-runtime-dependency (Python standard library only) CLI that generates and maintains **Odoo
 Community** development workspaces and OpenUpgrade migration environments on a **Linux host**. This file is

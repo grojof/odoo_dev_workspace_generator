@@ -3,7 +3,7 @@
 PostgreSQL whether the result means what the tool says it means.
 
 `plan_pg_hba_trust` rewrites a root-owned authentication file with `sed`, and the
-unit suite may not shell out (CLAUDE.md), so its assertions are on the plan's
+unit suite may not shell out (AGENTS.md), so its assertions are on the plan's
 *text*. Four audit rounds found the same class of bug behind that: a blanket
 trust written `localhost`, then indented or `hostnossl`, then on an address that
 merely contains loopback, then on `hostssl` — each surviving the narrowing while
