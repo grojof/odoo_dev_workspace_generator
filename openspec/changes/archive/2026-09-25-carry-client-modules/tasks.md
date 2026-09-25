@@ -21,7 +21,7 @@
 - [x] 1.6 `tools/verify_migration_driver.py`: the stage against stub binaries (renames, one update/install
       run, uninstalls in that order, nothing-to-carry writes no checkpoint, `--redo-modules` restores the
       target checkpoint and runs only the stage, a missing `to` stops before any database command)
-- [ ] 2.1 On the first client's environment (by hand, nothing enters the repository): regenerate the
+- [x] 2.1 On the first client's environment (by hand, nothing enters the repository): regenerate the
       driver, record the decisions with `migrate decide`, check them with `migrate modules`, and run the
       stage on the migrated database with the first ported module; then `--redo-modules`
 - [x] 2.2 Docs: `docs/migration/running.md`, `docs/reference/commands.md`, `README.md`,
