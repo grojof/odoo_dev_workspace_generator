@@ -959,7 +959,6 @@ class MigrationEnv:
     """An OpenUpgrade migration environment for a ``source`` → ``target`` chain."""
 
     base_dir: ClassVar[str] = "~/odoo-migrations"
-    odoo_repo_url: ClassVar[str] = "https://github.com/odoo/odoo"
     openupgrade_url: ClassVar[str] = "https://github.com/OCA/OpenUpgrade"
 
     source: str

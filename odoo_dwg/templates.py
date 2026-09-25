@@ -986,8 +986,8 @@ def _render_step_repair(env: MigrationEnv, version: str) -> str:
         "  # OpenUpgrade 14.0 stores unreconciled statement lines as reconciled (an ORM\n"
         "  # flush over its own SQL); Odoo's own method recomputes them. The OCA 14.0\n"
         "  # SII migration leaves the certificate file behind; it is carried here.\n"
-        f"  {shell} <<'ODWG_REPAIR' || die \"{version}: repairing the statement lines' "
-        "reconciled flag failed\"\n"
+        f"  {shell} <<'ODWG_REPAIR' || die \"{version}: the repairs after the step failed "
+        "(statement lines' reconciled flag, SII certificate file)\"\n"
         f"{_STATEMENT_LINES_REPAIR}{_SII_CERTIFICATE_REPAIR}ODWG_REPAIR\n"
         f'  mark "{version}" repair statement-lines-is-reconciled\n'
         f'  mark "{version}" repair sii-certificate-file\n'

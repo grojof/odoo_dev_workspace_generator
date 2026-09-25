@@ -4,9 +4,9 @@
 
 The journal codes step renames only what the target refuses: shared codes, and codes that differ only by
 case or spaces. The journal with most entries keeps its code. But a code the target accepts can still say
-nothing. `BNK1`, `BNK2` and `BNK01` next to each other do not say which bank, company or card each one is.
+nothing. `BNK1`, `BNK2` and `CSH1` next to each other do not say which bank, company or card each one is.
 On the first client, once the shared codes were settled, the natural next step was one readable scheme for
-every bank, card and cash journal, such as `ESB01…` by age. The step could not express it: it ignored the
+every bank, card and cash journal, such as bank journals numbered by company and age. The step could not express it: it ignored the
 operator's code for a journal outside a group, and for the journal that keeps a group's code.
 
 Renaming a readable code is optional. It is proposed after the first audit, and the client decides.

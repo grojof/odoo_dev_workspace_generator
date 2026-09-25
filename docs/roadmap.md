@@ -3,7 +3,7 @@ type: explanation
 title: "Roadmap and backlog"
 description: "Phased delivery plan and the parked backlog for the Odoo dev/migration workspace generator."
 audience: [contributor]
-updated: 2026-09-20
+updated: 2026-09-25
 ---
 
 # Roadmap
@@ -215,10 +215,13 @@ items are host-dependent.
   bank's own balances, for a source up to 13.0, with a guarded SQL for the first step's pre hook.
   The same step lists closed periods' unreconciled lines, optionally left behind on the accountant's
   decision (change `leave-locked-bank-lines-behind`). And journal codes the target refuses are renamed
-  before the chain (change `rename-duplicate-journal-codes`), and any journal may get a readable code from the operator (change `rename-any-journal-code`). The second rehearsal found that
-  OpenUpgrade 14.0 leaves statement lines stored as reconciled, and the driver now repairs them
-  after that step (change `repair-statement-line-reconciled-flag`). The upstream fix, a flush in
-  OpenUpgrade, is proposed as a draft in OCA/OpenUpgrade#6005.
+  before the chain (change `rename-duplicate-journal-codes`); any journal may also get a readable code
+  from the operator (change `rename-any-journal-code`). The second rehearsal found that OpenUpgrade
+  14.0 leaves statement lines stored as reconciled, and the driver now repairs them after that step
+  (change `repair-statement-line-reconciled-flag`). The upstream fix, a flush in OpenUpgrade, is
+  proposed as a draft in OCA/OpenUpgrade#6005. The same repair carries the SII certificate file the
+  OCA 14.0 migration of `l10n_es_aeat_sii_oca` leaves in the old table (change
+  `carry-the-sii-certificate-file`).
 
   Not done yet: a client's own module whose manifest declares Odoo S.A. as its author is reported
   "dropped by Odoo; OpenUpgrade removes it". With an intake, where the module loads from is known, and

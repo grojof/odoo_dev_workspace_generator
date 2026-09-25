@@ -13,13 +13,13 @@ the company once every rename applies. The SQL SHALL be guarded as for the other
 
 #### Scenario: A journal with a unique but unclear code
 
-- **WHEN** the operator writes `BAN01` for a journal whose code `BNK1` no other journal shares
-- **THEN** the plan renames it as the operator's, and the SQL renames it while it still has `BNK1` and `BAN01` is free
+- **WHEN** the operator writes `DEMO3` for a journal whose code `BNK1` no other journal shares
+- **THEN** the plan renames it as the operator's, and the SQL renames it while it still has `BNK1` and `DEMO3` is free
 
 #### Scenario: The journal that keeps a group's code gets a readable one
 
-- **WHEN** the operator writes `ESB01` for the journal that would keep the shared `BANK1`
-- **THEN** it is renamed to `ESB01`, and the others of the group get their own codes
+- **WHEN** the operator writes `DEMO1` for the journal that would keep the shared `BANK1`
+- **THEN** it is renamed to `DEMO1`, and the others of the group get their own codes
 
 #### Scenario: A chained rename is refused
 

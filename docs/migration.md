@@ -56,7 +56,8 @@ Under `~/odoo-migrations/<src>-to-<tgt>/`:
   clone is made.
 - **Which core the steps from 14.0 run on.** Generation asks, and the default is the core the intake
   identified: a client on OCB is migrated on OCB, and official Odoo is the default with no intake or with a
-  patched core. It matters because every step installs the modules whose `auto_install` dependencies are
+  patched core. A regeneration offers what the generated steps already run, and says so when that is not
+  the client's core. It matters because every step installs the modules whose `auto_install` dependencies are
   met, and OCB turns `auto_install` off for a list of them (17 at 18.0: `iap`, `sms`, `partner_autocomplete`,
   `mail_bot`, `base_import_module`, `account_edi_ubl_cii`…). A client on OCB migrated on official Odoo ends
   up with modules it never had, and they stay installed if the core is switched later. Otherwise the two
@@ -341,7 +342,7 @@ shared cluster. To look at it, start that step's Odoo by hand:
 
 ```bash
 cd ~/odoo-migrations/13-to-18
-.venv/odoo18/bin/python .repos/odoo-18.0/odoo-bin -c conf/odoo18.conf -d migration_13_to_18
+.venv/odoo18/bin/python .repos/odoo-18.0/odoo-bin -c conf/odoo18.conf -d migration_13_to_18   # .repos/ocb-18.0 on an OCB chain
 ```
 
 To take it away: `pg_dump -Fc -h 127.0.0.1 -U odoo migration_13_to_18 -f migrated-18.0.dump` (and the filestore
@@ -431,7 +432,7 @@ The driver repairs it right after the 14.0 step and its post hook, before the ch
 SQL the only lines the defect can leave wrong: stored as reconciled while their move still has a line on
 the journal's suspense account. It then recomputes them in `odoo-bin shell` on the 14.0 Odoo with Odoo's
 own `_compute_is_reconciled` (the same rule as in 18.0), prints how many it selected and how many are
-still reconciled, and records `repair` in `logs/steps.tsv`. Only those lines go through the ORM, so it
+still reconciled, and records `repair statement-lines-is-reconciled` in `logs/steps.tsv`. Only those lines go through the ORM, so it
 takes seconds on a large database, and it selects nothing once OpenUpgrade flushes itself
 ([OCA/OpenUpgrade#6005](https://github.com/OCA/OpenUpgrade/pull/6005)).
 
@@ -441,7 +442,7 @@ Up to 13.0, `l10n_es_aeat_sii` keeps the AEAT certificate (the `.p12`) in a colu
 14.0 migration of `l10n_es_aeat_sii_oca` creates one `l10n.es.aeat.certificate` per old record, but it
 moves attachments only, so the file never reaches the new model. The same run of the 14.0 repair carries
 each file from the old table, through OpenUpgrade's legacy link, when the new certificate has none, and
-records `repair sii-certificate-file`. The keys are files on the old server's disk: on the new server,
+records `repair sii-certificate-file` whether or not there was a file to carry (its output says how many). The keys are files on the old server's disk: on the new server,
 open each certificate and obtain the keys again with its password.
 
 ### When a module has no code anywhere: `decisions.json`

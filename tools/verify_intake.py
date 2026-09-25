@@ -410,13 +410,13 @@ def main() -> int:
             cluster.value(JOURNAL_DB + " SELECT 1", "journals2")
             plan, problems = intake.journal_code_plan(
                 system.psql_rows(intake.JOURNAL_CODES_SQL, "journals2", **q) or [],
-                {1: "ESB01", 2: "ESB02", 5: "OTH01"})
+                {1: "DEMO1", 2: "DEMO2", 5: "OTH01"})
             applied = cluster.sql(intake.journal_codes_sql(plan), "journals2")
             codes = cluster.value("SELECT string_agg(id || '=' || code, ',' ORDER BY id) "
                                   "FROM account_journal", "journals2")
             check("the operator renames the keeper and a journal outside any group",
                   not problems and applied.returncode == 0
-                  and codes.startswith("1=ESB01,2=ESB02,") and codes.endswith("5=OTH01")
+                  and codes.startswith("1=DEMO1,2=DEMO2,") and codes.endswith("5=OTH01")
                   and cluster.sql(constraint, "journals2").returncode == 0, (problems, codes))
 
             # --- the uninstall command, against a stub interpreter ---------------------------

@@ -355,7 +355,8 @@ and library that is missing or at the wrong version.
 
 A migration environment SHALL have a chain core, `odoo` or `ocb`, for the steps from 14.0 on. By default
 it SHALL be the core the intake identified. It SHALL be `odoo` when there is no intake or the core is
-patched or unidentified. The operator MAY choose it at generation. Those steps' clone, `addons_path`,
+patched or unidentified. On a regeneration, the default SHALL be the core the generated step configs already
+run, and the question SHALL name both when that is not the client's. The operator MAY choose it at generation. Those steps' clone, `addons_path`,
 `odoo-bin`, requirements and coverage SHALL use `<repos>/<core>-<version>`.
 
 Generation SHALL say which core the steps use and whether it follows the client or the operator. Every

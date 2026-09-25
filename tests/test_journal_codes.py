@@ -56,16 +56,16 @@ def test_the_operators_code_is_kept_and_a_bad_one_refused():
 
 
 def test_the_operator_may_rename_a_journal_outside_any_group():
-    plan, problems = it.journal_code_plan(ROWS, {103: "TAR01"})
+    plan, problems = it.journal_code_plan(ROWS, {103: "DEMO3"})
     renamed = _by_id(plan)[103]
-    assert not problems and renamed.group == "operator" and renamed.proposed == "TAR01"
-    assert "SET code = 'TAR01' WHERE id = 103 AND code = 'BANK2'" in it.journal_codes_sql(plan)
+    assert not problems and renamed.group == "operator" and renamed.proposed == "DEMO3"
+    assert "SET code = 'DEMO3' WHERE id = 103 AND code = 'BANK2'" in it.journal_codes_sql(plan)
 
 
 def test_the_journal_keeping_a_groups_code_may_get_a_readable_one():
-    plan, problems = it.journal_code_plan(ROWS, {101: "ESB01", 102: "ESB02"})
+    plan, problems = it.journal_code_plan(ROWS, {101: "DEMO1", 102: "DEMO2"})
     by = _by_id(plan)
-    assert not problems and by[101].proposed == "ESB01" and by[102].proposed == "ESB02"
+    assert not problems and by[101].proposed == "DEMO1" and by[102].proposed == "DEMO2"
 
 
 def test_writing_the_current_code_renames_nothing():
