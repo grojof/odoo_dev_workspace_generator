@@ -1,7 +1,7 @@
 ---
 name: migration-triage
 description: Triage an OpenUpgrade migration run - what is still open, what each step's log holds, what the firewall refused, and what the rehearsal tester found. Use when asked how a migration went, what went wrong at a step, or what is left to resolve.
-license: LGPL-3.0
+license: AGPL-3.0-or-later
 compatibility: Requires odoo-dwg on PATH (or `python -m odoo_dwg`). The report needs an environment the driver has run in.
 metadata:
   author: odoo_dwg
@@ -63,7 +63,7 @@ asked. Checking a long chain only at the end turns most quiet-class probes into 
 
 ## When the run was stopped by the preflight
 
-The gate refuses a run for three reasons, and each has a different answer:
+The gate refuses a run for these reasons, and each has a different answer:
 
 - **`<module> missing for <version>`** — nobody supplies that code at that step. Either put it in that
   step's `custom` directory, add the OCA repository that has it, or **record a decision**: the environment's
@@ -74,6 +74,10 @@ The gate refuses a run for three reasons, and each has a different answer:
 - **`a module installed since the preflight resolves nowhere`** — a module the chain installed along the
   way, which the source database never had. The run stops at that step; the checkpoints before it stand, so
   fixing it and re-running resumes rather than restarts.
+- **`<version>: its modules need Python libraries its venv lacks`** — the `[python]` lines above it name
+  them. Regenerating the environment offers to install them.
+- **`<version>: OpenUpgrade … not found … — regenerate the environment`** — that step's OpenUpgrade code is
+  not on disk, so Odoo would migrate nothing and say nothing. Regenerate the environment.
 
 ## A live run
 
@@ -86,4 +90,5 @@ step's log and what it reached for, and it leaves the driver alone. The report i
 - **Change nothing, and run nothing that changes anything.** Re-running a step, cleaning an environment,
   capturing mail and promoting modules are all menu actions behind confirmations. Name them.
 - **Exit 2 is not a clean run.** Say what could not be read.
-- Background: `docs/migration.md`.
+- Background: `docs/migration/running.md` (the run, following it, the report) and
+  `docs/migration/rehearsing.md` (the tester's probes).

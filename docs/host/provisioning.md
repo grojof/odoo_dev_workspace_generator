@@ -2,6 +2,7 @@
 type: how-to
 title: "Provisioning a Linux host"
 description: "Use the provision section to make a supported Ubuntu host Odoo-ready."
+tags: [host, provisioning, postgresql]
 audience: [developer]
 updated: 2026-09-20
 ---
@@ -10,7 +11,7 @@ updated: 2026-09-20
 
 The optional **provision** section prepares a *Linux* host (bare server, WSL, or container) for Odoo
 development. The host releases it supports are declared in the
-[support matrix](support-matrix.md) — **Ubuntu 24.04** — detected from `/etc/os-release`. Any other
+[support matrix](../reference/support-matrix.md) — **Ubuntu 24.04** — detected from `/etc/os-release`. Any other
 host is reported by `check` and refused by `apply` rather than guessed at: earlier versions accepted the whole
 apt family, which implied Debian support that was never validated.
 
@@ -140,6 +141,12 @@ password:
   generated `odoo.conf` sends mail there, so it is read and never delivered. See
   [egress-control](egress-control.md#mail-capture).
 
+When the plan ends, apply **reads the opt-in services' state back** and prints it. `systemctl restart`
+returns as soon as a unit's process is forked, so a daemon that exits a second later would otherwise leave
+every step reporting success. If you see *"A service is installed but not running"*, run
+`systemctl status opensnitch` (or `mailpit`) — for the firewall in particular, not running means either an
+unfiltered host or, if it died after installing its queue rules, one with no outbound connectivity at all.
+
 ## Why `trust` on loopback
 
 `provision apply` lets the development role connect from `127.0.0.1` / `::1` without a password. That is a
@@ -155,18 +162,12 @@ yourself.
 - wkhtmltopdf (which build to use): <https://github.com/odoo/odoo/wiki/Wkhtmltopdf>
 - Supported versions / PostgreSQL: <https://www.odoo.com/documentation/18.0/administration/supported_versions.html>
 
-When the plan ends, apply **reads the opt-in services' state back** and prints it. `systemctl restart`
-returns as soon as a unit's process is forked, so a daemon that exits a second later would otherwise leave
-every step reporting success. If you see *"A service is installed but not running"*, run
-`systemctl status opensnitch` (or `mailpit`) — for the firewall in particular, not running means either an
-unfiltered host or, if it died after installing its queue rules, one with no outbound connectivity at all.
-
 ## Next: your first workspace
 
 With the host ready, create a workspace: `python3 -m odoo_dwg workspace` → **New (quick)**. It clones the
 versions you name, builds a venv for each, and writes the config, scripts and editor files. The workspace's
 own `README.md` then tells you how to create its database and start Odoo; the layout and every convention
-are in [workspace-layout](workspace-layout.md), and every menu action in [commands](commands.md).
+are in [workspace layout](../workspace/layout.md), and every menu action in [commands](../reference/commands.md).
 
 ## Acceptance (validated on WSL Ubuntu 24.04)
 

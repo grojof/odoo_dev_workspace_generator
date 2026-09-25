@@ -2,13 +2,14 @@
 type: explanation
 title: "Roadmap and backlog"
 description: "Phased delivery plan and the parked backlog for the Odoo dev/migration workspace generator."
+tags: [roadmap, backlog, project]
 audience: [contributor]
 updated: 2026-09-25
 ---
 
 # Roadmap
 
-**Released: v0.2.0 (2026-09-20).** F0–F3 are complete; see [`CHANGELOG.md`](../CHANGELOG.md).
+**Released: v0.2.0 (2026-09-20).** F0–F3 are complete; see [`CHANGELOG.md`](../../CHANGELOG.md).
 
 **What 0.2.0 brought:** the outbound firewall and mail capture (change `add-egress-control`);
 `harden-for-0-2-0`, which closed what repeated pre-release audit rounds found (each round one docs review and
@@ -45,7 +46,7 @@ Three verifiers came out of those rounds, all outside the unit suite because it 
 `tools/verify_generated_shell.py` runs ShellCheck over every generated script, and
 `tools/verify_pg_hba_trust.py` runs the `pg_hba.conf` rewriter over every shape of that file it must handle
 and checks the result against a throwaway PostgreSQL cluster. What each one covers is listed once, in
-[`CONTRIBUTING.md`](../CONTRIBUTING.md) — this page stopped repeating the count after it drifted four rounds
+[`CONTRIBUTING.md`](../../CONTRIBUTING.md) — this page stopped repeating the count after it drifted four rounds
 running.
 
 Delivery is phased so each phase is independently useful and verifiable. Non-trivial work is proposed and
@@ -66,7 +67,7 @@ and taken as given by the next run; what was decided about a module with no succ
 reused between clients and reported as stale when the sources overtake it; and a migration environment
 can name OCA repositories, so that half of coverage is derived instead of filled by hand.
 
-**Seeing what a run did (in flight).** A chain of seven steps takes hours and used to leave only seven
+**Seeing what a run did.** A chain of seven steps takes hours and used to leave only seven
 Odoo logs. The driver now records each step as it runs it (`logs/steps.tsv`, one appended line per
 event); a run can be **followed live** from those marks, and reported on **afterwards and
 cumulatively** — every run of the environment, opening with what is still unresolved. The parsing is
@@ -112,7 +113,7 @@ records through both steps, and reported them afterwards without Odoo running �
 which is the honest answer for two module subjects that had never been installed in that database and which
 an earlier pass had reported as the chain behaving.
 
-**Next:** the real 12 client, and a 12 → 19 rehearsal on demo data with the same module set.
+Both followed: a 12 → 19 rehearsal on demo data, and the first client's 12 → 18 migration (see Features below).
 
 ## F0 — Foundation ✅
 
@@ -243,13 +244,13 @@ items are host-dependent.
   restatements, the three copies of the ready-marker rule and the three of `smtp 127.0.0.1:1025`
   should become references.
 - ~~Support matrix~~ — **done** (2026-09-17, change `add-support-matrix`): one authoritative,
-  evidence-tiered matrix in `models.py` + [`docs/support-matrix.md`](support-matrix.md), with
+  evidence-tiered matrix in `models.py` + [`docs/reference/support-matrix.md`](../reference/support-matrix.md), with
   `tools/verify_support_matrix.py` to re-derive every bound from its official source. Hosts narrowed to
   Ubuntu 22.04/24.04 (BREAKING for Debian); tool Python floor 3.10; per-version Python maxima added
   (derived from each branch's own `requirements.txt` buckets, cross-validated against Odoo 19's declared
   `MAX_PY_VERSION`); Odoo 19's PostgreSQL floor corrected to 13. Interpreter choice now exists in both the
   workspace and migration flows. Development of this repo moved into WSL (clone under `~`, not `/mnt/c`);
-  [`docs/wsl-setup.md`](wsl-setup.md) covers getting the tool onto a host. `lighten-scope` later narrowed the
+  [`docs/host/wsl-setup.md`](../host/wsl-setup.md) covers getting the tool onto a host. `lighten-scope` later narrowed the
   hosts to Ubuntu 24.04 alone and raised the tool's floor to 3.12.
 - ~~F4 — Optional AI emitters~~ — **dropped** (2026-09-19, change `lighten-scope`). Emitting `CLAUDE.md`,
   skills or other assistants' rules files would couple the tool to formats that change month to month, one per
@@ -276,13 +277,13 @@ items are host-dependent.
   documented minimal keys as absolute paths. No `jsconfig.json`: OdooLS 1.5 handles JavaScript and OWL from
   the manifests' asset bundles. A richer emitter was dropped — the official extension already provides
   profiles, per-version switching and a configuration view — and `tools/verify_odools_config.py` plus
-  [`docs/editor-integration.md`](editor-integration.md) keep the emitted file in step with new releases.
+  [`docs/workspace/editor.md`](../workspace/editor.md) keep the emitted file in step with new releases.
   Validated by running the official OdooLS binaries (1.4.0 stable and 1.5.2 beta) against a generated
   workspace. Open: whether to adopt any 1.5 key once 1.5 reaches the stable channel.
 - ~~Provision password-auth mode~~ — **dropped** (2026-09-19, change `lighten-scope`). It serves shared or
   remote PostgreSQL, which a local development tool does not target, and it would add secret generation and
   storage, a plaintext password in `odoo.conf` and new `pg_hba` rules — a security surface with no user.
-  Loopback `trust` is documented as intentional in `docs/provisioning.md`, with the manual steps if needed.
+  Loopback `trust` is documented as intentional in `docs/host/provisioning.md`, with the manual steps if needed.
 - ~~Outbound firewall and mail capture~~ — **done** (2026-09-19, change `add-egress-control`). The need was
   testing and migrating copies of production without mailing customers or calling real services. The choice
   was host-level control, since Odoo's `neutralize` is version-bound and blind to custom addons:
@@ -292,7 +293,7 @@ items are host-dependent.
   Both are opt-in in `provision`, pinned and verified, and can be turned off or on, or uninstalled, from its
   menu. A spike and the operator's own test on WSL drove every non-default setting (`proc` monitoring,
   `InterceptUnknown`, fail closed, the journal logger) and the rule order that keeps `odoo-bin` on localhost.
-  See [`egress-control.md`](egress-control.md).
+  See [`egress-control.md`](../host/egress-control.md).
 ## Validation / refinement (host-dependent)
 
 - ~~Migration overrides tuning~~ — **done** (2026-07-18): 14/15 install clean on 3.8; 16/17 needed the
@@ -330,4 +331,4 @@ items are host-dependent.
   shell, upgrade modules and test module. The first try exposed the `pkg_resources` failure fixed by
   `fix-workspace-venvs`.
 - **When OdooLS 1.5 reaches the stable channel** — run `python tools/verify_odools_config.py` and decide whether
-  any 1.5 key is worth emitting, following [`editor-integration.md`](editor-integration.md).
+  any 1.5 key is worth emitting, following [editor integration](../workspace/editor.md).

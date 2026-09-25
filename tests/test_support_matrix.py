@@ -231,11 +231,11 @@ def test_the_legacy_versions_resolve_to_a_uv_interpreter():
 
 # --- the docs must not drift from the declared matrix ----------------------
 
-SUPPORT_DOC = Path(__file__).resolve().parent.parent / "docs" / "support-matrix.md"
+SUPPORT_DOC = Path(__file__).resolve().parent.parent / "docs" / "reference" / "support-matrix.md"
 
 
 def _doc_version_rows() -> dict[str, list[str]]:
-    """Parse the version table of docs/support-matrix.md into {version: cells}."""
+    """Parse the version table of docs/reference/support-matrix.md into {version: cells}."""
     rows: dict[str, list[str]] = {}
     for line in SUPPORT_DOC.read_text(encoding="utf-8").splitlines():
         if not line.startswith("| 1"):

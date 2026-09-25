@@ -2,6 +2,7 @@
 type: reference
 title: "Workspace profile reference"
 description: "The JSON profile fields that describe an odoo_dwg workspace."
+tags: [workspace, profile, configuration]
 audience: [developer]
 updated: 2026-09-20
 ---
@@ -27,7 +28,7 @@ fails is reported with its field, and nothing is planned.
 ## Development versions and interpreters
 
 A profile may name any version in the
-[support matrix](support-matrix.md) (12.0–19.0), which is the single place the Python range, the recommended
+[support matrix](../reference/support-matrix.md) (12.0–19.0), which is the single place the Python range, the recommended
 interpreter and the PostgreSQL floor per version are declared — with the source behind each one.
 
 Each instance's venv is built with an interpreter resolved against that matrix:
@@ -51,7 +52,7 @@ the host, not on the profile.
 Every workspace connects as `odoo`, the role `provision apply` creates by default and migration environments
 use, so a freshly provisioned host serves a new workspace with no extra step. A role per workspace would add a
 `sudo` step for each client and isolate nothing, since loopback authentication is `trust`
-([`provisioning.md`](provisioning.md#why-trust-on-loopback)). Set `db_user` in the profile if you want another
+([`provisioning.md`](../host/provisioning.md#why-trust-on-loopback)). Set `db_user` in the profile if you want another
 role; `provision apply` creates whichever role you name.
 
 The trade-off: Odoo's database selector lists the databases the connecting role owns, so every workspace's

@@ -1,7 +1,7 @@
 ---
 name: mailpit-config
 description: Check whether a database's mail can still leave the host, and explain how to capture it in Mailpit or give the production configuration back. Use before a rehearsal migration, and before a cutover.
-license: LGPL-3.0
+license: AGPL-3.0-or-later
 compatibility: Requires odoo-dwg on PATH (or `python -m odoo_dwg`) and a reachable PostgreSQL.
 metadata:
   author: odoo_dwg
@@ -37,7 +37,8 @@ Both change a database and both are behind a confirmation phrase in the menu. Na
   Deactivates the client's servers **without altering them** and adds one pointing at `127.0.0.1:1025`.
   Safe to repeat.
 - **Menu → … → Restore a database's mail configuration** (phrase `RESTORE`). Removes the added server and
-  switches back on exactly what the capture switched off. This is the step before a cutover.
+  switches back on exactly what the capture switched off. Use it on a database that was captured but
+  never neutralised.
 
 ## Rules
 
@@ -46,11 +47,12 @@ Both change a database and both are behind a confirmation phrase in the menu. Na
   calling an answer good or bad.
 - Captured mail is read at `http://127.0.0.1:8025`.
 - Never suggest editing `ir_mail_server` by hand. The capture exists so that nothing has to be retyped.
-- Background: `docs/egress-control.md`.
+- Background: `docs/host/egress-control.md`.
 
 ## A migrated database
 
-A rehearsal chain leaves the mail configuration exactly as it found it — capture deactivates and adds, it
-never overwrites — so after a 12 → 19 run the client's own servers are still in the database, switched off.
-`restore` is what switches them back on, and it is the step before a cutover. Check after restoring: the
+A migrated database keeps the client's own mail servers intact, but switched off: capture deactivates
+and adds, it never overwrites. The driver also neutralises the database after every step, so at cutover
+the one action is **Give a neutralised database its production settings back** (phrase
+`RESTORE PRODUCTION`): it undoes the neutralisation and the mail capture together. Check afterwards: the
 expected answer there is **`Mail can leave`**, the opposite of what you want during a rehearsal.

@@ -44,8 +44,8 @@ def egress_check() -> int:
     for finding in findings:
         print(f"  {finding.kind:<12} {finding.filename}  {finding.detail}")
     print(level_text("INFO", t(
-        "Nothing was changed. Menu -> Provision -> Outbound firewall and mail capture "
-        "rewrites the tool's own rules; your own are yours to judge."
+        "Nothing was changed. Menu -> Provision -> Apply (install what's missing), answering yes "
+        "to the outbound firewall, rewrites the tool's own rules; your own are yours to judge."
     )))
     return FOUND
 

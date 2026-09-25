@@ -1,7 +1,7 @@
 ---
 name: opensnitch-rule-check
 description: Check whether the host's OpenSnitch rules still say what odoo_dwg wrote, and whether anything now sorts ahead of them. Use when asked to verify the outbound firewall rules, or before a migration that must not reach the internet.
-license: LGPL-3.0
+license: AGPL-3.0-or-later
 compatibility: Requires odoo-dwg on PATH (or `python -m odoo_dwg`) and OpenSnitch installed on the host.
 metadata:
   author: odoo_dwg
@@ -23,7 +23,7 @@ The exit code is the verdict: **0** nothing to report, **1** it found something,
 | Finding | What it means | What to say |
 |---|---|---|
 | `sorts first` | A rule that is **not** the tool's is evaluated before the tool's rules. OpenSnitch takes the first match, so this rule can let Odoo out. | The one worth acting on. Show the file name and ask whether that rule is deliberate. |
-| `absent` | A rule the tool would write is not on the host. | Menu → Provision → *Outbound firewall and mail capture* rewrites the tool's own rules. |
+| `absent` | A rule the tool would write is not on the host. | Menu → Provision → *Apply (install what's missing)*, answering yes to the outbound firewall, rewrites the tool's own rules. |
 | `disabled` | One of the tool's rules has `enabled: false`. | Same. Note that a disabled rule confines nothing. |
 | `changed` | One of the tool's rules differs from what the tool would write. Formatting alone is **not** reported — this is a difference in what OpenSnitch would do. | Ask whether the edit was deliberate before offering to rewrite it. |
 | `unreadable` | A file in the rules directory is not JSON, so what OpenSnitch does with it cannot be predicted. | Show the file name. |
@@ -35,4 +35,4 @@ The exit code is the verdict: **0** nothing to report, **1** it found something,
   run it.
 - **Exit 2 is not "clean".** If the tool could not read the rules, say so. Never report a firewall as
   correct because a check failed to run.
-- Background on why the prefix is `00-odwg-` and why file-name order decides: `docs/egress-control.md`.
+- Background on why the prefix is `00-odwg-` and why file-name order decides: `docs/host/egress-control.md`.

@@ -7,7 +7,7 @@ what ``templates.render_odools_toml`` emits:
 
     python tools/verify_odools_config.py
 
-What it does, in order (see docs/editor-integration.md for how to act on it):
+What it does, in order (see docs/workspace/editor.md for how to act on it):
 
 1. Finds the latest **stable** release of ``odoo/odoo-ls`` (prereleases are
    reported, never used to judge: their keys are not yet safe to emit).
@@ -216,7 +216,7 @@ def main() -> int:
         print(f"{len(problems)} problem(s):")
         for line in problems:
             print(f"  - {line}")
-        print("\nThe generator was NOT modified. See docs/editor-integration.md.")
+        print("\nThe generator was NOT modified. See docs/workspace/editor.md.")
         return 1
     print("Every emitted key is accepted by the latest stable schema.")
     return 0

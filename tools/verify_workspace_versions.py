@@ -9,7 +9,7 @@ it on the reference host whenever what a venv installs may have moved:
     python tools/verify_workspace_versions.py 12.0 15.0    # only these
     python tools/verify_workspace_versions.py --keep       # leave everything for inspection
 
-What it does, in order (see docs/workspace-layout.md for when and how to act on it):
+What it does, in order (see docs/workspace/layout.md for when and how to act on it):
 
 1. Generates a workspace named ``verifyall`` with the requested versions through
    the tool's own plan (``plan_generate_workspace``), each version on the

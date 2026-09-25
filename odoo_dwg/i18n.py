@@ -499,8 +499,11 @@ _ES: dict[str, str] = {
     'The {} rules are as the tool wrote them.':
         'Las reglas {} están como las escribió la herramienta.',
     '{} rule(s) to look at.': 'Hay {} regla(s) que mirar.',
-    "Nothing was changed. Menu -> Provision -> Outbound firewall and mail capture rewrites the tool's own rules; your own are yours to judge.":
-        'No se cambió nada. Menú -> Provision -> Cortafuegos de salida y captura de correo reescribe las reglas propias de la herramienta; las tuyas las juzgas tú.',
+    "Nothing was changed. Menu -> Provision -> Apply (install what's missing), answering yes "
+    "to the outbound firewall, rewrites the tool's own rules; your own are yours to judge.":
+        'No se cambió nada. Menú -> Provision -> Aplicar (instalar lo que falte), respondiendo sí '
+        'al cortafuegos de salida, reescribe las reglas propias de la herramienta; las tuyas las '
+        'juzgas tú.',
     "Menu -> Migration -> Capture a database's mail in Mailpit stops it.":
         'Menú -> Migración -> Capturar en Mailpit el correo de una base de datos lo detiene.',
     'No run recorded yet in {}.': 'Todavía no hay ninguna ejecución registrada en {}.',
@@ -577,8 +580,8 @@ _ES: dict[str, str] = {
     'Check that {} connects over loopback': 'Comprobar que {} conecta por loopback',
     'Ask PostgreSQL to read back the rules for {}':
         'Preguntar a PostgreSQL por las reglas que tiene para {}',
-    'OpenSnitch blocks every outbound connection without a rule, asking in its UI when it is open. Odoo may reach only localhost, plus DNS on port 53; the development tools keep their hosts. See docs/egress-control.md.':
-        'OpenSnitch bloquea toda conexión saliente sin regla y pregunta en su interfaz cuando está abierta. Odoo solo puede llegar a localhost, más DNS en el puerto 53; las herramientas de desarrollo conservan sus destinos. Ver docs/egress-control.md.',
+    'OpenSnitch blocks every outbound connection without a rule, asking in its UI when it is open. Odoo may reach only localhost, plus DNS on port 53; the development tools keep their hosts. See docs/host/egress-control.md.':
+        'OpenSnitch bloquea toda conexión saliente sin regla y pregunta en su interfaz cuando está abierta. Odoo solo puede llegar a localhost, más DNS en el puerto 53; las herramientas de desarrollo conservan sus destinos. Ver docs/host/egress-control.md.',
     'Database whose mail to capture': 'Base de datos cuyo correo capturar',
     'Database whose mail configuration to restore':
         'Base de datos cuya configuración de correo restaurar',
@@ -748,6 +751,7 @@ _ES: dict[str, str] = {
     "Report crons, tax, payment and other integrations still able to act.":
         "Informa de los crons, integraciones fiscales, de pago y demás que aún pueden actuar.",
     "neutralise: the only action is 'check'": "neutralise: la única acción es 'check'",
+    "mail: the only action is 'check'": "mail: la única acción es 'check'",
     "Neutralise database {} (crons, tax and EDI, payments, IAP, links)":
         "Neutralizar la base de datos {} (crons, fiscal y EDI, pagos, IAP, enlaces)",
     "Give database {} its production settings back":

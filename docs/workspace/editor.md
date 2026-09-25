@@ -2,6 +2,7 @@
 type: how-to
 title: "Editor integration (official Odoo extension)"
 description: "What a generated workspace gives the official Odoo language server, why so little, and the procedure to review its updates and adopt new features."
+tags: [editor, vscode, odoo-ls]
 audience: [developer, contributor]
 updated: 2026-09-20
 ---
@@ -128,7 +129,7 @@ For each entry in the changelog, ask:
 | A `FAIL`, or a changed meaning | Open a change (`/opsx:propose`), fix the renderer, its tests and this page, and bump `ODOOLS_REVIEWED_VERSION` in the same change |
 | A new stable key worth emitting | Same, spec-first: add it to `ODOOLS_KEYS` and to `EMITTED_TYPES` in the check, render it, test it, document it here, bump `ODOOLS_REVIEWED_VERSION` |
 | Nothing to adopt | Bump `ODOOLS_REVIEWED_VERSION` (in `odoo_dwg/templates.py`) to the stable release you reviewed, in a small direct commit, so the next review starts from there |
-| A feature exists only in a prerelease | Nothing yet. Note it in `docs/roadmap.md` if it matters, and revisit when a stable schema carries it |
+| A feature exists only in a prerelease | Nothing yet. Note it in `docs/project/roadmap.md` if it matters, and revisit when a stable schema carries it |
 
 Existing workspaces pick up a changed `odools.toml` with **Manage an existing workspace → Refresh generated
 files**, which rewrites only the files that changed and keeps a dated backup of each.

@@ -6,7 +6,7 @@ Pure data + validation, no I/O and no execution (that lives in ``system``). A
 
 Version facts live in one authoritative support matrix (``ODOO_SUPPORT`` plus
 ``SUPPORTED_HOSTS``), where every bound carries the evidence behind it. See
-``docs/support-matrix.md`` for the sources and the procedure that re-derives
+``docs/reference/support-matrix.md`` for the sources and the procedure that re-derives
 them.
 """
 
@@ -152,7 +152,7 @@ def python_tuple(python: str) -> tuple[int, ...]:
 # derived bound off as an official Odoo requirement.
 #
 # The sources, their precedence and the procedure that re-derives them live in
-# docs/support-matrix.md; tools/verify_support_matrix.py checks this data
+# docs/reference/support-matrix.md; tools/verify_support_matrix.py checks this data
 # against them.
 
 OFFICIAL = "official"  # stated outright by Odoo or by the distribution

@@ -2,6 +2,7 @@
 type: how-to
 title: "Setting up a WSL Ubuntu 24.04 host"
 description: "Step-by-step: install Ubuntu 24.04 on WSL 2 and make it ready to run odoo_dwg."
+tags: [host, wsl, setup]
 audience: [developer]
 updated: 2026-09-19
 ---
@@ -70,7 +71,7 @@ Inside Ubuntu:
 
 ```bash
 lsb_release -a        # expect: Ubuntu 24.04 LTS (noble)
-python3 --version     # expect: Python 3.12.x — the tool needs 3.12 or newer (see docs/support-matrix.md)
+python3 --version     # expect: Python 3.12.x — the tool needs 3.12 or newer (see docs/reference/support-matrix.md)
 systemctl status      # expect: "State: running" — systemd manages PostgreSQL later
 ```
 
@@ -180,13 +181,13 @@ Details and the full capability list: [`provisioning.md`](provisioning.md).
 ## 7. (Optional) `uv` for other Python versions
 
 Needed for migrations with OpenUpgrade, and for workspaces on an Odoo version whose supported Python range
-excludes this host's 3.12 (see [`support-matrix.md`](support-matrix.md)):
+excludes this host's 3.12 (see [`support-matrix.md`](../reference/support-matrix.md)):
 
 - **`uv`** provides the per-version Python interpreters. `provision check` reports it but does not install
   it — follow the official instructions: <https://docs.astral.sh/uv/getting-started/installation/>. Reopen
   the shell afterwards and confirm with `uv --version`.
 
-See [`migration.md`](migration.md).
+See [the migration environment](../migration/environment.md).
 
 ## 8. (Optional) Editor and terminal
 
@@ -197,22 +198,14 @@ See [`migration.md`](migration.md).
 
 ## 9. (Optional) Working on the tool itself
 
-Only if you are going to change `odoo_dwg`'s code:
-
-```bash
-cd ~/odoo_dev_workspace_generator
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"     # pytest + ruff; the tool itself still has no dependencies
-
-python -m pytest -q
-python -m ruff check .
-```
+Only if you are going to change `odoo_dwg`'s code: follow [CONTRIBUTING](../../CONTRIBUTING.md) for the
+development environment and the checks.
 
 **Next:** with the host ready, create your first workspace — `python3 -m odoo_dwg workspace` → **New
 (quick)**. See [provisioning](provisioning.md#next-your-first-workspace) and
-[workspace-layout](workspace-layout.md).
+[workspace layout](../workspace/layout.md).
 
-Conventions, checks, and the spec-first flow: [`../CONTRIBUTING.md`](../CONTRIBUTING.md).
+Conventions, checks, and the spec-first flow: [CONTRIBUTING](../../CONTRIBUTING.md).
 
 ## What this guide deliberately leaves out
 

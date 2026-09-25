@@ -6,7 +6,7 @@ before trusting or moving the pins in ``odoo_dwg/egress.py``:
 
     python tools/verify_egress_pins.py
 
-What it does (see docs/egress-control.md, "Keeping the versions current"):
+What it does (see docs/host/egress-control.md, "Keeping the versions current"):
 
 1. OpenSnitch: downloads the pinned release's ``readme.txt.asc`` — the
    maintainer-signed checksum list — and checks that each pinned SHA-512 appears

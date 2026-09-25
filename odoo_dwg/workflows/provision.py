@@ -127,7 +127,7 @@ def _report_services() -> None:
 
 
 def _optional_egress(facts: provisioning.ProvisionFacts) -> list:
-    """The opt-in outbound firewall and mail capture (docs/egress-control.md)."""
+    """The opt-in outbound firewall and mail capture (docs/host/egress-control.md)."""
     commands: list = []
     print(
         level_text(
@@ -135,7 +135,7 @@ def _optional_egress(facts: provisioning.ProvisionFacts) -> list:
             t(
                 "OpenSnitch blocks every outbound connection without a rule, asking in its UI "
                 "when it is open. Odoo may reach only localhost, plus DNS on port 53; the "
-                "development tools keep their hosts. See docs/egress-control.md."
+                "development tools keep their hosts. See docs/host/egress-control.md."
             ),
         )
     )

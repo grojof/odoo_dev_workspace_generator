@@ -36,8 +36,9 @@ asking for confirmation** (destructive actions require typing an exact phrase). 
   match a user process: only the loopback, DNS and `systemd-timesyncd` rules precede it, and none of those
   can match `odoo-bin`. It is a guard for development hosts, not a security boundary against a hostile local
   user: `root` can stop it.
-- **Mail capture (Mailpit, opt-in).** It listens on `127.0.0.1` only. The mail redirect action rewrites a
-  database's mail servers and asks for a confirmation phrase. It is meant for rehearsal copies only.
+- **Mail capture (Mailpit, opt-in).** It listens on `127.0.0.1` only. Capturing a database's mail switches
+  its mail servers off without altering them, adds one pointing at the capture, and asks for a confirmation
+  phrase. It is meant for copies, never for production.
 - The PostgreSQL loopback-trust configuration written by `provision apply` is a **development-only**
   convenience, documented as such; do not use it on shared or exposed hosts.
 

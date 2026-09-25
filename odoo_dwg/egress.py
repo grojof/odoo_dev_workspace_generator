@@ -3,7 +3,7 @@
 No I/O: the planners turn these into commands, ``system`` probes the host. Every
 default below was measured on the reference host (WSL Ubuntu 24.04, 2026-09-19);
 ``openspec/changes/archive/*-add-egress-control/design.md`` records why each one
-differs from what the upstream packages ship, and ``docs/egress-control.md`` how
+differs from what the upstream packages ship, and ``docs/host/egress-control.md`` how
 to update the pinned versions.
 """
 
