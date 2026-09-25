@@ -354,7 +354,7 @@ def test_coverage_gets_its_modules_from_the_environment_not_stdin():
 
 def test_a_fresh_run_owns_the_checkpoint_directory():
     sh = _driver()
-    assert 'rm -f "$CK"/*.dump "$CK"/*.dump.tmp "$CK/source.sha256"' in sh
+    assert 'rm -f "$CK"/*.dump "$CK"/*.dump.tmp "$CK"/*.dirty "$CK/source.sha256"' in sh
 
 
 def test_resuming_drops_everything_after_the_first_gap():
