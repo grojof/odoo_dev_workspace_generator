@@ -105,7 +105,7 @@ needed. Which Python and PostgreSQL each Odoo version takes is in the
 | Migrate a database | [Overview](docs/migration/README.md), then in order: [environment](docs/migration/environment.md) → [intake](docs/migration/intake.md) → [copies of production](docs/migration/production-copies.md) → [running](docs/migration/running.md) → [rehearsing](docs/migration/rehearsing.md) → [checks and findings](docs/migration/checks-findings.md) |
 | Know what is supported, and why | [Support matrix](docs/reference/support-matrix.md) |
 | See where the project is going | [Roadmap](docs/project/roadmap.md) · [Changelog](CHANGELOG.md) |
-| Contribute | [CONTRIBUTING](CONTRIBUTING.md) · [CLAUDE.md](CLAUDE.md) (guide for AI agents) · [SECURITY](SECURITY.md) |
+| Contribute | [CONTRIBUTING](CONTRIBUTING.md) · [AGENTS.md](AGENTS.md) (guide for AI agents) · [SECURITY](SECURITY.md) |
 
 Assistants get thin skills in `.claude/skills/` over the read-only checks: migration triage, the migration
 coherence check, the OpenSnitch rule check and the Mailpit configuration.

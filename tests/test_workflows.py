@@ -306,7 +306,7 @@ def test_a_sane_migration_environment_validates():
 
 # --- the plan contract --------------------------------------------------------
 #
-# CLAUDE.md's first inviolable principle, and until round 13 nothing asserted it:
+# AGENTS.md's first inviolable principle, and until round 13 nothing asserted it:
 # every mutation that removed the preview or the confirmation left the suite green.
 
 

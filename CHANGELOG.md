@@ -294,6 +294,8 @@ All notable changes to this project are documented here. The format is based on
   is reported for that step and does not fail the generation.
 
 ### Changed
+- **The agent guide is `AGENTS.md`**, renamed from `CLAUDE.md` with its content unchanged. Claude Code reads it
+  natively from 2.1.277, and so do other coding agents.
 - **The documentation is nested by area.** `docs/` is now `migration/`, `workspace/`, `host/`, `reference/`
   and `project/`. The migration guide is an overview plus six pages in the order a migration is done, and
   the README is a map with an index by task. Old paths such as `docs/migration.md` no longer exist.

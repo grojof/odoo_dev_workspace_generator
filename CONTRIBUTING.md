@@ -15,7 +15,7 @@ Thanks for your interest. This project is small and spec-driven; the bar is cons
 - **Plan → preview → apply is inviolable**: planners stay pure (building a command is not running it), and
   nothing mutates the host without a previewed, confirmed plan.
 - Every Odoo/OpenUpgrade fact must be anchored to official documentation (see `docs/`).
-- AI agents working on this repository follow [`CLAUDE.md`](CLAUDE.md).
+- AI agents working on this repository follow [`AGENTS.md`](AGENTS.md).
 
 ## Set up
 

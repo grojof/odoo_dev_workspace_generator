@@ -3,7 +3,7 @@
 
 A migration is rehearsed several times and run once. The rehearsals produce the
 corrections; the final run must *apply* them rather than derive them a second
-time. The unit suite asserts the plans' text — it may not shell out (CLAUDE.md)
+time. The unit suite asserts the plans' text — it may not shell out (AGENTS.md)
 — so it can say the commands look right and not that the cycle works.
 
 This runs the real plans, with a stub module migrator standing in for
