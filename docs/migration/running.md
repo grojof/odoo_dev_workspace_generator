@@ -2,6 +2,7 @@
 type: how-to
 title: "Running a migration"
 description: "Preflight, the checkpointing driver, step hooks, the repairs it applies, following a run and its report."
+tags: [migration, driver, checkpoints, hooks, repairs]
 audience: [developer]
 updated: 2026-09-25
 ---
@@ -60,6 +61,26 @@ naming the check. A `[fail]` line is the driver's own abort: a checkpoint that c
 whose `odoo-bin` failed (it names the step's log file), a step whose OpenUpgrade code is not on disk — Odoo
 would migrate nothing and say nothing in that case, so the driver checks before running it — or checkpoints
 that came from a different source dump.
+
+Each step of the chain, as the generated `run_migration.sh` runs it:
+
+```mermaid
+flowchart LR
+    K{Checkpoint for<br/>this version?} -- no --> P[Pre hook] --> O[OpenUpgrade<br/>step]
+    O -- ok --> H[Post hook] --> R[Known repairs<br/>14.0 only] --> N[Neutralise<br/>again] --> C[(Checkpoint)]
+    K -- yes --> Y([Skip to the<br/>next version])
+    O -- fails --> X([Stop and name the log.<br/>A re-run resumes from<br/>the newest checkpoint])
+    classDef step fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+    classDef ask fill:#fef3c7,stroke:#d97706,color:#78350f
+    classDef guard fill:#dcfce7,stroke:#16a34a,color:#14532d
+    classDef stop fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+    classDef data fill:#ede9fe,stroke:#7c3aed,color:#4c1d95
+    class P,O,H,R,Y step
+    class K ask
+    class N guard
+    class X stop
+    class C data
+```
 
 **The working database.** Each environment upgrades **its own** database on the shared PostgreSQL, named
 after its chain — `migration_13_to_18` for a 13 → 18 environment — which a fresh run drops and recreates

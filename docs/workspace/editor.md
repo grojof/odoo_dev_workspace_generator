@@ -2,6 +2,7 @@
 type: how-to
 title: "Editor integration (official Odoo extension)"
 description: "What a generated workspace gives the official Odoo language server, why so little, and the procedure to review its updates and adopt new features."
+tags: [editor, vscode, odoo-ls]
 audience: [developer, contributor]
 updated: 2026-09-20
 ---

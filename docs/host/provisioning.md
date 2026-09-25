@@ -2,6 +2,7 @@
 type: how-to
 title: "Provisioning a Linux host"
 description: "Use the provision section to make a supported Ubuntu host Odoo-ready."
+tags: [host, provisioning, postgresql]
 audience: [developer]
 updated: 2026-09-20
 ---

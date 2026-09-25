@@ -2,6 +2,7 @@
 type: reference
 title: "Workspace layout"
 description: "The directory structure odoo_dwg generates for a client workspace and the shared repo cache."
+tags: [workspace, layout, venv]
 audience: [developer]
 updated: 2026-09-20
 ---

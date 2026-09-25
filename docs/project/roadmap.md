@@ -2,6 +2,7 @@
 type: explanation
 title: "Roadmap and backlog"
 description: "Phased delivery plan and the parked backlog for the Odoo dev/migration workspace generator."
+tags: [roadmap, backlog, project]
 audience: [contributor]
 updated: 2026-09-25
 ---

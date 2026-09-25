@@ -2,6 +2,7 @@
 type: reference
 title: "Support matrix"
 description: "What odoo_dwg supports — hosts, Python per Odoo version, PostgreSQL — with the source behind every bound and how to re-verify it."
+tags: [support-matrix, python, postgresql, hosts]
 audience: [developer, contributor]
 updated: 2026-09-20
 ---

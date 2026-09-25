@@ -2,6 +2,7 @@
 type: reference
 title: "Workspace profile reference"
 description: "The JSON profile fields that describe an odoo_dwg workspace."
+tags: [workspace, profile, configuration]
 audience: [developer]
 updated: 2026-09-20
 ---

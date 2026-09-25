@@ -2,6 +2,7 @@
 type: how-to
 title: "Rehearsing a migration"
 description: "Rehearse on Odoo's demo data before there is a client dump, and against a tester module built to break."
+tags: [migration, rehearsal, demo-data, tester]
 audience: [developer]
 updated: 2026-09-25
 ---

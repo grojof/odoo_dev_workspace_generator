@@ -2,6 +2,7 @@
 type: how-to
 title: "Egress control and mail capture"
 description: "Block every outbound connection by default with OpenSnitch, ask before allowing, and capture Odoo's mail in Mailpit."
+tags: [host, egress, opensnitch, mailpit]
 audience: [developer]
 updated: 2026-09-19
 ---

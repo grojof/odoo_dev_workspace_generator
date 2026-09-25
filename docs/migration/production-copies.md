@@ -2,6 +2,7 @@
 type: how-to
 title: "Working on a copy of production"
 description: "Neutralise a copy of production, keep a migration from reaching the outside, open it for testing, and give production its settings back."
+tags: [migration, neutralisation, production-copy]
 audience: [developer]
 updated: 2026-09-25
 ---

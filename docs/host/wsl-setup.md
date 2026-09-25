@@ -2,6 +2,7 @@
 type: how-to
 title: "Setting up a WSL Ubuntu 24.04 host"
 description: "Step-by-step: install Ubuntu 24.04 on WSL 2 and make it ready to run odoo_dwg."
+tags: [host, wsl, setup]
 audience: [developer]
 updated: 2026-09-19
 ---

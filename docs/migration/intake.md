@@ -2,6 +2,7 @@
 type: how-to
 title: "Taking in a client copy"
 description: "Restore a client's dump, add-ons and configuration, and audit what they hold before the chain."
+tags: [migration, intake, client-copy]
 audience: [developer]
 updated: 2026-09-25
 ---

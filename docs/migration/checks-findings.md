@@ -2,6 +2,7 @@
 type: how-to
 title: "Checks and findings"
 description: "Ask a database for what breaks a migration, and record what the migration finds with the client's decisions."
+tags: [migration, audit, findings, reports]
 audience: [developer]
 updated: 2026-09-25
 ---

@@ -2,6 +2,7 @@
 type: how-to
 title: "The migration environment"
 description: "What a migration environment is made of: interpreters, generated files, OpenUpgrade layouts, coverage, add-ons, staging, git and decisions."
+tags: [migration, environment, interpreters, staging]
 audience: [developer]
 updated: 2026-09-25
 ---

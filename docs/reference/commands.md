@@ -2,6 +2,7 @@
 type: reference
 title: "Command reference"
 description: "Every CLI invocation, menu action, confirmation phrase, and environment variable."
+tags: [commands, menus, cli, read-only-checks]
 audience: [developer, operator]
 updated: 2026-09-20
 ---
