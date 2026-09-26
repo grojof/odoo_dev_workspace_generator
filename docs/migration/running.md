@@ -344,6 +344,34 @@ checkpoint, and lists everything in `logs/<target>-payments-repaired.tsv`:
 An invoice settled only by credit notes, or a credit note settled only by journal entries, is "Reversed"
 in 18, where 12 had no such status: the recompute gives it that status, and lists it.
 
+### Stock valuation a source up to 12.0 gets: aligned to on-hand quantity and cost
+
+Up to 12.0 there are no valuation layers: a product is worth its stock on hand times its cost.
+OpenUpgrade 13.0 builds the layers by replaying moves and price history, and two flaws of that replay
+leave value away from quantity times cost:
+- in 12.0 a receipt's averaged cost reaches the price history a moment before the move, so the replay
+  counts it once as a revaluation and once as the receipt;
+- a receipt that brings negative stock back to zero keeps its value on no quantity.
+
+The layers' quantity can also differ from the stock on hand where the source's quants and moves already
+disagreed. Odoo 18 values products from their layers, so its valuation screens show neither the source's
+figure nor the stock there is, and its average cost would take the drift in.
+
+For a target from 18.0, after the payments repair and before the checkpoint, the target's own Odoo adds
+one layer per storable product that differs. The layer is labelled "Migration: align to on-hand quantity
+and cost", and its quantity and value bring the product to the stock Odoo values (internal locations, and
+transit ones with a company; not stock another owner holds), at the product's cost.
+- Average-cost products get their remaining quantity and value on that layer, as emptying and refilling
+  the stock does.
+- Only periodic valuation is aligned. Automated-valuation, FIFO and lot-valued products are left and
+  listed.
+- Nothing is kept if a journal entry would appear, a cost would change, or a product would not end
+  aligned.
+- The list is `logs/<target>-valuation-aligned.tsv`.
+
+The source valued internal locations only; Odoo 18 also values a transit location with a company. A quant
+in transit therefore makes the 18 figure differ from the source's by exactly its value.
+
 ### When a module has no code anywhere: `decisions.json`
 
 Coverage stops a run when an installed module resolves in no source of a step and OpenUpgrade declares no

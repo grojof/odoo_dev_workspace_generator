@@ -15,6 +15,11 @@ All notable changes to this project are documented here. The format is based on
     recomputing them.
 
 ### Added
+- **Stock valuation is aligned to on-hand quantity and cost for a source up to 12.0.** OpenUpgrade 13.0
+  rebuilds the valuation layers with drift. For a target from 18.0, the target's own Odoo adds one
+  labelled layer per product with periodic valuation, bringing its layers to the stock on hand at its
+  cost, and posts no entry. Automated-valuation, FIFO and lot-valued products are left and listed. The
+  list is `logs/<target>-valuation-aligned.tsv`.
 - **Migrated payments are repaired at the target step.** For a chain that crosses 18.0:
   - the duplicate payments OCA's 14.0 payment-order migration creates when an operator's entry repeats
     a remittance line are removed, only when nothing but their own links points at them;

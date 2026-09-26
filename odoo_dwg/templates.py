@@ -18,7 +18,17 @@ from importlib import resources
 from pathlib import Path
 from xml.sax.saxutils import escape
 
-from . import declarations, egress, neutralise, payments, retire, sourcetaxes, tester, ungroup
+from . import (
+    declarations,
+    egress,
+    neutralise,
+    payments,
+    retire,
+    sourcetaxes,
+    tester,
+    ungroup,
+    valuation,
+)
 from .models import (
     LEGACY_LAYOUT_MAX_MAJOR,
     UV_PYTHON,
@@ -1158,6 +1168,35 @@ def _render_payments_repair(env: MigrationEnv, version: str) -> str:
     )
 
 
+def valuation_aligned_file(env: MigrationEnv) -> Path:
+    """Where the target step lists the products whose valuation it aligned or left."""
+    return env.logs_dir / f"{env.target}-valuation-aligned.tsv"
+
+
+def _render_valuation_alignment(env: MigrationEnv, version: str) -> str:
+    """The target step's alignment of the valuation layers OpenUpgrade 13.0 rebuilt for a source
+    up to 12.0 (``odoo_dwg/valuation.py``): one labelled layer per product, to on-hand quantity
+    times cost, with the target's own Odoo. After the payments repair, before the checkpoint."""
+    if version != env.target or \
+            not valuation.applies(odoo_major(env.source), odoo_major(env.target)):
+        return ""
+    q = shlex.quote
+    listed = q(str(valuation_aligned_file(env)))
+    shell = (f"{q(f'{env.venv_dir(version)}/bin/python')} {q(str(env.odoo_bin(version)))} shell "
+             f'-c {q(str(env.config_file(version)))} -d "$DB" --no-http '
+             f"--logfile={q(str(env.logs_dir / f'{version}.log'))}")
+    return (
+        "  # Valuation layers OpenUpgrade 13.0 rebuilt with drift: aligned to on-hand quantity\n"
+        "  # times cost, periodic valuation only, with no journal entry.\n"
+        f"  : > {listed}\n"
+        f"  ODWG_VALUATION_LIST={listed} {shell} <<'ODWG_VALUATION' \\\n"
+        f"    || die \"{version}: aligning the stock valuation failed; nothing of it was kept\"\n"
+        f"{valuation.ALIGN}ODWG_VALUATION\n"
+        f'  echo "[repair] stock valuation aligned: listed in {listed}"\n'
+        f'  mark "{version}" repair stock-valuation\n'
+    )
+
+
 #: The client-modules stage's checkpoint and step-record name, after the target step.
 def modules_stage(env: MigrationEnv) -> str:
     return f"{env.target}-modules"
@@ -1946,7 +1985,7 @@ else
     die "step {version} failed — see {env.logs_dir}/{version}.log"
   fi
   step_hook "{version}" post
-{_render_source_taxes_repair(env, version)}{_render_step_repair(env, version)}{_render_declarations_repair(env, version)}{_render_grouped_items_repair(env, version)}{_render_payments_repair(env, version)}  neutralise "{version}"
+{_render_source_taxes_repair(env, version)}{_render_step_repair(env, version)}{_render_declarations_repair(env, version)}{_render_grouped_items_repair(env, version)}{_render_payments_repair(env, version)}{_render_valuation_alignment(env, version)}  neutralise "{version}"
   checkpoint "{version}"
   mark "{version}" ok
 fi"""
