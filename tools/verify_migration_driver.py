@@ -59,6 +59,7 @@ def _build(
     target: str = TARGET,
     absorbed: tuple[str, str] | None = None,
     kept_taxes: bool = False,
+    statement_fix: bool = True,
 ) -> tuple[Path, MigrationEnv]:
     """Render the driver and the stub host it runs against."""
     MigrationEnv.base_dir = str(root / "envs")
@@ -88,6 +89,8 @@ def _build(
           f'if [[ "$*" == *{sourcetaxes.KEPT_TABLE}* || "$*" == *{declarations.KEPT_LINKS}* ]]; '
           f'then echo {kept}; '
           f'elif [[ "$*" == *base* && "$*" == *latest_version* ]]; then echo {source}.1.0; '
+          # The statement lines stored as reconciled after the 14.0 step: none, unless asked.
+          f'elif [[ "$*" == *suspense_account_id* ]]; then echo "${{ODWG_STALE:-0}}"; '
           f'else {listing}; fi')
     for name in ("pg_restore", "dropdb", "createdb", "uv"):
         _stub(stubs / name, "exit 0")
@@ -113,6 +116,12 @@ def _build(
         # The step's own OpenUpgrade code, which the driver requires on disk.
         for directory in _openupgrade_dirs(env, version):
             directory.mkdir(parents=True, exist_ok=True)
+        if version == templates.STATEMENT_LINES_REPAIR_STEP:
+            # The account migration, with or without OCA/OpenUpgrade#6005's flush.
+            account = Path(env.upgrade_scripts_dir(version)) / templates.STATEMENT_LINES_FIX_FILE
+            account.parent.mkdir(parents=True, exist_ok=True)
+            account.write_text(templates.STATEMENT_LINES_FIX_MARKER if statement_fix else "",
+                               encoding="utf-8")
     for directory in (env.conf_dir, env.logs_dir, env.checkpoints_dir):
         Path(directory).mkdir(parents=True, exist_ok=True)
     if absorbed:
@@ -273,8 +282,9 @@ def main() -> int:
         )
         steps = Path(env.steps_file).read_text(encoding="utf-8")
         check(
-            "the 14.0 step repairs the statement lines' flag, before its checkpoint",
-            "\t14.0\trepair\tstatement-lines-is-reconciled" in steps
+            "the 14.0 step checks the statement lines' flag and carries the SII file, before its"
+            " checkpoint",
+            "\t14.0\tcheck\tstatement-lines-is-reconciled" in steps
             and "\t14.0\trepair\tsii-certificate-file" in steps
             and steps.index("\t14.0\trepair") < steps.index("\t14.0\tok"),
             steps,
@@ -823,6 +833,30 @@ def main() -> int:
               and "-u acme_new" in logged[1] and "-i acme_repl" in logged[1]
               and "old_a split: its other parts acme_repl are installed" in split.stderr,
               split.stderr[-500:])
+
+    # --- OpenUpgrade 14.0 must hold the statement-lines fix, and its result is checked ------
+    with tempfile.TemporaryDirectory(prefix="odwg-ou6005-") as tmp:
+        root = Path(tmp)
+        script, env = _build(root, source=LEGACY_SOURCE, target=LEGACY_TARGET, statement_fix=False)
+        old = _run(root, script)
+        check("a 14.0 checkout that predates OCA/OpenUpgrade#6005 stops before the step",
+              old.returncode != 0 and "predates OCA/OpenUpgrade#6005" in old.stderr
+              and "pull --ff-only" in old.stderr
+              and "\t14.0\tstart" in Path(env.steps_file).read_text()
+              and not (Path(env.checkpoints_dir) / "14.0.dump").exists()
+              and not (root / "steps-run" / "14.0").exists(),
+              old.stderr[-500:])
+    with tempfile.TemporaryDirectory(prefix="odwg-ou6005-") as tmp:
+        root = Path(tmp)
+        script, env = _build(root, source=LEGACY_SOURCE, target=LEGACY_TARGET)
+        stale = subprocess.run(
+            ["bash", str(script), "source.dump"], cwd=root, capture_output=True, text=True,
+            env={"PATH": f"{root / 'bin'}:/usr/bin:/bin", "HOME": str(root),
+                 "STATE": str(root / "steps-run"), "ODWG_STALE": "3"})
+        check("statement lines still stored as reconciled after 14.0 stop it before its checkpoint",
+              stale.returncode != 0 and "3 statement line(s) stored as reconciled" in stale.stderr
+              and not (Path(env.checkpoints_dir) / "14.0.dump").exists(),
+              stale.stderr[-500:])
 
     # --- the modules retired before the chain, right after the source restore ----
     with tempfile.TemporaryDirectory(prefix="odwg-retire-") as tmp:

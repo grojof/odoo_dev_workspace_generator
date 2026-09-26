@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -125,6 +126,8 @@ V18_DB = _IR + f"""
 
 def _audit(cluster: Cluster, db: str, user: str = "postgres") -> tuple[int, str]:
     out = io.StringIO()
+    # The checks read plain text: a terminal's FORCE_COLOR would put escapes inside it.
+    os.environ["NO_COLOR"] = "1"
     with contextlib.redirect_stdout(out):
         code = cli.main(["migrate", "audit", "--database", db, "--db-host", str(cluster.sock),
                          "--db-port", str(cluster.port), "--db-user", user, "--lang", "en"])

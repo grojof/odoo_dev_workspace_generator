@@ -270,6 +270,10 @@ items are host-dependent.
   except one batch payment still awaiting its bank match. Invoices settled only by credit notes became
   "Reversed". No journal item changed, and a second run changed nothing.
 
+  Then the statement-lines fix went upstream (change `require-openupgrade-14-statement-fix`). The flush
+  the 14.0 repair stood in for is OCA/OpenUpgrade#6005, merged on 2026-09-25. The 14.0 step now requires
+  a checkout that holds it, and checks the result instead of recomputing it.
+
   Not done yet: a client's own module whose manifest declares Odoo S.A. as its author is reported
   "dropped by Odoo; OpenUpgrade removes it". With an intake, where the module loads from is known, and
   that should decide it rather than the author.

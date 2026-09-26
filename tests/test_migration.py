@@ -547,15 +547,22 @@ def test_a_step_whose_odoo_needs_packaging_to_read_a_version_gets_it(monkeypatch
         "13.0": ["paramiko<4.0.0"], "14.0": ["paramiko<4.0.0", "packaging"]}
 
 
-def test_the_14_step_repairs_the_statement_lines_flag_for_a_source_up_to_13():
-    driver = templates.render_run_migration_sh(MigrationEnv(source="12.0", target="18.0"))
+def test_the_14_step_needs_the_openupgrade_fix_and_checks_the_statement_lines():
+    env = MigrationEnv(source="12.0", target="18.0")
+    driver = templates.render_run_migration_sh(env)
+    # Before the step: the checkout must hold OCA/OpenUpgrade#6005's flush.
+    before = driver[driver.index('mark "14.0" start'):driver.index('step_hook "14.0" pre')]
+    marker = 'env["account.bank.statement.line"].flush()'
+    assert f"grep -qF '{marker}'" in before and "OCA/OpenUpgrade#6005" in before
+    assert "account/14.0.1.1/post-migration.py" in before and "pull --ff-only" in before
+    # After it: the lines are counted, never recomputed, and any stops the step.
     block = driver[driver.index('step_hook "14.0" post'):driver.index('checkpoint "14.0"')]
-    assert "shell -c" in block and "--no-http" in block and "odoo14" in block
-    assert "_compute_is_reconciled()" in block and "env.cr.commit()" in block
-    # Only the lines the defect can leave wrong go through the ORM.
     assert "WHERE l.is_reconciled AND EXISTS" in block and "j.suspense_account_id" in block
-    assert ".search([])" not in block
-    assert 'mark "14.0" repair statement-lines-is-reconciled' in block
+    assert '[ "$stale" = 0 ] || die' in block
+    assert "_compute_is_reconciled" not in driver
+    assert 'mark "14.0" check statement-lines-is-reconciled' in block
+    assert block.index("check statement-lines") < block.index("ODWG_REPAIR")
+    assert "shell -c" in block and "--no-http" in block and "odoo14" in block
     # The same run carries the SII certificate file the OCA 14.0 migration leaves behind,
     # guarded by the tables and OpenUpgrade's legacy link.
     assert "openupgrade_legacy_14_0_l10n_es_aeat_sii_id" in block and "certificate.file = " in block
@@ -563,6 +570,11 @@ def test_the_14_step_repairs_the_statement_lines_flag_for_a_source_up_to_13():
     assert 'mark "14.0" repair sii-certificate-file' in block
     assert block.index("ODWG_REPAIR") < block.index('neutralise "14.0"')
     assert driver.count("ODWG_REPAIR") == 2  # one heredoc, in the 14.0 step only
+
+
+def test_a_14_source_neither_needs_the_fix_nor_checks_the_lines():
+    driver = templates.render_run_migration_sh(MigrationEnv(source="14.0", target="18.0"))
+    assert "OCA/OpenUpgrade#6005" not in driver and "statement-lines-is-reconciled" not in driver
 
 
 def test_the_target_step_gives_grouped_invoice_items_back_to_their_lines():

@@ -840,6 +840,7 @@ def _render_step_preconditions(env: MigrationEnv, version: str) -> str:
         f'die "{version}: {what} not found at {path} — regenerate the environment"\n'
         for path, what in needed
     ]
+    lines.append(_render_statement_lines_fix_precondition(env, version))
     # Coverage again, against the database as it is *now*. The preflight reads
     # the source database once, so a module the chain auto-installs along the way
     # is invisible to it: `partner_firstname_portal` appeared in an OCA
@@ -909,12 +910,17 @@ def _native_step_command(env: MigrationEnv, version: str) -> str:
     )
 
 
-#: The step after which OpenUpgrade has left statement lines' ``is_reconciled`` stale.
+#: The step whose OpenUpgrade account migration stored statement lines as reconciled, until
+#: OCA/OpenUpgrade#6005 flushed them before its SQL.
 STATEMENT_LINES_REPAIR_STEP = "14.0"
+STATEMENT_LINES_FIX = "OCA/OpenUpgrade#6005"
+#: The line that fix adds, and where: a checkout without it predates the fix.
+STATEMENT_LINES_FIX_MARKER = 'env["account.bank.statement.line"].flush()'
+STATEMENT_LINES_FIX_FILE = "account/14.0.1.1/post-migration.py"
 
 #: The only lines the defect can leave wrong: stored as reconciled while their move still
-#: has a line on the journal's suspense account. The repair and ``migrate audit`` both
-#: select them with this, so they agree on what is affected.
+#: has a line on the journal's suspense account. The check after the step and ``migrate audit``
+#: both select them with this, so they agree on what is affected.
 STALE_RECONCILED_LINES_FROM = """FROM account_bank_statement_line l
     JOIN account_move m ON m.id = l.move_id
     JOIN account_journal j ON j.id = m.journal_id
@@ -922,21 +928,7 @@ STALE_RECONCILED_LINES_FROM = """FROM account_bank_statement_line l
         SELECT 1 FROM account_move_line aml
         WHERE aml.move_id = m.id AND aml.account_id = j.suspense_account_id)"""
 
-#: Run by the 14.0 Odoo's shell: Odoo's own rule, on those lines. Selected in SQL, so a
-#: database with many reconciled lines does not load them all.
-_STATEMENT_LINES_REPAIR = f"""\
-env.cr.execute(\"\"\"
-    SELECT l.id {STALE_RECONCILED_LINES_FROM}
-\"\"\")
-lines = env["account.bank.statement.line"].browse([row[0] for row in env.cr.fetchall()])
-lines._compute_is_reconciled()
-lines.flush()
-env.cr.commit()
-print("[repair] statement lines stored as reconciled with a suspense line: %d, still "
-      "reconciled after the recompute: %d" % (len(lines), len(lines.filtered("is_reconciled"))))
-"""
-
-#: Run by the same shell: the SII certificate file the OCA 14.0 migration of
+#: Run by the 14.0 Odoo's shell: the SII certificate file the OCA 14.0 migration of
 #: ``l10n_es_aeat_sii_oca`` leaves behind. It creates each certificate from the old
 #: ``l10n_es_aeat_sii`` record but moves attachments only, and in 12.0 the file is a
 #: column (base64, the form the ORM takes). Guarded: nothing without both tables and
@@ -966,34 +958,57 @@ print("[repair] SII certificate files carried to the new model: %d%s" % (carried
 """
 
 
-def _render_step_repair(env: MigrationEnv, version: str) -> str:
-    """What a step's known OpenUpgrade defect needs, after its post hook.
+def _statement_lines_fix_applies(env: MigrationEnv, version: str) -> bool:
+    """A 14.0 step migrating a source up to 13.0: the one where statement lines get entries."""
+    return version == STATEMENT_LINES_REPAIR_STEP and \
+        odoo_major(env.source) <= LEGACY_LAYOUT_MAX_MAJOR
 
-    OpenUpgrade's 14.0 account post-migration gives every statement line without an
-    entry one through the ORM, then computes the lines' ``is_reconciled`` in raw SQL
-    with no flush in between, so the ORM's stale values (computed before the suspense
-    line existed) are written over it. Lines still in the suspense account end up
-    stored as reconciled and the reconciliation screen hides them. Odoo's own
-    ``_compute_is_reconciled``, identical in 14.0 and 18.0, recomputes them: only the
-    lines stored as reconciled that still have a suspense line. The same run carries the
-    SII certificate file the OCA 14.0 migration leaves in the old table. Only for a
-    source up to 13.0: from 14.0 every line already has its entry, and the certificate
-    model already exists."""
-    if version != STATEMENT_LINES_REPAIR_STEP or \
-            odoo_major(env.source) > LEGACY_LAYOUT_MAX_MAJOR:
+
+def _render_statement_lines_fix_precondition(env: MigrationEnv, version: str) -> str:
+    """Before the 14.0 step: the OpenUpgrade checkout must hold the flush of
+    OCA/OpenUpgrade#6005, or it stores unreconciled statement lines as reconciled."""
+    if not _statement_lines_fix_applies(env, version):
+        return ""
+    q = shlex.quote
+    script = env.upgrade_scripts_dir(version) / STATEMENT_LINES_FIX_FILE
+    checkout = env.openupgrade_clone_dir(version)
+    return (
+        f"  grep -qF {q(STATEMENT_LINES_FIX_MARKER)} {q(str(script))} || die \"{version}: "
+        f"the OpenUpgrade checkout predates {STATEMENT_LINES_FIX} (it stores unreconciled "
+        f"statement lines as reconciled): update it with git -C {checkout} pull --ff-only, "
+        f"or regenerate the environment\"\n"
+    )
+
+
+def _render_step_repair(env: MigrationEnv, version: str) -> str:
+    """What the 14.0 step leaves that must be checked or carried, after its post hook.
+
+    The statement lines OpenUpgrade 14.0 once stored as reconciled are counted, not recomputed:
+    the checkout holds the fix (a precondition of the step), so any such line is a defect
+    nobody knows about yet, and the step stops with the count. The same point carries the SII
+    certificate file the OCA 14.0 migration leaves in the old table. Only for a source up to
+    13.0: from 14.0 every line already has its entry, and the certificate model already
+    exists."""
+    if not _statement_lines_fix_applies(env, version):
         return ""
     q = shlex.quote
     python = q(f"{env.venv_dir(version)}/bin/python")
     shell = (f'{python} {q(str(env.odoo_bin(version)))} shell -c {q(str(env.config_file(version)))} '
              f'-d "$DB" --no-http --logfile={q(str(env.logs_dir / f"{version}.log"))}')
+    count = q(f"SELECT count(*) {STALE_RECONCILED_LINES_FROM}")
     return (
-        "  # OpenUpgrade 14.0 stores unreconciled statement lines as reconciled (an ORM\n"
-        "  # flush over its own SQL); Odoo's own method recomputes them. The OCA 14.0\n"
-        "  # SII migration leaves the certificate file behind; it is carried here.\n"
-        f"  {shell} <<'ODWG_REPAIR' || die \"{version}: the repairs after the step failed "
-        "(statement lines' reconciled flag, SII certificate file)\"\n"
-        f"{_STATEMENT_LINES_REPAIR}{_SII_CERTIFICATE_REPAIR}ODWG_REPAIR\n"
-        f'  mark "{version}" repair statement-lines-is-reconciled\n'
+        f"  # With {STATEMENT_LINES_FIX}, no statement line waiting in the suspense account is\n"
+        "  # stored as reconciled; one that is would be a new defect, so the step stops.\n"
+        f'  stale=$(psql -X -tAc {count} -d "$DB") '
+        f'|| die "{version}: could not count the statement lines stored as reconciled"\n'
+        f'  [ "$stale" = 0 ] || die "{version}: $stale statement line(s) stored as reconciled '
+        f'while their entry is still in the suspense account ({STATEMENT_LINES_FIX} should '
+        f'prevent it)"\n'
+        f'  mark "{version}" check statement-lines-is-reconciled\n'
+        "  # The OCA 14.0 SII migration leaves the certificate file behind; it is carried here.\n"
+        f"  {shell} <<'ODWG_REPAIR' || die \"{version}: carrying the SII certificate file "
+        "failed\"\n"
+        f"{_SII_CERTIFICATE_REPAIR}ODWG_REPAIR\n"
         f'  mark "{version}" repair sii-certificate-file\n'
     )
 
