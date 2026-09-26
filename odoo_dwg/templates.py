@@ -24,6 +24,7 @@ from . import (
     neutralise,
     payments,
     retire,
+    sourceconfig,
     sourcetaxes,
     taxgrids,
     tester,
@@ -1041,6 +1042,56 @@ def _render_keep_declarations() -> str:
     )
 
 
+def _render_keep_source_config(env: MigrationEnv) -> str:
+    """At the source restore: the operation types' return types, the reconciliation rules and the
+    journals' alias names, which the chain changes (``odoo_dwg/sourceconfig.py``)."""
+    if not sourceconfig.applies(odoo_major(env.source), odoo_major(env.target)):
+        return ""
+    return (
+        "  # Configuration the chain changes on the way; the target step puts it back.\n"
+        "  psql -X -q -v ON_ERROR_STOP=1 -d \"$DB\" <<'ODWG_KEEP_CONFIG' \\\n"
+        "    || die \"could not keep the source's configuration\"\n"
+        f"{sourceconfig.keep_sql()}ODWG_KEEP_CONFIG\n"
+        "  mark - keep source-configuration\n"
+    )
+
+
+def source_config_file(env: MigrationEnv) -> Path:
+    """Where the target step lists the configuration it put back."""
+    return env.logs_dir / f"{env.target}-source-configuration.tsv"
+
+
+def _render_source_config_restore(env: MigrationEnv, version: str) -> str:
+    """At the target, after the tax grids: the configuration kept at the source restore, put back
+    by the target's Odoo. Skipped, and said, when the source checkpoint has none."""
+    if version != env.target or \
+            not sourceconfig.applies(odoo_major(env.source), odoo_major(env.target)):
+        return ""
+    q = shlex.quote
+    listed = q(str(source_config_file(env)))
+    ready = q(f"SELECT to_regclass('{sourceconfig.KEPT_TYPES}') IS NOT NULL")
+    shell = (f"{q(f'{env.venv_dir(version)}/bin/python')} {q(str(env.odoo_bin(version)))} shell "
+             f'-c {q(str(env.config_file(version)))} -d "$DB" --no-http '
+             f"--logfile={q(str(env.logs_dir / f'{version}.log'))}")
+    return (
+        "  # Return types, the invoice-matching rule and journal aliases, as the source had them;\n"
+        "  # operation types the chain created that nothing uses are archived.\n"
+        f'  if [ "$(psql -X -tAc {ready} -d "$DB")" = t ]; then\n'
+        f"    : > {listed}\n"
+        f"    ODWG_CONFIG_LIST={listed} {shell} <<'ODWG_CONFIG' \\\n"
+        f"      || die \"{version}: putting back the source's configuration failed\"\n"
+        f"{sourceconfig.RESTORE}ODWG_CONFIG\n"
+        f'    echo "[repair] source configuration put back: listed in {listed}"\n'
+        f'    mark "{version}" repair source-configuration\n'
+        "  else\n"
+        "    echo \"[warn] the source checkpoint does not keep the source's configuration: return"
+        " types, the matching rule and journal aliases are NOT put back; only a run from the source"
+        " dump does\" >&2\n"
+        f'    mark "{version}" repair source-configuration-skipped\n'
+        "  fi\n"
+    )
+
+
 def _render_declarations_repair(env: MigrationEnv, version: str) -> str:
     """At the target, before the grouped-items repair moves their links: the declaration boxes
     the chain deleted, put back (``odoo_dwg/declarations.py``)."""
@@ -1939,7 +1990,7 @@ if ! have_ck 00_source; then
   pg_restore --no-owner --dbname "$DB" "$SRC_DUMP"
   retire_before_chain
   preflight_db
-{_render_keep_source_taxes(env)}{_render_keep_declarations()}  neutralise 00_source
+{_render_keep_source_taxes(env)}{_render_keep_declarations()}{_render_keep_source_config(env)}  neutralise 00_source
   echo "$SRC_SHA" > "$CK/source.sha256.tmp" && mv "$CK/source.sha256.tmp" "$CK/source.sha256"
   checkpoint 00_source
 else
@@ -2014,7 +2065,7 @@ else
     die "step {version} failed — see {env.logs_dir}/{version}.log"
   fi
   step_hook "{version}" post
-{_render_source_taxes_repair(env, version)}{_render_step_repair(env, version)}{_render_declarations_repair(env, version)}{_render_grouped_items_repair(env, version)}{_render_payments_repair(env, version)}{_render_valuation_alignment(env, version)}{_render_tax_grids_refresh(env, version)}  neutralise "{version}"
+{_render_source_taxes_repair(env, version)}{_render_step_repair(env, version)}{_render_declarations_repair(env, version)}{_render_grouped_items_repair(env, version)}{_render_payments_repair(env, version)}{_render_valuation_alignment(env, version)}{_render_tax_grids_refresh(env, version)}{_render_source_config_restore(env, version)}  neutralise "{version}"
   checkpoint "{version}"
   mark "{version}" ok
 fi"""

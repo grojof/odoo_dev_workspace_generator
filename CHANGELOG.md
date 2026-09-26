@@ -15,6 +15,16 @@ All notable changes to this project are documented here. The format is based on
     recomputing them.
 
 ### Added
+- **Configuration the chain changes is put back as the source had it.** For a target from 18.0 the
+  driver keeps, at the source restore, the operation types' return types, the reconciliation rules and
+  the journals' alias names. At the target it:
+  - puts back the return types OpenUpgrade 15.0 redirects;
+  - archives the operation types the chain created that nothing uses;
+  - computes the default locations OpenUpgrade 18.0 leaves empty on archived types;
+  - recreates the invoice-matching rule OpenUpgrade 13.0 deletes;
+  - restores the alias names OpenUpgrade 13.0 replaces.
+
+  The list is `logs/<target>-source-configuration.tsv`.
 - **Tax grids are refreshed from the chart template after a chain that crosses 17.0.** OpenUpgrade 17.0
   turns off the reload that gives existing taxes the tax report's signed tags. The target's Odoo now
   runs that reload restricted to taxes, recomputes every invoice journal item's grids from its repartition

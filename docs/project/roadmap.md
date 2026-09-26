@@ -287,6 +287,12 @@ items are host-dependent.
   boxes recomputed from the new grids matched the filed returns. The differences left were those its
   declarations dossier already attributes.
 
+  Then configuration the chain changes (change `restore-source-configuration`): return types
+  OpenUpgrade 15.0 redirects, operation types 18.0 creates active, default locations it leaves empty on
+  archived types, the matching rule 13.0 deletes and the alias names it replaces. They are kept at the
+  source restore and put back at the target. On the first client's database the active operation types
+  matched the source's count again, and a second run changed nothing.
+
   Not done yet: a client's own module whose manifest declares Odoo S.A. as its author is reported
   "dropped by Odoo; OpenUpgrade removes it". With an intake, where the module loads from is known, and
   that should decide it rather than the author.

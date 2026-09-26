@@ -400,6 +400,33 @@ Nothing is kept if a journal item's amounts, taxes or sign would change. The lis
 `logs/<target>-tax-grids.tsv`. The OCA AEAT declarations select journal items by tax, not by grid, so
 their figures do not change. The grids serve reports that read tags, and the documents posted from now on.
 
+### Configuration the chain changes, put back as the source had it
+
+OpenUpgrade changes some configuration on the way that the operator never asked to change:
+- **Return types.** 15.0 gives each warehouse a "Returns" operation type and points its delivery type's
+  returns at it, and its receipt type's at the delivery type. It overwrites what was there, so a warehouse
+  whose customer returns went to its own type loses that flow.
+- **Operation types created active.** 18.0 creates the multi-step reception types (storage, quality
+  control, cross-dock) active on every active warehouse, where Odoo creates them archived for a one-step
+  warehouse. It fills the default locations 18 requires only on active types.
+- **The invoice-matching rule.** 13.0 deletes Odoo's default reconciliation rule.
+- **Journal mail aliases.** 13.0 recreates each journal's alias under the journal's name instead of its
+  own.
+
+For a target from 18.0, the driver keeps the source's return types, reconciliation rules and alias names
+at the source restore (`keep source-configuration` in the step record). After the tax grids, the target's
+Odoo:
+- puts back each type's source return type;
+- archives the types the chain created that nothing uses (a created type something already uses stays
+  active, and is listed);
+- computes the missing default locations with Odoo's own rule, only where they are missing;
+- recreates the deleted default rule with the source's values, including whether it validated
+  automatically, with the renames and the tolerance inversion OpenUpgrade 15.0 applies;
+- gives each journal alias its source name.
+
+The list is `logs/<target>-source-configuration.tsv`. A resumed run whose source checkpoint predates
+this skips it, says so, and records `repair source-configuration-skipped`.
+
 ### When a module has no code anywhere: `decisions.json`
 
 Coverage stops a run when an installed module resolves in no source of a step and OpenUpgrade declares no
