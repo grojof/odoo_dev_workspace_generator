@@ -219,6 +219,21 @@ each file from the old table, through OpenUpgrade's legacy link, when the new ce
 records `repair sii-certificate-file` whether or not there was a file to carry (its output says how many). The keys are files on the old server's disk: on the new server,
 open each certificate and obtain the keys again with its password.
 
+### Filed declarations keep their boxes: a map a module no longer ships
+
+The OCA AEAT modules store each filed declaration's boxes (`l10n_es_aeat_tax_line`) linked to the journal
+items that make them up, and each box points at the map line it was computed with, with a cascading
+foreign key. When a later version of a module stops shipping an old map, Odoo deletes that map's records at
+the module update, and every filed declaration of those periods loses its boxes. OCA's 303 module dropped
+its July 2021 to December 2022 map in 17.0, and one of that map's boxes in 13.0. Nothing fails.
+
+So the driver copies, at the source restore, every box, its links, and the maps and map lines they use
+(`keep filed-declarations` in the step record). At the target, after the post hook and before the
+grouped-items repair, it puts back whatever the chain deleted, with the same ids. It checks that every box
+the source held is there with its filed amount, or keeps nothing and stops. It lists what it put back in
+`logs/<target>-declaration-boxes-put-back.tsv` (`repair filed-declarations`). Computing such a period
+again needs the old map's taxes, which the module no longer has; what was filed is what the boxes hold.
+
 ### A known OpenUpgrade 13.0 defect the driver repairs: taxes added to reused journal items
 
 OpenUpgrade 13.0 (`migration_invoice_moves`) builds each invoice line from the journal item the 12.0

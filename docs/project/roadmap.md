@@ -247,6 +247,10 @@ items are host-dependent.
   invoice line did. On the first client's database the affected VAT and withholding returns came back to
   the source's figures.
 
+  Then filed declarations (change `keep-filed-declarations`): OCA's 303 module stopped shipping its 2022
+  map in 17.0, and the update deleted every 2022 return's boxes. The driver now keeps the source's boxes,
+  links and maps, and puts back at the target what the chain deleted, checking every filed amount.
+
   Not done yet: a client's own module whose manifest declares Odoo S.A. as its author is reported
   "dropped by Odoo; OpenUpgrade removes it". With an intake, where the module loads from is known, and
   that should decide it rather than the author.

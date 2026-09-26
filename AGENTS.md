@@ -116,6 +116,7 @@ python tools/verify_intake.py              # intake on real tools: restore, read
 python tools/verify_migration_audit.py     # migrate audit on 12.0- and 18.0-shaped databases, against a throwaway PostgreSQL
 python tools/verify_grouped_invoice_lines.py  # the repair of grouped invoice items, against a throwaway PostgreSQL
 python tools/verify_source_taxes.py        # keep a source's journal-item taxes, take back OpenUpgrade 13.0's additions
+python tools/verify_filed_declarations.py  # keep a source's filed declarations, put back what the chain deletes
 ```
 
 End-to-end validation (cloning Odoo, building venvs, running `odoo-bin`, migrations) happens on a real

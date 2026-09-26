@@ -79,6 +79,7 @@ python tools/verify_intake.py                    # intake on real tools: restore
 python tools/verify_migration_audit.py           # migrate audit on 12.0- and 18.0-shaped databases, and a role refused one table
 python tools/verify_grouped_invoice_lines.py     # the repair of grouped invoice items, on a throwaway PostgreSQL
 python tools/verify_source_taxes.py              # keep the source's journal-item taxes, take back OpenUpgrade 13.0's additions
+python tools/verify_filed_declarations.py        # keep a source's filed declarations, put back what the chain deletes
 ```
 
 | Tool | Needs |
@@ -86,7 +87,7 @@ python tools/verify_source_taxes.py              # keep the source's journal-ite
 | `verify_support_matrix.py`, `verify_odools_config.py`, `verify_egress_pins.py` | the network |
 | `verify_workspace_versions.py` | the network **and** a host it may change (it previews, asks, and cleans up) |
 | `verify_generated_shell.py` | `shellcheck` on the host |
-| `verify_pg_hba_trust.py`, `verify_mail_capture.py`, `verify_migration_tester.py`, `verify_neutralisation.py`, `verify_migration_audit.py`, `verify_grouped_invoice_lines.py`, `verify_source_taxes.py`, `verify_intake.py` (also `git` and `tar`) | the host's PostgreSQL binaries; each runs a cluster of its own |
+| `verify_pg_hba_trust.py`, `verify_mail_capture.py`, `verify_migration_tester.py`, `verify_neutralisation.py`, `verify_migration_audit.py`, `verify_grouped_invoice_lines.py`, `verify_source_taxes.py`, `verify_filed_declarations.py`, `verify_intake.py` (also `git` and `tar`) | the host's PostgreSQL binaries; each runs a cluster of its own |
 | `verify_neutralise_sources.py` | the local clones under `~/odoo-migrations/.repos` (`git` may fetch an OCA file it cites) |
 | `verify_migration_driver.py`, `verify_demo_seed.py` | nothing but `bash` |
 | `verify_promoted_modules.py` | nothing but `bash` and `git` |
@@ -131,6 +132,13 @@ leaves, and takes the additions back. It covers:
 - an inserted item, never touched;
 - the list and the dropped tables;
 - a database without the kept taxes (skipped, unchanged) and a source without the relation.
+
+`verify_filed_declarations.py` keeps a source's filed declarations, then simulates a later module version
+that stops shipping the older map: the update deletes its lines, and the cascade takes a return's boxes and
+links. It also removes a journal item and makes a text column translatable. Every box must come back with
+its id and amount, with its map line, map and links, except the link to the journal item that is gone. A box
+changed by hand must stop it and keep nothing. Without the copies it skips, and a source without
+declarations keeps nothing.
 
 `verify_migration_tester.py` generates the rehearsal tester from analysis lines copied verbatim out of
 OpenUpgrade's files, then asks whether the result is a *module*: every `.py` compiles, the manifest
