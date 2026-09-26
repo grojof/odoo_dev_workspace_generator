@@ -301,6 +301,13 @@ items are host-dependent.
   "dropped by Odoo; OpenUpgrade removes it". With an intake, where the module loads from is known, and
   that should decide it rather than the author.
 
+  Not done yet: paid Odoo Apps modules. The first client had two installed modules under OPL-1, bought
+  for 12.0, and found out late. The Odoo Apps FAQ says a purchase for 12.0 or earlier covers every
+  version up to 12.0, and from 13.0 each version is sold separately; OPL-1 forbids distributing modified
+  copies, so porting the source's code is not an option. The intake should list every installed module
+  whose manifest declares OPL-1 or a price, with its author and whether the store has it for the target,
+  as a finding the budget must carry: buy the target version, or replace it.
+
 - ~~The operator surface has a spec~~ — **done** (2026-09-20, change `name-the-operator-surface`).
   The twelve capabilities all described what the tool does to the *host*; nothing described what the
   operator touches, and "previewed and confirmed" was restated in six of them with no one place
