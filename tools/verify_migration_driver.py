@@ -824,6 +824,100 @@ def main() -> int:
               and "old_a split: its other parts acme_repl are installed" in split.stderr,
               split.stderr[-500:])
 
+    # --- the modules retired before the chain, right after the source restore ----
+    with tempfile.TemporaryDirectory(prefix="odwg-retire-") as tmp:
+        root = Path(tmp)
+        script, env = _build(root)
+        state = root / "steps-run"
+        # A database with one module to retire (old_x): its uninstall drops a table that
+        # held three rows (old_log) and an empty column, and changes the registry. The
+        # answers switch once the source's Odoo has run the uninstall.
+        _stub(root / "bin" / "psql", "\n".join([
+            'mkdir -p "$STATE"; q="$*"',
+            'gone() { [ -e "$STATE/retired" ]; }',
+            'case "$q" in',
+            f'  *{sourcetaxes.KEPT_TABLE}*|*{declarations.KEPT_LINKS}*) echo f ;;',
+            f'  *latest_version*) echo {SOURCE}.1.0 ;;',
+            '  *ir_module_module_dependency*) printf "old_x\\tbase\\n${ODWG_DEPENDENT:+old_y\\told_x\\n}" ;;',
+            '  *query_to_xml*) if gone; then printf "res_partner\\t10\\nir_ui_view\\t40\\n";'
+            '    else printf "res_partner\\t10\\nold_log\\t3\\nir_ui_view\\t50\\n"; fi ;;',
+            '  *attisdropped*) if gone; then printf "res_partner\\tid\\n";'
+            '    else printf "res_partner\\tid\\nres_partner\\told_flag\\n"; fi ;;',
+            "  *ir.model.fields*) printf 'res.partner\\told_flag\\n' ;;",
+            "  *FILTER*) printf 'res_partner\\told_flag\\t0\\n' ;;",
+            "  *\"'to remove'\"*|*\"'to upgrade')\"*)",
+            '    if gone; then printf "base\\n${ODWG_DEPENDENT:+old_y\\n}";'
+            '    else printf "base\\nold_x\\n${ODWG_DEPENDENT:+old_y\\n}"; fi ;;',
+            '  *transient*|*related*|*ir_model_data*) ;;',
+            '  *) printf "base\\tOdoo S.A.\\n" ;;',
+            'esac']))
+        source_python = env.venv_dir(SOURCE) / "bin" / "python"
+        _stub(source_python, (
+            'mkdir -p "$STATE"; body=$(cat)\n'
+            'if [[ " $* " == *" shell "* && "$body" == *button_immediate_uninstall* ]]; then\n'
+            '  echo "uninstall $ODWG_RETIRE" >> "$STATE/calls"; touch "$STATE/retired"; fi\n'
+            'exit 0'))
+        Path(env.source_odoo_bin).parent.mkdir(parents=True, exist_ok=True)
+        Path(env.source_odoo_bin).write_text("", encoding="utf-8")
+        calls = state / "calls"
+        listing = templates.retired_listing(env)
+
+        def decide(losses: list[dict]) -> None:
+            Path(env.decisions_file).write_text(json.dumps({
+                "decisions": [{"module": "old_x", "source": SOURCE, "target": TARGET,
+                               "decision": "dropped", "when": "before-chain"}],
+                "accepted_losses": [{"source": SOURCE, "target": TARGET, **loss}
+                                    for loss in losses]}))
+
+        def fresh() -> None:
+            shutil.rmtree(state, ignore_errors=True)
+            for dump in Path(env.checkpoints_dir).glob("*"):
+                dump.unlink()
+
+        decide([])
+        lost = _run(root, script)
+        check("a retirement that loses data no one accepted stops before the source checkpoint",
+              lost.returncode != 0 and "DATA LOST, not accepted: old_log" in lost.stderr
+              and "retiring modules before the chain" in lost.stderr
+              and calls.read_text() == "uninstall old_x\n"
+              and not (Path(env.checkpoints_dir) / "00_source.dump").exists()
+              and "old_log\t\tdata lost\t3\t0" in listing.read_text(),
+              lost.stdout[-500:] + lost.stderr[-500:])
+        fresh()
+        decide([{"name": "old_log", "reason": "a log of the retired feature"}])
+        ran = _run(root, script)
+        steps = Path(env.steps_file).read_text()
+        check("an accepted loss is listed with its reason, and the chain goes on from there",
+              ran.returncode == 0 and calls.read_text() == "uninstall old_x\n"
+              and "old_log\t\taccepted\t3\t0\t0\ta log of the retired feature" in listing.read_text()
+              and "res_partner\told_flag\tempty\t0\t0" in listing.read_text()
+              and "\t00_source\tretired\told_x" in steps
+              and ran.stdout.index("[step] retiring before the chain: old_x")
+              < ran.stdout.index("[preflight] database checks passed")
+              < ran.stdout.index("[checkpoint] 00_source"),
+              ran.stdout[-800:] + ran.stderr[-500:])
+        again = _run(root, script)
+        check("a resumed run starts from the source checkpoint and retires nothing again",
+              again.returncode == 0 and calls.read_text() == "uninstall old_x\n",
+              again.stdout[-400:])
+        fresh()
+        dependent = subprocess.run(
+            ["bash", str(script), "source.dump"], cwd=root, capture_output=True, text=True,
+            env={"PATH": f"{root / 'bin'}:/usr/bin:/bin", "HOME": str(root),
+                 "STATE": str(state), "ODWG_DEPENDENT": "1"})
+        check("an installed module depending on a retired one, not retired itself, stops the run"
+              " before any change",
+              dependent.returncode != 0
+              and "old_y depends on it and is installed" in dependent.stderr
+              and "stopped before changing the database" in dependent.stderr
+              and not calls.exists(), dependent.stderr[-500:])
+        fresh()
+        Path(env.decisions_file).write_text(json.dumps({"decisions": []}))
+        none = _run(root, script)
+        check("with nothing to retire the source is left as restored",
+              none.returncode == 0 and "[retire] nothing to retire before the chain" in none.stdout
+              and not calls.exists(), none.stdout[-400:])
+
     # --- the step's libraries, checked by its own interpreter --------------------
     with tempfile.TemporaryDirectory(prefix="odwg-pydeps-") as tmp:
         src = Path(tmp) / "addons"

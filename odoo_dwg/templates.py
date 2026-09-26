@@ -18,7 +18,7 @@ from importlib import resources
 from pathlib import Path
 from xml.sax.saxutils import escape
 
-from . import declarations, egress, neutralise, sourcetaxes, tester, ungroup
+from . import declarations, egress, neutralise, retire, sourcetaxes, tester, ungroup
 from .models import (
     LEGACY_LAYOUT_MAX_MAJOR,
     UV_PYTHON,
@@ -1123,6 +1123,104 @@ def carry_source() -> str:
     return resources.files("odoo_dwg").joinpath("carry.py").read_text(encoding="utf-8")
 
 
+def retire_source() -> str:
+    """``odoo_dwg/retire.py`` as the driver embeds it: the rules the intake's rehearsal
+    names an uninstall's differences by."""
+    return resources.files("odoo_dwg").joinpath("retire.py").read_text(encoding="utf-8")
+
+
+def retired_listing(env: MigrationEnv) -> Path:
+    return env.logs_dir / "00_source-retired.tsv"
+
+
+def _render_retire_stage(env: MigrationEnv) -> str:
+    """The modules decided ``dropped`` before the chain, uninstalled right after the source
+    restore with the source version's own Odoo, and a guard on what that took.
+
+    The decisions are read when the run starts, through ``carry.py``; the before and after
+    snapshots and their comparison come from ``retire.py``, the rules the intake's rehearsal
+    uses. A table that lost rows, or a column that went with values, stops the run unless it
+    is the registry's, a wizard's, the modules' own records, or a loss the decisions file
+    accepts by name. Defined here, called by the fresh restore only: a resumed run starts
+    from the source checkpoint, which already holds the result."""
+    q = shlex.quote
+    python = env.venv_dir(env.source) / "bin" / "python"
+    odoo = env.source_odoo_bin
+    shell = (f"{q(str(python))} {q(str(odoo))} shell -c {q(str(env.config_file(env.source)))} "
+             f'-d "$DB" --data-dir={q(str(env.data_dir))} --no-http --max-cron-threads=0 '
+             f"--log-level=warn --logfile={q(str(env.logs_dir / '00_source-retire.log'))}")
+    snap_dir = env.logs_dir / "00_source-retire"
+    plan = env.logs_dir / "00_source-retire-plan.json"
+
+    def snap(name: str, sql: str) -> str:
+        return f"  retire_snap {name} {q(sql)}"
+
+    return f"""
+# --- before the chain: modules decided dropped, before-chain (odoo_dwg/retire.py) ---
+carry_py() {{
+  python3 - "$@" <<'ODWG_CARRY'
+{carry_source()}ODWG_CARRY
+}}
+retire_py() {{
+  python3 - "$@" <<'ODWG_RETIRE'
+{retire_source()}ODWG_RETIRE
+}}
+RETIRE_SNAP={q(str(snap_dir))}
+RETIRE_PLAN={q(str(plan))}
+RETIRE_LIST={q(str(retired_listing(env)))}
+retire_fail() {{ mark 00_source fail "retire: $1"; die "retiring modules before the chain: $2"; }}
+retire_snap() {{
+  psql -X -At -F "$(printf '\t')" -v ON_ERROR_STOP=1 -d "$DB" -c "$2" > "$RETIRE_SNAP/$1.tsv" \
+    || retire_fail snapshot "could not read $1"
+}}
+retire_before_chain() {{
+  local installed depends modules code=0
+  installed=$(psql -X -At -d "$DB" -c \
+    "SELECT name FROM ir_module_module WHERE state IN ('installed', 'to upgrade')") \
+    || retire_fail modules "could not list the installed modules"
+  depends=$(psql -X -At -F "$(printf '\t')" -d "$DB" -c {q(retire.DEPENDS_SQL)}) \
+    || retire_fail modules "could not list the modules' dependencies"
+  modules=$(ODWG_INSTALLED="$installed" ODWG_DEPENDS="$depends" \
+    carry_py retire {q(str(env.decisions_file))} {q(env.source)} {q(env.target)} "$RETIRE_PLAN") \
+    || code=$?
+  if [ "$code" -eq 3 ]; then
+    echo "[retire] nothing to retire before the chain"
+    return 0
+  fi
+  [ "$code" -eq 0 ] || retire_fail plan "stopped before changing the database (see [retire] lines above)"
+  [ -x {q(str(python))} ] && [ -f {q(str(odoo))} ] \
+    || retire_fail odoo "the source's Odoo {env.source} is not built: {python}, {odoo}"
+  echo "[step] retiring before the chain: $modules"
+  mark 00_source retire "$modules"
+  # The rehearsal uninstalled on a neutralised copy: so does this.
+  neutralise retire
+  rm -rf "$RETIRE_SNAP"
+  mkdir -p "$RETIRE_SNAP"
+{snap("rows-before", retire.ROWS_SQL)}
+{snap("columns-before", retire.COLUMNS_SQL)}
+{snap("installed-before", retire.INSTALLED_SQL)}
+{snap("transient", retire.TRANSIENT_SQL)}
+{snap("related", retire.RELATED_SQL)}
+  local sql
+  sql=$(retire_py sql owned "$modules") || retire_fail snapshot "no query for the owned rows"
+  retire_snap owned "$sql"
+  sql=$(retire_py sql fields "$modules") || retire_fail snapshot "no query for the fields"
+  retire_snap fields "$sql"
+  sql=$(retire_py values "$RETIRE_SNAP") || retire_fail snapshot "no query for the values"
+  retire_snap values "$sql"
+  ODWG_RETIRE="$modules" {shell} <<'ODWG_UNINSTALL' \
+    || retire_fail uninstall "the uninstall failed — see {env.logs_dir}/00_source-retire.log"
+{retire.uninstall_script(retire.DRIVER_NAMES)}ODWG_UNINSTALL
+{snap("rows-after", retire.ROWS_SQL)}
+{snap("columns-after", retire.COLUMNS_SQL)}
+{snap("installed-after", retire.INSTALLED_SQL)}
+  retire_py compare "$RETIRE_SNAP" "$RETIRE_PLAN" "$RETIRE_LIST" \
+    || retire_fail data "it took what no decision accepts — see $RETIRE_LIST"
+  mark 00_source retired "$modules"
+}}
+"""
+
+
 #: Run by the target's Odoo shell: the renames the plan lists, with OpenUpgrade's own
 #: library (in every chain venv, since OpenUpgrade requires it). ``merge_modules`` folds a
 #: module into one that already exists, so several old modules can share one new name.
@@ -1190,9 +1288,9 @@ def _render_modules_stage(env: MigrationEnv) -> str:
 # --- stage: the client's modules at {target} (renamed, replaced, dropped) ---
 # carry.py, embedded verbatim: the plan `odoo-dwg migrate modules` prints. It is computed
 # once, against the database, so a module the database does not have is only skipped.
+# carry_py is defined with the retirement before the chain.
 carry() {{
-  python3 - {q(str(env.decisions_file))} {q(env.source)} {q(target)} "$MODULES_PLAN" {sources} <<'ODWG_CARRY'
-{carry_source()}ODWG_CARRY
+  carry_py {q(str(env.decisions_file))} {q(env.source)} {q(target)} "$MODULES_PLAN" {sources}
 }}
 modules_fail() {{ mark "{stage}" fail "$1"; die "{stage}: $2"; }}
 if have_ck "{stage}"; then
@@ -1657,6 +1755,7 @@ die() {{ echo "[fail] $1" >&2; exit 1; }}
 {_render_preflight_host(env)}
 
 {_render_preflight_db(env)}
+{_render_retire_stage(env)}
 
 # One line per event, appended and never rewritten: a run killed mid-step still
 # leaves a readable record, and a watcher can tail it while the chain runs. The
@@ -1724,6 +1823,7 @@ if ! have_ck 00_source; then
   createdb "$DB"
   give_filestore
   pg_restore --no-owner --dbname "$DB" "$SRC_DUMP"
+  retire_before_chain
   preflight_db
 {_render_keep_source_taxes(env)}{_render_keep_declarations()}  neutralise 00_source
   echo "$SRC_SHA" > "$CK/source.sha256.tmp" && mv "$CK/source.sha256.tmp" "$CK/source.sha256"

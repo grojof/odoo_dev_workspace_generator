@@ -7,6 +7,18 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Modules with no code at a later step are retired by the driver, with a guard on the data.** A
+  `dropped` decision can say `--before-chain`. The driver then uninstalls the module right after the
+  source restore, with the source version's own Odoo, as the intake's rehearsal did. Before that was done
+  by hand on a prepared copy, so a fresh dump on cutover day would not get it.
+  - It refuses to start when an installed module depends on a retired one that is not retired as well.
+  - It compares every table's rows and every column before and after, by the rehearsal's own rules, which
+    now live in `odoo_dwg/retire.py` for both.
+  - Data lost stops the run before the source checkpoint unless `migrate accept-loss` named it, with a
+    reason, in `decisions.json`.
+  - Every difference goes to `logs/00_source-retired.tsv`.
+  - Verified by `tools/verify_retired_modules.py` against a throwaway PostgreSQL, and by
+    `tools/verify_migration_driver.py`.
 - **Filed declarations keep their boxes through the chain.** A declaration's boxes cascade from the map
   they were computed with, and when a later module version stops shipping an old map, the update deletes
   them. OCA's 303 module did this in 17.0 to every 2022 return.

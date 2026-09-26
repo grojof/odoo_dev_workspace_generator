@@ -19,6 +19,7 @@ import json
 import re
 from dataclasses import dataclass, field
 
+from . import retire
 from .models import CORE_FLAVOURS, MODULE_NAME_RE
 
 INTAKE_SCHEMA = 1
@@ -716,50 +717,29 @@ def parse_repo_page(text: str) -> list[str] | None:
 
 # --- rehearsing an uninstall -----------------------------------------------------------
 
-#: Exact row counts of every table: the statistics estimate is refreshed by
-#: ANALYZE, not by the deletes an uninstall makes. One statement, so no table
-#: name ever reaches the shell.
-UNINSTALL_ROWS_SQL = (
-    "SELECT c.relname, (xpath('/row/n/text()', query_to_xml(format("
-    "'SELECT count(*) AS n FROM public.%I', c.relname), false, true, '')))[1]::text "
-    "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
-    "WHERE n.nspname = 'public' AND c.relkind = 'r' ORDER BY 1"
-)
-UNINSTALL_COLUMNS_SQL = (
-    "SELECT c.relname, a.attname FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid "
-    "JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' "
-    "AND c.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped ORDER BY 1, 2"
-)
-UNINSTALL_INSTALLED_SQL = (
-    "SELECT name FROM ir_module_module WHERE state IN ('installed', 'to upgrade', 'to remove') "
-    "ORDER BY 1"
-)
-UNINSTALL_TRANSIENT_SQL = "SELECT model FROM ir_model WHERE transient ORDER BY 1"
-UNINSTALL_RELATED_SQL = (
-    "SELECT model, name FROM ir_model_fields WHERE store AND coalesce(related, '') <> '' "
-    "ORDER BY 1, 2"
-)
-
-#: The registry's own tables. Other ir_* tables (attachments, crons, parameters,
-#: sequences, properties) are the client's configuration or data.
-UNINSTALL_METADATA = (
-    "ir_model", "ir_model_data", "ir_model_fields", "ir_model_fields_selection",
-    "ir_model_constraint", "ir_model_relation", "ir_model_access", "ir_ui_view",
-    "ir_ui_view_group_rel", "ir_ui_menu", "ir_ui_menu_group_rel", "ir_translation", "ir_rule",
-    "rule_group_rel", "ir_module_module", "ir_module_module_dependency",
-    "ir_module_module_exclusion", "ir_module_category",
-)
-UNINSTALL_KINDS = ("data lost", "recomputed", "module data", "wizard", "metadata", "empty", "grew")
+# The rules live in retire.py, which the migration driver embeds: the rehearsal and the
+# real uninstall before the chain name the same differences the same way.
+UNINSTALL_ROWS_SQL = retire.ROWS_SQL
+UNINSTALL_COLUMNS_SQL = retire.COLUMNS_SQL
+UNINSTALL_INSTALLED_SQL = retire.INSTALLED_SQL
+UNINSTALL_TRANSIENT_SQL = retire.TRANSIENT_SQL
+UNINSTALL_RELATED_SQL = retire.RELATED_SQL
+UNINSTALL_METADATA = retire.METADATA
+UNINSTALL_KINDS = retire.KINDS
+UninstallChange = retire.UninstallChange
+diff_uninstall = retire.diff_uninstall
+taken_along = retire.taken_along
+model_table = retire.model_table
+parse_counts = retire.parse_counts
+parse_columns = retire.parse_columns
 
 
 def owned_rows_sql(modules: list[str]) -> str:
     """Rows each model has through ``ir_model_data`` for these modules."""
-    names = [m for m in modules if MODULE_NAME_RE.fullmatch(m)]
-    if not names:
-        raise IntakeError(["no module name to count rows for"])
-    listed = ", ".join(f"'{m}'" for m in sorted(names))
-    return (f"SELECT model, count(*) FROM ir_model_data WHERE module IN ({listed}) "
-            "GROUP BY 1 ORDER BY 1")
+    try:
+        return retire.owned_rows_sql(modules)
+    except ValueError as error:
+        raise IntakeError([str(error)]) from error
 
 
 def dependents_sql(modules: list[str]) -> str:
@@ -781,109 +761,11 @@ def dependents_sql(modules: list[str]) -> str:
 
 
 def column_values_sql(columns: list[tuple[str, str]]) -> str:
-    """How many rows hold a value, per ``(table, column)``: read where it still exists.
-
-    Odoo stores an unset boolean as ``false`` and may store an unset char as
-    ``''``: neither is a value anyone entered, and counting them reported every
-    stock move as lost for a flag that was never set."""
-    if not columns:
-        raise IntakeError(["no column to count values for"])
-    return " UNION ALL ".join(
-        f"SELECT '{t}', '{c}', count(*) FILTER (WHERE {_ident(c)} IS NOT NULL AND "
-        f"{_ident(c)}::text NOT IN ('false', ''))::text FROM public.{_ident(t)}"
-        for t, c in columns if _NAME_RE.fullmatch(t) and re.fullmatch(r"[a-z0-9_]+", c))
-
-
-def model_table(model: str) -> str:
-    """The table Odoo gives a model by default; a custom ``_table`` is never excused."""
-    return model.replace(".", "_")
-
-
-def parse_counts(rows: list[list[str]]) -> dict[str, int]:
-    out = {}
-    for row in rows:
-        if len(row) >= 2 and row[1].strip().isdigit():
-            out[row[0]] = int(row[1])
-    return out
-
-
-def parse_columns(rows: list[list[str]]) -> set[tuple[str, str]]:
-    return {(row[0], row[1]) for row in rows if len(row) >= 2}
-
-
-@dataclass(frozen=True)
-class UninstallChange:
-    table: str
-    column: str  # "" for the table's rows
-    kind: str
-    before: int
-    after: int
-    owned: int = 0
-
-
-def _is_metadata(table: str) -> bool:
-    """The registry's tables, and this tool's own record (``odwg_*``), which the
-    rehearsal's re-neutralisation writes to."""
-    return table in UNINSTALL_METADATA or table.startswith(("ir_act", "ir_ui_", "odwg_"))
-
-
-def _is_wizard(table: str, transient_tables: set[str]) -> bool:
-    """A transient model's table, or one of its many2many tables, which Odoo names
-    after it (``<table>_<other>_rel``)."""
-    return table in transient_tables or (
-        table.endswith("_rel") and any(table.startswith(t + "_") for t in transient_tables))
-
-
-def diff_uninstall(before_rows: dict[str, int], after_rows: dict[str, int],
-                   before_cols: set[tuple[str, str]], after_cols: set[tuple[str, str]],
-                   owned: dict[str, int], transient: set[str],
-                   related: set[tuple[str, str]],
-                   column_values: dict[tuple[str, str], int]) -> list[UninstallChange]:
-    """Every difference an uninstall made, named.
-
-    ``owned`` is rows per model the uninstalled modules had in ``ir_model_data``,
-    ``transient`` and ``related`` are models and ``(model, field)`` pairs, all read
-    from the database before; ``column_values`` counts, in that database, the
-    rows holding a value in each column that is gone."""
-    owned_t = {model_table(m): n for m, n in owned.items()}
-    transient_t = {model_table(m) for m in transient}
-    related_t = {(model_table(m), f) for m, f in related}
-    changes = []
-    for table, before in sorted(before_rows.items()):
-        after = after_rows.get(table, 0)
-        if after == before and table in after_rows:
-            continue
-        if _is_metadata(table):
-            kind = "metadata"
-        elif after > before:
-            kind = "grew"
-        elif _is_wizard(table, transient_t):
-            kind = "wizard"
-        elif before - after <= owned_t.get(table, 0):
-            kind = "empty" if before == 0 else "module data"
-        else:
-            kind = "data lost"
-        changes.append(UninstallChange(table, "", kind, before, after, owned_t.get(table, 0)))
-    for table, column in sorted(before_cols - after_cols):
-        if table not in after_rows:
-            continue  # the table went, and its rows say what went with it
-        values = column_values.get((table, column), 0)
-        if (table, column) in related_t:
-            kind = "recomputed"
-        elif values == 0:
-            kind = "empty"
-        elif _is_wizard(table, transient_t) or _is_metadata(table):
-            kind = "wizard" if _is_wizard(table, transient_t) else "metadata"
-        else:
-            kind = "data lost"
-        changes.append(UninstallChange(table, column, kind, values, 0))
-    return changes
-
-
-def taken_along(asked: list[str], installed_before: set[str],
-                installed_after: set[str]) -> list[str]:
-    """Modules the uninstall removed beyond the ones asked for: their dependents."""
-    return sorted((installed_before - installed_after) - set(asked))
+    """How many rows hold a value, per ``(table, column)``: see ``retire.column_values_sql``."""
+    try:
+        return retire.column_values_sql(columns)
+    except ValueError as error:
+        raise IntakeError([str(error)]) from error
 
 
 # --- auditing the client's own modules -------------------------------------------------

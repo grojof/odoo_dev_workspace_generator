@@ -46,7 +46,16 @@ MESSAGES = {
     "not-installable": "{} is not installable (its manifest says installable: False)",
     "merge-installed":
         "{} is already installed: merging into it runs none of its migration scripts",
+    "bad-when": "`when` can only be before-chain, on a dropped decision, not {}",
+    "dependent": "{} depends on it and is installed, but is not retired before the chain",
+    "bad-loss": "{} is not a table or table.column name",
 }
+
+#: When a ``dropped`` decision may act instead of at the target.
+BEFORE_CHAIN = "before-chain"
+
+#: A table or ``table.column`` of the source database, as an accepted loss names it.
+_LOSS_NAME = re.compile(r"^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)?$")
 
 
 def is_module_name(name: str) -> bool:
@@ -79,7 +88,13 @@ def entry_problems(entry: dict) -> list[tuple[str, str, list]]:
             problems.append((BLOCKING, "bad-name", [name]))
         elif name == entry.get("module"):
             problems.append((BLOCKING, "to-itself", []))
+    if "when" in entry and (kind != "dropped" or entry.get("when") != BEFORE_CHAIN):
+        problems.append((BLOCKING, "bad-when", [f"{entry.get('when')} on {kind}"]))
     return problems
+
+
+def retires_before_chain(entry: dict) -> bool:
+    return entry.get("decision") == "dropped" and entry.get("when") == BEFORE_CHAIN
 
 
 def message(problem: dict) -> str:
@@ -263,14 +278,113 @@ def read_decisions(path: str) -> list:
     return entries if isinstance(entries, list) else []
 
 
+def read_accepted_losses(path: str, source: str, target: str) -> list:
+    """The decisions file's accepted losses for the pair: ``[name, reason]``, where name is
+    a table or ``table.column``. A file of the bare-list shape accepts none."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError, TypeError):
+        return []
+    losses = data.get("accepted_losses") if isinstance(data, dict) else None
+    return [[str(loss.get("name", "")), str(loss.get("reason", ""))]
+            for loss in (losses if isinstance(losses, list) else [])
+            if isinstance(loss, dict) and loss.get("source") == source
+            and loss.get("target") == target]
+
+
+def retirement(entries: list, losses: list, source: str, target: str, installed: set,
+               depends: dict) -> dict:
+    """What the driver retires right after the source restore, for one pair.
+
+    ``installed`` is the set of installed modules; ``depends`` maps each installed module to
+    the modules it depends on. A retired module takes along every installed module that
+    depends on it, as Odoo's uninstall does: each of those must be retired as well.
+    """
+    problems: list[dict] = []
+
+    def problem(module: str, code: str, args: list) -> None:
+        problems.append({"module": module, "level": BLOCKING, "code": code, "args": args})
+
+    pair = [e for e in entries if isinstance(e, dict)
+            and e.get("source") == source and e.get("target") == target and e.get("module")]
+    retire = []
+    for entry in pair:
+        own = entry_problems(entry)
+        if any(level == BLOCKING for level, _, _ in own):
+            continue
+        if retires_before_chain(entry) and entry["module"] in installed:
+            retire.append(entry["module"])
+    retire = sorted(set(retire))
+    # Every installed module that reaches a retired one through its dependencies.
+    users: dict[str, set] = {}
+    for module, deps in depends.items():
+        for dep in deps:
+            users.setdefault(dep, set()).add(module)
+    for module in retire:
+        seen, todo = set(), [module]
+        while todo:
+            for user in users.get(todo.pop(), ()):
+                if user not in seen and user in installed:
+                    seen.add(user)
+                    todo.append(user)
+        for user in sorted(seen - set(retire)):
+            problem(module, "dependent", [user])
+    accepted = []
+    for name, reason in losses:
+        if not _LOSS_NAME.match(name):
+            problem(name, "bad-loss", [name])
+        else:
+            accepted.append([name, reason])
+    return {"source": source, "target": target, "retire": retire, "accepted": accepted,
+            "problems": problems}
+
+
+def main_retire(argv: list[str]) -> int:
+    """The driver's entry for the retirement: ``retire decisions source target plan_out``.
+
+    Installed modules come from ``ODWG_INSTALLED`` (one per line) and dependencies from
+    ``ODWG_DEPENDS`` (``module<TAB>dependency`` per line). Writes the plan as JSON to
+    ``plan_out`` and its lines to stderr; prints the modules to retire, comma-separated.
+    Exits 1 when something blocks it, 3 when there is nothing to retire, 0 otherwise.
+    """
+    decisions, source, target, plan_out = argv
+    installed = {line.strip() for line in os.environ.get("ODWG_INSTALLED", "").splitlines()
+                 if line.strip()}
+    depends: dict[str, set] = {}
+    for line in os.environ.get("ODWG_DEPENDS", "").splitlines():
+        module, _, dep = line.partition("\t")
+        if module.strip() and dep.strip():
+            depends.setdefault(module.strip(), set()).add(dep.strip())
+    result = retirement(read_decisions(decisions), read_accepted_losses(decisions, source, target),
+                        source, target, installed, depends)
+    with open(plan_out, "w", encoding="utf-8") as handle:
+        json.dump(result, handle, indent=2)
+    if result["retire"]:
+        print(f"[retire] before the chain: {', '.join(result['retire'])}", file=sys.stderr)
+    for name, reason in result["accepted"]:
+        print(f"[retire] accepted loss: {name} ({reason})", file=sys.stderr)
+    for p in result["problems"]:
+        print(f"[retire] {p['module']}: {message(p)} ({p['level']})", file=sys.stderr)
+    if blocked(result):
+        return 1
+    if not result["retire"]:
+        return 3
+    print(",".join(result["retire"]))
+    return 0
+
+
 def main(argv: list[str]) -> int:
-    """The driver's entry: ``decisions source target plan_out sources...``.
+    """The driver's entry: ``decisions source target plan_out sources...``, or
+    ``retire decisions source target plan_out`` for the retirement before the chain.
 
     Installed modules come from ``ODWG_INSTALLED`` (one per line); unset, none were read.
     Writes the plan as JSON to ``plan_out``, its lines to stderr, and to stdout the
     modules to update and to install (comma-separated, one line each). Exits 1 when
     something blocks the stage, 3 when there is nothing to carry, 0 otherwise.
     """
+    if argv and argv[0] == "retire":
+        return main_retire(argv[1:])
     decisions, source, target, plan_out, *sources = argv
     raw = os.environ.get("ODWG_INSTALLED")
     installed = None if raw is None else {line.strip() for line in raw.splitlines()

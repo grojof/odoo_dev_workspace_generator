@@ -369,6 +369,50 @@ The kinds are `kept`, `deferred`, `dropped`, `renamed` and `replaced`; the last 
 that carry this one with `--to`. The entry for the same module and pair is replaced where it stands, and
 nothing else in the file changes.
 
+### Retiring a module before the chain
+
+Some modules installed in the source have no code at a later step of the chain and are not worth
+porting: a feature nobody uses, an option Odoo dropped. The intake's uninstall rehearsal
+(**Migration → Take in a client copy → Rehearse uninstalling modules on a copy**) uninstalls them on a
+throwaway clone and names every difference that made. Once you have read it, record two things, and the
+driver does the real uninstall on every run:
+
+```bash
+odoo-dwg migrate decide stock_barcodes --source 12.0 --target 18.0 --decision dropped --before-chain \
+  --reason "no code at 17.0 or 18.0; unused" --write
+odoo-dwg migrate accept-loss res_groups_users_rel --source 12.0 --target 18.0 \
+  --reason "the users of the module's own option group" --write
+```
+
+`--before-chain` works only with `dropped`. Without it, `dropped` means the client-modules stage
+uninstalls the module at the target. `accept-loss` takes a table, or `table.column`. It records a loss
+the rehearsal named as data that you accept, with your reason, in the same `decisions.json`, under
+`accepted_losses`.
+
+On a fresh run, right after restoring the source dump, the driver:
+1. reads the decisions and refuses to start when an installed module depends on a retired one and is not
+   retired itself, since Odoo would take it along (`[retire] … depends on it and is installed`);
+2. neutralises the database, as the rehearsal did, then records every table's exact row count, every
+   column, and the values of each column the retired modules' fields hold;
+3. uninstalls them with the source version's own Odoo (`odoo-bin shell`, no HTTP service, no cron
+   thread), running the same script the rehearsal does, and checks they are gone;
+4. compares, with the rehearsal's own rules: the registry (metadata), a wizard's tables, the modules' own
+   records (module data), what held nothing (empty), a stored related column (recomputed). Anything else a
+   table or column lost is **data lost**. A data loss that `accepted_losses` names is **accepted**, with its
+   reason; a table's name does not accept its columns.
+
+Any data lost that is not accepted, any module removed beyond the retired ones, or a retired module still
+installed, stops the run before the source checkpoint. Every difference goes to
+`logs/00_source-retired.tsv`: kind, counts before and after, rows the modules owned, and the reason. The
+snapshots stay in `logs/00_source-retire/`, and the step record says `retire` and `retired` with the
+modules. The preflight, the kept taxes and declarations and the source checkpoint all come after, so they
+describe the source the chain starts from. A resumed run starts from that checkpoint and does not retire
+again.
+
+The rehearsal was run on a copy, and the dump on cutover day is newer. The guard checks the real uninstall
+against the kinds of loss you accepted, not against the rehearsal's counts: a newer dump with more rows in
+an accepted table still goes through, and a new kind of loss stops it.
+
 ### The client's own modules under new names: the client-modules stage
 
 A client's own modules reach the target one of two ways, and you choose per module:

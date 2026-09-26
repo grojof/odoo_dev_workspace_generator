@@ -251,6 +251,15 @@ items are host-dependent.
   map in 17.0, and the update deleted every 2022 return's boxes. The driver now keeps the source's boxes,
   links and maps, and puts back at the target what the chain deleted, checking every filed amount.
 
+  Then retiring modules before the chain (change `retire-modules-before-the-chain`): the modules with
+  no code at a later step were uninstalled by hand on a prepared copy of the first client's database.
+  The driver now does it after the source restore, from `dropped` decisions marked `before-chain`, and
+  stops on any data lost that `accepted_losses` does not name. The rehearsal's rules moved to
+  `retire.py`, so both judge alike. On the first client's original copy the driver's uninstall named the
+  same losses as the rehearsal. Its result matched the hand-prepared copy module by module and column by
+  column; the only differing rows were the neutralisation's own record, one login and a test cron that
+  only the hand-prepared copy had.
+
   Not done yet: a client's own module whose manifest declares Odoo S.A. as its author is reported
   "dropped by Odoo; OpenUpgrade removes it". With an intake, where the module loads from is known, and
   that should decide it rather than the author.

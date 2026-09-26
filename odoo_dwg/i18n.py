@@ -1084,6 +1084,18 @@ _ES: dict[str, str] = {
     "The module(s) that carry it: one for renamed, any for replaced.":
         "El módulo o módulos que lo recogen: uno para renamed, los que sean para replaced.",
     "Why, in a sentence.": "Por qué, en una frase.",
+    "With dropped: uninstall it right after the source restore, before the chain.":
+        "Con dropped: desinstalarlo justo después de restaurar el origen, antes de la cadena.",
+    "Accept a table or column that retiring modules before the chain may empty; writes "
+    "decisions.json only with --write.":
+        "Aceptar una tabla o columna que retirar módulos antes de la cadena puede vaciar; escribe "
+        "decisions.json solo con --write.",
+    "The table, or table.column.": "La tabla, o tabla.columna.",
+    "Why losing it is acceptable.": "Por qué es aceptable perderla.",
+    "The decisions file's accepted losses are not a list.":
+        "Las pérdidas aceptadas del fichero de decisiones no son una lista.",
+    "An accepted loss needs its reason (--reason).":
+        "Una pérdida aceptada necesita su motivo (--reason).",
     "Write it; without this, only print it.": "Escribirlo; sin esto, solo se muestra.",
     "Nothing was changed.": "No se ha cambiado nada.",
     "The client-modules stage would stop before changing the database.":
