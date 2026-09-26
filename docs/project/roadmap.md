@@ -234,6 +234,13 @@ items are host-dependent.
   alone while porting; `migrate modules` shows the plan and `migrate decide` records a decision from the
   command line.
 
+  Then grouped invoice items (change `ungroup-migrated-invoice-lines`): a 12.0 source's invoices posted
+  with grouped journal items show, from OpenUpgrade 16.0 on, an extra line with the whole amount and
+  real lines at zero. The target step now moves each amount back to its lines, one move, account and set
+  of taxes at a time, and commits only when balances per account, partner and tax and every link are
+  unchanged. On the first client's database every filed VAT return and EC sales list recalculated
+  identical before and after, and the invoice analysis by product matched the source.
+
   Not done yet: a client's own module whose manifest declares Odoo S.A. as its author is reported
   "dropped by Odoo; OpenUpgrade removes it". With an intake, where the module loads from is known, and
   that should decide it rather than the author.

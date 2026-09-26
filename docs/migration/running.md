@@ -70,7 +70,7 @@ Each step of the chain, as the generated `run_migration.sh` runs it:
 ```mermaid
 flowchart LR
     K{Checkpoint for<br/>this version?} -- no --> P[Preconditions<br/>+ pre hook] --> O[OpenUpgrade<br/>step]
-    O -- ok --> H[Post hook] --> R[Known repairs<br/>14.0, from ≤ 13.0] --> N[Neutralise<br/>again] --> C[(Checkpoint)]
+    O -- ok --> H[Post hook] --> R[Known repairs<br/>14.0, from ≤ 13.0<br/>target ≥ 16.0, from ≤ 12.0] --> N[Neutralise<br/>again] --> C[(Checkpoint)]
     K -- yes --> Y([Skip to the<br/>next version])
     O -- fails --> X([Any failure stops the run<br/>and names the log. A re-run<br/>resumes from the newest checkpoint])
     classDef step fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
@@ -218,6 +218,53 @@ moves attachments only, so the file never reaches the new model. The same run of
 each file from the old table, through OpenUpgrade's legacy link, when the new certificate has none, and
 records `repair sii-certificate-file` whether or not there was a file to carry (its output says how many). The keys are files on the old server's disk: on the new server,
 open each certificate and obtain the keys again with its password.
+
+### A known OpenUpgrade 16.0 defect the driver repairs: grouped invoice items
+
+Up to 12.0, an invoice can be posted with its journal items grouped: one per account and taxes instead of
+one per invoice line (the journal's *Group invoice lines*, or a module doing the same). OpenUpgrade 13.0
+(`migration_invoice_moves`) keeps such an item with the amount, marks it `exclude_from_invoice_tab`, and
+inserts the invoice lines it stands for with a zero balance. 13.0 to 15.0 hide the item. OpenUpgrade 16.0
+(`_account_move_fast_fill_display_type`) types it `product` without reading that flag. From 16.0 on,
+every such invoice shows an extra "/" line with its whole amount, while its real lines carry none.
+
+Accounts and tax-based declarations stay right. The invoice analysis does not: every such sale and
+purchase lands under "no product", quantities count twice, and margins by product are wrong. Every
+reprint and every credit note carries the extra line. Resetting one such invoice to draft makes Odoo
+itself move the amounts back to the lines.
+
+For a chain from 12.0 or older to 16.0 or later, the driver does that for every invoice. It runs right
+after the target step and its post hook, before the checkpoint, in one SQL transaction, one group at a
+time: one move, one account and one set of taxes.
+- **An amount only moves inside a group**, so no account's, partner's or tax's sum can change. A VAT
+  return or EC sales list filed from the source recomputes the same. On the first client's database every
+  filed one was recalculated before and after, identical.
+- **Each line takes its own amount** in the document's direction, and the cents of rounding go to the
+  largest line. On a reconcilable account the lines stay open, as the grouped item was.
+- **A line OpenUpgrade 13.0 gave the union of its group's taxes** takes back its own, read from the
+  source's `account_invoice_line_tax`.
+- **What pointed at the grouped item moves.** A many-to-many link is copied to the lines. An analytic line
+  and an EC sales list detail move to the largest line.
+
+Before committing, the repair checks, per move:
+- balances per account and partner, per tax, and the move's balance;
+- the invoices' stored amounts;
+- that no link or reference was lost.
+
+If any check fails, nothing is kept and the run stops, naming the check.
+
+A group is left as it is, and listed with its reason in `logs/<target>-grouped-invoice-items-left.tsv`,
+when:
+- its amounts do not add up;
+- the invoice is in a foreign currency;
+- the grouped item is already reconciled, partly or fully;
+- the grouped item has no invoice line;
+- something else points at the grouped item (a reconciliation, say).
+
+In the step record it is `repair grouped-invoice-items`. A resumed run finds it in the checkpoint.
+Analysing the first client's database, the left groups were invoices the source itself held
+inconsistently: lines at zero with a journal entry edited by hand, or entry taxes that differ from the
+lines'.
 
 ### When a module has no code anywhere: `decisions.json`
 
