@@ -40,6 +40,8 @@ SOURCE, TARGET = "16.0", "18.0"
 # A chain that crosses the <= 13 layout, so the legacy step command and its own
 # preconditions are executed too, not only the upgrade-path ones.
 LEGACY_SOURCE, LEGACY_TARGET = "12.0", "14.0"
+# The first target whose steps show a 12.0 source's grouped invoice items as lines.
+GROUPED_TARGET = "16.0"
 
 
 def _stub(path: Path, body: str) -> None:
@@ -271,6 +273,27 @@ def main() -> int:
             and "\t14.0\trepair\tsii-certificate-file" in steps
             and steps.index("\t14.0\trepair") < steps.index("\t14.0\tok"),
             steps,
+        )
+        check(
+            f"a {LEGACY_SOURCE} to {LEGACY_TARGET} chain does not repair grouped invoice items",
+            "grouped-invoice-items" not in steps,
+            steps,
+        )
+    # A chain from 12.0 that reaches 16.0: its target step repairs grouped invoice items.
+    with tempfile.TemporaryDirectory(prefix="odwg-driver-") as tmp:
+        root = Path(tmp)
+        script, env = _build(root, source=LEGACY_SOURCE, target=GROUPED_TARGET)
+        grouped = _run(root, script)
+        steps = Path(env.steps_file).read_text(encoding="utf-8")
+        check(
+            f"a {LEGACY_SOURCE} to {GROUPED_TARGET} chain gives grouped invoice items back to "
+            "their lines in its target step, before its checkpoint",
+            grouped.returncode == 0
+            and f"\t{GROUPED_TARGET}\trepair\tgrouped-invoice-items" in steps
+            and steps.index(f"\t{GROUPED_TARGET}\trepair") < steps.index(f"\t{GROUPED_TARGET}\tok")
+            and templates.grouped_items_left_file(env).exists()
+            and "grouped-invoice-items" not in steps.split(f"\t{GROUPED_TARGET}\tstart")[0],
+            grouped.stdout + grouped.stderr + steps,
         )
     # Fresh state, or the completed checkpoints above would skip the step.
     with tempfile.TemporaryDirectory(prefix="odwg-driver-") as tmp:

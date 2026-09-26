@@ -18,7 +18,7 @@ from importlib import resources
 from pathlib import Path
 from xml.sax.saxutils import escape
 
-from . import egress, neutralise, tester
+from . import egress, neutralise, tester, ungroup
 from .models import (
     LEGACY_LAYOUT_MAX_MAJOR,
     UV_PYTHON,
@@ -998,6 +998,34 @@ def _render_step_repair(env: MigrationEnv, version: str) -> str:
     )
 
 
+def grouped_items_left_file(env: MigrationEnv) -> Path:
+    """Where the target step lists the grouped invoice items it left as they are."""
+    return env.logs_dir / f"{env.target}-grouped-invoice-items-left.tsv"
+
+
+def _render_grouped_items_repair(env: MigrationEnv, version: str) -> str:
+    """The target step's repair of the invoice items a source up to 12.0 grouped.
+
+    OpenUpgrade 16.0 types them as product lines, so each invoice shows an extra line
+    with its whole amount while its real lines carry none (``odoo_dwg/ungroup.py``). At
+    the target, after the post hook and before the checkpoint: a resumed run finds the
+    result in the checkpoint and does not repeat it."""
+    if version != env.target or not ungroup.applies(odoo_major(env.source), odoo_major(env.target)):
+        return ""
+    left = shlex.quote(str(grouped_items_left_file(env)))
+    return (
+        "  # OpenUpgrade 16.0 types the invoice items a 12.0 source grouped as product lines;\n"
+        "  # their amounts go back to the invoice lines they stand for, one account and set of\n"
+        "  # taxes at a time, and the SQL commits only if its checks hold.\n"
+        f"  psql -X -q -At -F $'\\t' -v ON_ERROR_STOP=1 -d \"$DB\" > {left} <<'ODWG_UNGROUP' \\\n"
+        f"    || die \"{version}: the repair of grouped invoice items failed; nothing of it was kept\"\n"
+        f"{ungroup.ungroup_sql()}ODWG_UNGROUP\n"
+        f'  echo "[repair] grouped invoice items left as they are: $(wc -l < {left}) group(s),'
+        f' listed in {left}"\n'
+        f'  mark "{version}" repair grouped-invoice-items\n'
+    )
+
+
 #: The client-modules stage's checkpoint and step-record name, after the target step.
 def modules_stage(env: MigrationEnv) -> str:
     return f"{env.target}-modules"
@@ -1686,7 +1714,7 @@ else
     die "step {version} failed — see {env.logs_dir}/{version}.log"
   fi
   step_hook "{version}" post
-{_render_step_repair(env, version)}  neutralise "{version}"
+{_render_step_repair(env, version)}{_render_grouped_items_repair(env, version)}  neutralise "{version}"
   checkpoint "{version}"
   mark "{version}" ok
 fi"""

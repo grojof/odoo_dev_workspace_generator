@@ -7,6 +7,17 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Grouped invoice items become the invoice lines they stand for again.** Up to 12.0 an invoice's journal
+  items can be grouped per account and taxes; OpenUpgrade 16.0 turns each group into an extra "/" invoice
+  line with the whole amount, leaving the real lines at zero. The invoice analysis then shows no product,
+  counts quantities twice, and every reprint and credit note carries that line. For a chain from 12.0
+  or older to 16.0 or later, the target step now moves each amount to its lines in one SQL transaction.
+  - **Declarations cannot change.** Amounts move only inside one move, account and set of taxes, and the
+    repair commits only if balances per account, partner and tax, the invoices' amounts and every link
+    are unchanged.
+  - **Groups that cannot be repaired stay as they are**, listed with their reason in
+    `logs/<target>-grouped-invoice-items-left.tsv`.
+  - **Verified** by `tools/verify_grouped_invoice_lines.py` against a throwaway PostgreSQL.
 - **The client's own modules can be carried to new names after the chain.** Optional, per module, as
   decisions: `renamed` (one module; several renamed to one are merged), `replaced` (the replacements are
   installed, then the old module goes) and `dropped`. The driver runs a client-modules stage after the

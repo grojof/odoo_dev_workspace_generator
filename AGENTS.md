@@ -114,6 +114,7 @@ python tools/verify_neutralisation.py      # neutralise, check, re-apply and res
 python tools/verify_neutralise_sources.py  # the neutralisation catalogue vs the sources it cites
 python tools/verify_intake.py              # intake on real tools: restore, reader role, core, audits, bank lines, journal codes
 python tools/verify_migration_audit.py     # migrate audit on 12.0- and 18.0-shaped databases, against a throwaway PostgreSQL
+python tools/verify_grouped_invoice_lines.py  # the repair of grouped invoice items, against a throwaway PostgreSQL
 ```
 
 End-to-end validation (cloning Odoo, building venvs, running `odoo-bin`, migrations) happens on a real

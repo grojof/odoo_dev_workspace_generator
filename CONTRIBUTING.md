@@ -77,6 +77,7 @@ python tools/verify_neutralisation.py            # neutralise, check, re-apply a
 python tools/verify_neutralise_sources.py        # the catalogue vs Odoo's neutralize.sql files and the OCA sources it cites
 python tools/verify_intake.py                    # intake on real tools: restore, reader role, core, filestore, audits, bank lines, journal codes
 python tools/verify_migration_audit.py           # migrate audit on 12.0- and 18.0-shaped databases, and a role refused one table
+python tools/verify_grouped_invoice_lines.py     # the repair of grouped invoice items, on a throwaway PostgreSQL
 ```
 
 | Tool | Needs |
@@ -84,7 +85,7 @@ python tools/verify_migration_audit.py           # migrate audit on 12.0- and 18
 | `verify_support_matrix.py`, `verify_odools_config.py`, `verify_egress_pins.py` | the network |
 | `verify_workspace_versions.py` | the network **and** a host it may change (it previews, asks, and cleans up) |
 | `verify_generated_shell.py` | `shellcheck` on the host |
-| `verify_pg_hba_trust.py`, `verify_mail_capture.py`, `verify_migration_tester.py`, `verify_neutralisation.py`, `verify_migration_audit.py`, `verify_intake.py` (also `git` and `tar`) | the host's PostgreSQL binaries; each runs a cluster of its own |
+| `verify_pg_hba_trust.py`, `verify_mail_capture.py`, `verify_migration_tester.py`, `verify_neutralisation.py`, `verify_migration_audit.py`, `verify_grouped_invoice_lines.py`, `verify_intake.py` (also `git` and `tar`) | the host's PostgreSQL binaries; each runs a cluster of its own |
 | `verify_neutralise_sources.py` | the local clones under `~/odoo-migrations/.repos` (`git` may fetch an OCA file it cites) |
 | `verify_migration_driver.py`, `verify_demo_seed.py` | nothing but `bash` |
 | `verify_promoted_modules.py` | nothing but `bash` and `git` |
@@ -103,6 +104,22 @@ it must find the missing unique constraint and not the truncated one, the foreig
 module's; the empty required fields, with the archived-only one as information and a transient model not
 read; and the one statement line stored as reconciled with a suspense line. Read by a role refused one
 table, that check must be unreadable and the others must stand.
+
+`verify_grouped_invoice_lines.py` runs the repair of grouped invoice items, as the driver hands it to
+`psql`, on invoices shaped the way OpenUpgrade 13.0 leaves them and 16.0 types them. It covers:
+- a grouped customer invoice, with a cent of rounding, a partner to take and an analytic line, a
+  declaration link and an EC sales list detail to move;
+- a vendor bill whose lines cancel out under two taxes, and a vendor refund;
+- a line given the union of its group's taxes;
+- a move with one group that adds up and one that does not;
+- an open grouped item on a reconcilable account, whose lines stay open;
+- a foreign-currency invoice, a reconciled grouped item and one a reconciliation points at, each left
+  with its reason;
+- a journal entry never touched;
+- a second run that repairs nothing, and a check made to fail, which must keep nothing;
+- databases without grouped items or without OpenUpgrade 13.0's columns.
+
+It found that a two-column detail table (its `id` and the line) was being copied as a many-to-many link.
 
 `verify_migration_tester.py` generates the rehearsal tester from analysis lines copied verbatim out of
 OpenUpgrade's files, then asks whether the result is a *module*: every `.py` compiles, the manifest

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from odoo_dwg import planners, templates
+from odoo_dwg import planners, templates, ungroup
 from odoo_dwg.models import MigrationEnv, migration_chain, migration_interpreter
 
 
@@ -563,6 +563,29 @@ def test_the_14_step_repairs_the_statement_lines_flag_for_a_source_up_to_13():
     assert 'mark "14.0" repair sii-certificate-file' in block
     assert block.index("ODWG_REPAIR") < block.index('neutralise "14.0"')
     assert driver.count("ODWG_REPAIR") == 2  # one heredoc, in the 14.0 step only
+
+
+def test_the_target_step_gives_grouped_invoice_items_back_to_their_lines():
+    env = MigrationEnv(source="12.0", target="18.0")
+    driver = templates.render_run_migration_sh(env)
+    block = driver[driver.index('step_hook "18.0" post'):driver.index('checkpoint "18.0"')]
+    left = str(templates.grouped_items_left_file(env))
+    assert "<<'ODWG_UNGROUP'" in block and ungroup.ungroup_sql() in block
+    # The groups it leaves go to the logs; its progress stays on the terminal.
+    assert f"> {left} <<'ODWG_UNGROUP'" in block and left.startswith(str(env.logs_dir))
+    assert "-v ON_ERROR_STOP=1" in block and "|| die" in block
+    assert 'mark "18.0" repair grouped-invoice-items' in block
+    # After the post hook, before neutralising and the checkpoint.
+    assert block.index("ODWG_UNGROUP") < block.index('neutralise "18.0"')
+    assert driver.count("<<'ODWG_UNGROUP'") == 1
+
+
+def test_grouped_invoice_items_are_repaired_only_where_a_chain_needs_it():
+    assert "ODWG_UNGROUP" in templates.render_run_migration_sh(
+        MigrationEnv(source="12.0", target="16.0"))
+    for source, target in (("13.0", "18.0"), ("14.0", "18.0"), ("12.0", "15.0")):
+        assert "ODWG_UNGROUP" not in templates.render_run_migration_sh(
+            MigrationEnv(source=source, target=target))
 
 
 def test_a_source_from_14_needs_no_statement_lines_repair():
