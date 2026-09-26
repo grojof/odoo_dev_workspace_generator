@@ -372,6 +372,34 @@ transit ones with a company; not stock another owner holds), at the product's co
 The source valued internal locations only; Odoo 18 also values a transit location with a company. A quant
 in transit therefore makes the 18 figure differ from the source's by exactly its value.
 
+### Tax grids after a chain that crosses 17.0: refreshed from the chart template
+
+From 17.0 a localisation's tax report generates signed tax tags (`+mod303[01]`, `-mod303[01]`), and its
+tax templates reference them. A database migrated from an older version keeps its first chart's unsigned
+tags on every tax repartition line and journal item.
+- The native step that retags existing taxes is the chart template's reload (`l10n_es` runs it in
+  `migrations/5.4/end-migrate.py`).
+- OpenUpgrade 17.0 turns it off. Its own script then tries to delete the old tags, which foreign keys
+  refuse.
+- New invoices would carry grids no 18 report reads. Journal items may also carry every box of their tax,
+  a union OpenUpgrade 13.0 left.
+
+When the chain crosses 17.0, the target step runs the target's own Odoo after the valuation alignment:
+1. **The chart template's reload, restricted to taxes.** For a tax whose template is unchanged (amount
+   type, amount, number of repartition lines), only its repartition lines' tags are set from the
+   template. Any other tax is left and listed.
+2. **Every journal item's grids from repartition lines**, the rule Odoo applies when it posts:
+   - a tax line takes its repartition line's tags;
+   - a base line takes its taxes' base repartition tags for the document's type (credit note or
+     invoice);
+   - lines of plain entries, whose type depends on more than the move, are left and counted.
+3. **Old tags archived.** Tax tags that nothing uses and no tax report generates are archived, not
+   deleted.
+
+Nothing is kept if a journal item's amounts, taxes or sign would change. The list is
+`logs/<target>-tax-grids.tsv`. The OCA AEAT declarations select journal items by tax, not by grid, so
+their figures do not change. The grids serve reports that read tags, and the documents posted from now on.
+
 ### When a module has no code anywhere: `decisions.json`
 
 Coverage stops a run when an installed module resolves in no source of a step and OpenUpgrade declares no
