@@ -451,6 +451,36 @@ whose source checkpoint predates this skips it, says so, and records `repair men
 Hiding a menu is not access control. A user can still open what the hidden menu opens through a link or
 another menu. Rights come from groups and record rules.
 
+### Saved filters and exports, rewritten to the fields the chain renamed
+
+Saved filters and export lists cross the chain as records, but the field names inside them are not
+rewritten when Odoo rebuilds a model or a renamed field sits inside a path. `migrate audit` finds them.
+For a source up to 12.0, the target step rewrites those whose field has a successor, after the menu
+references. `odoo_dwg/savedpaths.py` declares each successor with where the chain moved the field's
+data. For example:
+- the invoice fields moved from `account.invoice` to `account.move` (`date_invoice` to
+  `invoice_date`, `number` to `name`);
+- `move_lines` became `move_ids`, and `qty_done` became `quantity`;
+- the partner flags became ranks;
+- the journal's two default accounts became one;
+- account types became a selection, with their values.
+
+Paths are followed through the target's relations, in domains, groupings, orders, sorts and export
+columns. A domain is parsed, never evaluated.
+
+What cannot be rewritten stays as it is:
+- a filter with a leaf, grouping or sort that has no successor is left whole;
+- an export column with no successor is dropped, and a column that ends up equal to another is kept
+  once;
+- a model that is gone leaves its filters and exports untouched.
+
+Everything is listed in `logs/<target>-saved-paths.tsv`. Run `migrate audit` afterwards: what it
+still reports is what users save again.
+
+A field with the same name and another meaning is not seen: an invoice's `name` was its description in
+12.0 and is its number from 13.0, and its `state` no longer says paid. Check exports made on invoices by
+hand.
+
 ### Pending installs with no code, cancelled after the target step
 
 OpenUpgrade 18.0 patches `update_list` to mark "to install" every auto-install module whose recorded

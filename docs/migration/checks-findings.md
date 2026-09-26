@@ -46,6 +46,9 @@ inside a path, or when the module that defined a field is retired. Odoo then fai
 opens them. On a database before the client-modules stage, the fields of modules still installed without
 code count as present.
 
+The driver's target step rewrites the ones whose fields have a successor ([running](running.md)); what
+the audit still reports afterwards is what users save again.
+
 Each finding names its fix (an intake step, a data correction on the working copy, the client's
 decision) and applies none. Examples carry ids, codes and model names, never partner names or statement
 labels. The skill `migration-coherence-check` in `.claude/skills/` tells an assistant when to run it and
