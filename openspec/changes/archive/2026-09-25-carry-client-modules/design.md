@@ -31,7 +31,7 @@ with their own scripts, as they would in production.
    `button_immediate_uninstall()`. Odoo also uninstalls every module that depends on them, so the stage first
    reads their `downstream_dependencies()` and stops if one of them is not itself decided `dropped` or
    `replaced`. They come last because an old module can be the only owner of a model a
-   replacement adopts: the first client's `custom_pnt` holds the only `ir.model` identifier for
+   replacement adopts: one of the first client's own modules holds the only `ir.model` identifier for
    `stock.inventory`, whose table OCA's `stock_inventory` takes over. Uninstalling first drops the table.
 5. **Post hook, neutralise, checkpoint.**
 

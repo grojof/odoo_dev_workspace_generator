@@ -578,8 +578,11 @@ The repair SHALL work on each group of one move, one account and one set of taxe
 - no grouped item of the group is reconciled, partly or fully;
 - nothing points at a grouped item that the repair does not know how to move.
 
-A zero-amount invoice line SHALL be keyed on its own source invoice line's taxes when these are known, and
-SHALL take them. When the move has a single grouped account and its lines add up to it, the lines SHALL
+A zero-amount invoice line is one OpenUpgrade 13.0 inserted at a zero amount. A source journal item that
+OpenUpgrade 13.0 reused as an invoice line (its invoice line marked as matched) is not one. It SHALL keep its
+zero, its taxes and every link it has, because a filed declaration's detail may count it; a group that needed
+it is left. A zero-amount invoice line SHALL be keyed on its own source invoice line's taxes when these are
+known, and SHALL take them. When the move has a single grouped account and its lines add up to it, the lines SHALL
 take that account.
 
 In a repaired group:
@@ -587,7 +590,8 @@ In a repaired group:
   partner;
 - the cents of rounding SHALL go to the group's largest line;
 - on a reconcilable account, each line SHALL stay open for its amount, as the grouped item was;
-- a many-to-many link to a grouped item SHALL be copied to every line of the group;
+- a many-to-many link to a grouped item SHALL be copied to every line of the group, except the line's own
+  attributes (its taxes, its tax tags, its analytic accounts), which each line keeps as its own;
 - a known single reference SHALL move to the group's largest line: an analytic line, and an EC sales list
   record or refund detail;
 - the grouped items SHALL then be deleted.
@@ -600,7 +604,9 @@ The repair SHALL run in one transaction and commit only if all of these hold:
   unchanged, and so is the amount still open per account and partner;
 - the invoices' stored amounts are unchanged;
 - no link to a deleted item is lost, and no reference to one either: each analytic line and detail is
-  still there.
+  still there;
+- every record a repaired grouped item was linked to adds up to the same amount over its linked journal
+  items (what a declaration box shows when drilled into).
 
 Otherwise it SHALL keep nothing and stop the run, naming the check that failed. It SHALL print the groups
 it repaired and left, record the repair in the step record, and write the groups it left, with the reason,
@@ -637,6 +643,13 @@ the columns it reads.
 - **WHEN** a grouped item's amount differs from the sum of the invoice lines on its account and taxes
 - **THEN** that group is left grouped, is named with its reason, and the other groups of the move are
   still repaired
+
+#### Scenario: A source item at zero reused as an invoice line
+
+- **WHEN** a source journal item at zero, counted in a declaration box, was reused by OpenUpgrade 13.0 for an
+  invoice line with other taxes, and its group needs it to add up
+- **THEN** the item keeps its zero, its taxes and its box, the group is left and named, and the box's detail
+  adds up as before
 
 #### Scenario: A check that fails
 

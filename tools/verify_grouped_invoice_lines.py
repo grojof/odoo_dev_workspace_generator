@@ -58,6 +58,8 @@ SCHEMA = """
       account_move_line_id integer REFERENCES account_move_line(id) ON DELETE CASCADE,
       account_account_tag_id integer, PRIMARY KEY (account_move_line_id, account_account_tag_id));
     CREATE TABLE account_invoice_line_tax (invoice_line_id integer, tax_id integer);
+    -- OpenUpgrade 13.0's mark: the invoice line it matched to a source journal item.
+    CREATE TABLE account_invoice_line (id integer PRIMARY KEY, aml_matched boolean);
     CREATE TABLE account_analytic_line (id serial PRIMARY KEY, amount numeric,
       move_line_id integer REFERENCES account_move_line(id) ON DELETE CASCADE);
     CREATE TABLE account_move_line_l10n_es_aeat_tax_line_rel (
@@ -174,6 +176,21 @@ FIXTURE = """
       VALUES (1001, 10, 400, 7, 10, 10, 10, 0, NULL, 'payment_term', true, NULL, 10, false),
              (1002, 10, 555, 7, -10, -10, 0, 10, NULL, 'product', true, NULL, 0, true),
              (1003, 10, 555, 7, 0, 0, 0, 0, 10, 'product', false, 10001, 0, false);
+    -- 11. A source item at zero (tax 4, in a declaration box) reused for an invoice line with
+    --     another tax: it keeps its zero and its box; its group needed it, so it is left.
+    INSERT INTO account_move VALUES (11, 'INV/11', 'out_invoice', 1, 1, 10, 0, 10, 10);
+    INSERT INTO account_move_line (id, move_id, account_id, partner_id, balance, amount_currency,
+        debit, credit, price_subtotal, display_type, exclude_from_invoice_tab, old_invoice_line_id)
+      VALUES (1101, 11, 400, 7, 10, 10, 10, 0, NULL, 'payment_term', true, NULL),
+             (1102, 11, 700, 7, -10, -10, 0, 10, NULL, 'product', true, NULL),
+             (1103, 11, 700, 7, 0, 0, 0, 0, 1.48, 'product', false, 11001),
+             (1104, 11, 700, 7, 0, 0, 0, 0, 8.52, 'product', false, 11002);
+    INSERT INTO account_move_line_account_tax_rel VALUES (1102, 1), (1103, 4), (1104, 1);
+    INSERT INTO account_invoice_line_tax VALUES (11001, 1), (11002, 1);
+    INSERT INTO account_move_line_l10n_es_aeat_tax_line_rel VALUES (28, 1103), (29, 1102);
+    INSERT INTO account_invoice_line SELECT DISTINCT old_invoice_line_id, false FROM account_move_line
+      WHERE old_invoice_line_id IS NOT NULL;
+    UPDATE account_invoice_line SET aml_matched = true WHERE id = 11001;
     SELECT setval('account_move_line_id_seq', 2000);
 """
 
@@ -232,7 +249,8 @@ def main() -> int:
             code, out, err = _run(cluster, "probe")
             check("the repair runs and commits", code == 0, err.strip())
             check("it says what it repaired",
-                  "7 groups repaired on 6 invoices" in err and "4 groups left" in err, err.strip())
+                  "7 groups repaired on 6 invoices" in err and "5 groups left" in err
+                  and "1 reused zero-amount lines kept" in err, err.strip())
 
             check("a grouped invoice: each line its amount, the cent to the largest, the "
                   "grouped item's partner, the item gone",
@@ -246,7 +264,8 @@ def main() -> int:
                                     "l10n_es_aeat_mod349_partner_record_detail", "probe") == "106")
             check("its declaration link is copied to every line",
                   cluster.value("SELECT string_agg(account_move_line_id::text, ',' ORDER BY 1) "
-                                "FROM account_move_line_l10n_es_aeat_tax_line_rel", "probe")
+                                "FROM account_move_line_l10n_es_aeat_tax_line_rel "
+                                "WHERE l10n_es_aeat_tax_line_id = 9", "probe")
                   == "104,105,106")
             check("lines that cancel out take their own signed amounts under their own taxes",
                   cluster.value(LINES.format(2), "probe")
@@ -269,11 +288,20 @@ def main() -> int:
                   reasons.get("INV/5") == "amounts differ"
                   and reasons.get("INV/6") == "foreign currency"
                   and reasons.get("INV/10") == "reconciled, partly or fully"
+                  and reasons.get("INV/11") == "amounts differ"
                   and reasons.get("INV/8") == "referenced by account_partial_reconcile.debit_move_id",
                   out)
             check("a left group is untouched",
                   all(cluster.value(f"SELECT count(*) FROM account_move_line WHERE id = {i}", "probe")
                       == "1" for i in (602, 802, 1002)))
+            check("a reused source item at zero keeps its zero, its tax and its declaration box",
+                  cluster.value(LINES.format(11), "probe")
+                  == "1101:400:7:10 1102:700:7:-10 1103:700:7:0 1104:700:7:0"
+                  and cluster.value(TAXES.format(1103), "probe") == "4"
+                  and cluster.value("SELECT l10n_es_aeat_tax_line_id FROM "
+                                    "account_move_line_l10n_es_aeat_tax_line_rel "
+                                    "WHERE account_move_line_id = 1103", "probe") == "28",
+                  cluster.value(LINES.format(11), "probe"))
             check("an open grouped item on a reconcilable account leaves its lines open",
                   cluster.value("SELECT balance || ':' || amount_residual FROM account_move_line "
                                 "WHERE move_id = 7 AND account_id = 555", "probe") == "-10:-10",
@@ -283,7 +311,22 @@ def main() -> int:
 
             code, out2, err = _run(cluster, "probe")
             check("a second run repairs nothing and lists the same groups",
-                  code == 0 and "no group can be repaired, 4 left" in err and out2 == out, err.strip())
+                  code == 0 and "no group can be repaired, 5 left" in err and out2 == out, err.strip())
+
+            # Without OpenUpgrade's mark the reused item would get an amount under a tax its
+            # declaration box does not cover: the box's detail would change, and nothing is kept.
+            setup(cluster, "unmarked", SCHEMA, FIXTURE,
+                  "ALTER TABLE account_invoice_line DROP COLUMN aml_matched;"
+                  "UPDATE account_move_line SET price_subtotal = 10 - 1.48 WHERE id = 1104;"
+                  "DELETE FROM account_move_line_account_tax_rel WHERE account_move_line_id = 1103;"
+                  "INSERT INTO account_move_line_account_tax_rel VALUES (1103, 1);"
+                  # The box also holds another invoice's grouped item, as a real box does.
+                  "INSERT INTO account_move_line_l10n_es_aeat_tax_line_rel VALUES (28, 103);")
+            before = cluster.value(LINES.format(11), "unmarked")
+            code, _, err = _run(cluster, "unmarked")
+            check("a repair that would change what a declaration box adds up to keeps nothing",
+                  code != 0 and "check failed: what a link adds up to changed" in err
+                  and cluster.value(LINES.format(11), "unmarked") == before, err.strip())
 
             setup(cluster, "broken", SCHEMA, FIXTURE, BREAK_PARTNERS)
             before = cluster.value(LINES.format(1), "broken")
@@ -295,7 +338,7 @@ def main() -> int:
                   cluster.value(LINES.format(1), "broken") == before
                   and cluster.value("SELECT count(*) FROM account_move_line "
                                     "WHERE exclude_from_invoice_tab AND display_type = 'product'",
-                                    "broken") == "13")
+                                    "broken") == "14")
 
             setup(cluster, "none", SCHEMA)
             code, out3, err = _run(cluster, "none")
