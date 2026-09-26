@@ -522,3 +522,10 @@ def test_the_cli_records_a_before_chain_decision_and_a_loss(tmp_path, monkeypatc
     assert '"when": "before-chain"' in capsys.readouterr().out
     assert cli.main(["migrate", "accept-loss", "stock_log", "--reason", "a log", *chain]) == 0
     assert '"name": "stock_log"' in capsys.readouterr().out
+
+
+def test_a_module_retired_before_the_chain_is_never_this_stages():
+    entry = dict(_entry("gone", "dropped"), when=carry.BEFORE_CHAIN)
+    result = carry.plan([entry], "12.0", "18.0", _reader({}), installed={"gone"})
+    assert result["uninstalls"] == [] and result["retired"] == ["gone"]
+    assert "gone: retired before the chain, not by this stage" in carry.describe(result)

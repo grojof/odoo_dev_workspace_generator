@@ -374,6 +374,9 @@ def _print_carry_plan(result: dict) -> None:
             print(level_text("INFO", tf(label, ", ".join(result[key]))))
     for module in result["skipped"]:
         print(level_text("INFO", tf("{}: not installed, nothing to carry", module)))
+    if result.get("retired"):
+        print(level_text("INFO", tf("Retired before the chain, not by this stage: {}",
+                                    ", ".join(result["retired"]))))
     for module in result["left"]:
         print(level_text("WARN", tf("{}: still installed with no code at {} (kept as decided)",
                                     module, result["target"])))

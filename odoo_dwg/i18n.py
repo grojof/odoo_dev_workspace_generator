@@ -1091,6 +1091,8 @@ _ES: dict[str, str] = {
         "Aceptar una tabla o columna que retirar módulos antes de la cadena puede vaciar; escribe "
         "decisions.json solo con --write.",
     "The table, or table.column.": "La tabla, o tabla.columna.",
+    "Retired before the chain, not by this stage: {}":
+        "Retirados antes de la cadena, no en esta etapa: {}",
     "Why losing it is acceptable.": "Por qué es aceptable perderla.",
     "The decisions file's accepted losses are not a list.":
         "Las pérdidas aceptadas del fichero de decisiones no son una lista.",

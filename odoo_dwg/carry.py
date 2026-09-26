@@ -149,6 +149,7 @@ def plan(entries: list, source: str, target: str, read, installed=None) -> dict:
     installs: list[str] = []
     uninstalls: list[str] = []
     skipped: list[str] = []
+    retired: list[str] = []
     left: list[str] = []
     merges: list[str] = []
     problems: list[dict] = []
@@ -184,6 +185,10 @@ def plan(entries: list, source: str, target: str, read, installed=None) -> dict:
         for level, code, args in own:
             problem(module, level, code, args)
         if any(level == BLOCKING for level, _, _ in own) or kind not in KINDS:
+            continue
+        if retires_before_chain(entry):
+            # The driver uninstalls it right after the source restore: never this stage's.
+            retired.append(module)
             continue
         present = installed is None or module in installed
         if kind in ("kept", "deferred"):
@@ -232,6 +237,7 @@ def plan(entries: list, source: str, target: str, read, installed=None) -> dict:
         "installs": sorted(set(installs) - set(news)),
         "uninstalls": sorted(set(uninstalls)),
         "skipped": skipped,
+        "retired": retired,
         "left": left,
         "problems": problems,
     }
@@ -260,6 +266,8 @@ def describe(result: dict) -> list[str]:
             lines.append(f"{key[:-1]}: {', '.join(result[key])}")
     target = result["target"]
     lines += [f"{module}: not installed, nothing to carry" for module in result["skipped"]]
+    lines += [f"{module}: retired before the chain, not by this stage"
+              for module in result.get("retired", [])]
     lines += [f"{module}: still installed with no code at {target} (kept as decided)"
               for module in result["left"]]
     lines += [f"{p['module']}: {message(p)} ({p['level']})" for p in result["problems"]]
