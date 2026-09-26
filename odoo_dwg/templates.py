@@ -18,7 +18,7 @@ from importlib import resources
 from pathlib import Path
 from xml.sax.saxutils import escape
 
-from . import egress, neutralise, sourcetaxes, tester, ungroup
+from . import declarations, egress, neutralise, sourcetaxes, tester, ungroup
 from .models import (
     LEGACY_LAYOUT_MAX_MAJOR,
     UV_PYTHON,
@@ -998,6 +998,48 @@ def _render_step_repair(env: MigrationEnv, version: str) -> str:
     )
 
 
+def declarations_put_back_file(env: MigrationEnv) -> Path:
+    """Where the target step lists the filed declaration boxes it put back."""
+    return env.logs_dir / f"{env.target}-declaration-boxes-put-back.tsv"
+
+
+def _render_keep_declarations() -> str:
+    """At the source restore: the filed declarations, which a later module version can delete."""
+    return (
+        "  # A declaration's boxes cascade from the map they were computed with, and a later\n"
+        "  # module version may stop shipping that map; the target step puts back what is lost.\n"
+        "  psql -X -q -v ON_ERROR_STOP=1 -d \"$DB\" <<'ODWG_KEEP_DECL' \\\n"
+        "    || die \"could not keep the source's filed declarations\"\n"
+        f"{declarations.keep_sql()}ODWG_KEEP_DECL\n"
+        "  mark - keep filed-declarations\n"
+    )
+
+
+def _render_declarations_repair(env: MigrationEnv, version: str) -> str:
+    """At the target, before the grouped-items repair moves their links: the declaration boxes
+    the chain deleted, put back (``odoo_dwg/declarations.py``)."""
+    if version != env.target:
+        return ""
+    listed = shlex.quote(str(declarations_put_back_file(env)))
+    ready = f"SELECT to_regclass('{declarations.KEPT_LINKS}') IS NOT NULL"
+    return (
+        "  # Filed declarations whose boxes a module update deleted get them back, with their\n"
+        "  # links to journal items, before any repair moves those links.\n"
+        f"  if [ \"$(psql -X -tAc {shlex.quote(ready)} -d \"$DB\")\" = t ]; then\n"
+        f"    psql -X -q -At -F $'\\t' -v ON_ERROR_STOP=1 -d \"$DB\" > {listed} <<'ODWG_DECL' \\\n"
+        f"      || die \"{version}: putting back the filed declarations failed; nothing of it was kept\"\n"
+        f"{declarations.restore_sql()}ODWG_DECL\n"
+        f'    echo "[repair] filed declaration boxes put back: listed in {listed}"\n'
+        f'    mark "{version}" repair filed-declarations\n'
+        "  else\n"
+        "    echo \"[warn] the source checkpoint does not keep the source's filed declarations:"
+        " boxes a module update deleted are NOT put back; only a run from the source dump"
+        " checks them\" >&2\n"
+        f'    mark "{version}" repair filed-declarations-skipped\n'
+        "  fi\n"
+    )
+
+
 def taxes_taken_back_file(env: MigrationEnv) -> Path:
     """Where the 13.0 step lists the taxes it took back from reused journal items."""
     return env.logs_dir / f"{sourcetaxes.REPAIR_STEP}-taxes-taken-back.tsv"
@@ -1683,7 +1725,7 @@ if ! have_ck 00_source; then
   give_filestore
   pg_restore --no-owner --dbname "$DB" "$SRC_DUMP"
   preflight_db
-{_render_keep_source_taxes(env)}  neutralise 00_source
+{_render_keep_source_taxes(env)}{_render_keep_declarations()}  neutralise 00_source
   echo "$SRC_SHA" > "$CK/source.sha256.tmp" && mv "$CK/source.sha256.tmp" "$CK/source.sha256"
   checkpoint 00_source
 else
@@ -1758,7 +1800,7 @@ else
     die "step {version} failed — see {env.logs_dir}/{version}.log"
   fi
   step_hook "{version}" post
-{_render_source_taxes_repair(env, version)}{_render_step_repair(env, version)}{_render_grouped_items_repair(env, version)}  neutralise "{version}"
+{_render_source_taxes_repair(env, version)}{_render_step_repair(env, version)}{_render_declarations_repair(env, version)}{_render_grouped_items_repair(env, version)}  neutralise "{version}"
   checkpoint "{version}"
   mark "{version}" ok
 fi"""

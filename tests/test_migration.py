@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from odoo_dwg import planners, sourcetaxes, templates, ungroup
+from odoo_dwg import declarations, planners, sourcetaxes, templates, ungroup
 from odoo_dwg.models import MigrationEnv, migration_chain, migration_interpreter
 
 
@@ -604,9 +604,23 @@ def test_a_12_source_keeps_its_journal_item_taxes_and_the_13_step_takes_addition
     assert driver.count("<<'ODWG_TAXES'") == 1 and driver.count("<<'ODWG_KEEP'") == 1
 
 
+def test_filed_declarations_are_kept_at_the_source_and_put_back_before_the_grouped_items():
+    env = MigrationEnv(source="12.0", target="18.0")
+    driver = templates.render_run_migration_sh(env)
+    restore = driver[driver.index('pg_restore --no-owner --dbname "$DB" "$SRC_DUMP"'):
+                     driver.index("checkpoint 00_source")]
+    assert declarations.keep_sql() in restore and "mark - keep filed-declarations" in restore
+    block = driver[driver.index('step_hook "18.0" post'):driver.index('checkpoint "18.0"')]
+    assert declarations.restore_sql() in block
+    assert f"> {templates.declarations_put_back_file(env)} <<'ODWG_DECL'" in block
+    assert 'mark "18.0" repair filed-declarations-skipped' in block
+    assert block.index("ODWG_DECL") < block.index("ODWG_UNGROUP") < block.index('neutralise "18.0"')
+    assert driver.count("<<'ODWG_DECL'") == 1
+
+
 def test_a_13_source_keeps_no_taxes_and_takes_none_back():
     driver = templates.render_run_migration_sh(MigrationEnv(source="13.0", target="18.0"))
-    assert "ODWG_KEEP" not in driver and "ODWG_TAXES" not in driver
+    assert "<<'ODWG_KEEP'" not in driver and "ODWG_TAXES" not in driver
 
 
 def test_a_source_from_14_needs_no_statement_lines_repair():

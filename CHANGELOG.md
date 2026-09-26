@@ -7,6 +7,13 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Filed declarations keep their boxes through the chain.** A declaration's boxes cascade from the map
+  they were computed with, and when a later module version stops shipping an old map, the update deletes
+  them. OCA's 303 module did this in 17.0 to every 2022 return.
+  - The driver keeps the source's boxes, links and maps at the source restore.
+  - At the target it puts back what the chain deleted, before the grouped-items repair, and checks every
+    filed amount.
+  - Verified by `tools/verify_filed_declarations.py`.
 - **The taxes OpenUpgrade 13.0 adds to a reused journal item are taken back.** OpenUpgrade 13.0 gives each
   journal item it reuses as an invoice line that line's taxes, on top of the ones the item bore. An item
   grouped in the source then counts in the base of taxes it never bore, and a VAT or withholding return

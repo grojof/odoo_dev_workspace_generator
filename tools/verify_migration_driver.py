@@ -29,7 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from odoo_dwg import sourcetaxes, templates  # noqa: E402
+from odoo_dwg import declarations, sourcetaxes, templates  # noqa: E402
 from odoo_dwg.models import (  # noqa: E402
     MigrationEnv,
     ModuleDecision,
@@ -85,7 +85,8 @@ def _build(
     # Whether the source checkpoint holds the source's journal-item taxes the 13.0 step reads.
     kept = "t" if kept_taxes else "f"
     _stub(stubs / "psql",
-          f'if [[ "$*" == *{sourcetaxes.KEPT_TABLE}* ]]; then echo {kept}; '
+          f'if [[ "$*" == *{sourcetaxes.KEPT_TABLE}* || "$*" == *{declarations.KEPT_LINKS}* ]]; '
+          f'then echo {kept}; '
           f'elif [[ "$*" == *base* && "$*" == *latest_version* ]]; then echo {source}.1.0; '
           f'else {listing}; fi')
     for name in ("pg_restore", "dropdb", "createdb", "uv"):
@@ -308,10 +309,14 @@ def main() -> int:
             grouped.stdout + grouped.stderr + steps,
         )
         check(
-            "with the source's taxes kept, the 13.0 step takes the additions back before its "
-            "checkpoint",
+            "with the source's taxes and declarations kept, the 13.0 step takes the additions "
+            "back and the target puts filed declarations back before the grouped items",
             "\t13.0\trepair\tmove-line-taxes\n" in steps
             and "move-line-taxes-skipped" not in steps
+            and f"\t{GROUPED_TARGET}\trepair\tfiled-declarations\n" in steps
+            and steps.index("\trepair\tfiled-declarations")
+                < steps.index("\trepair\tgrouped-invoice-items")
+            and templates.declarations_put_back_file(env).exists()
             and steps.index("\t13.0\trepair\tmove-line-taxes") < steps.index("\t13.0\tok")
             and templates.taxes_taken_back_file(env).exists(),
             steps,
