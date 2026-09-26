@@ -274,6 +274,12 @@ items are host-dependent.
   the 14.0 repair stood in for is OCA/OpenUpgrade#6005, merged on 2026-09-25. The 14.0 step now requires
   a checkout that holds it, and checks the result instead of recomputing it.
 
+  Then stock valuation (change `align-migrated-stock-valuation`). The layers OpenUpgrade 13.0 rebuilt
+  counted some receipts twice and kept value on stock that had gone back to zero. The target step now
+  aligns each product's layers to its stock on hand at its cost, with the target's Odoo, and posts no
+  entry. On the first client's migrated database both valuation screens matched the source's figure,
+  except a transit quant that 18 values and 12 did not. A second run aligned nothing.
+
   Not done yet: a client's own module whose manifest declares Odoo S.A. as its author is reported
   "dropped by Odoo; OpenUpgrade removes it". With an intake, where the module loads from is known, and
   that should decide it rather than the author.
