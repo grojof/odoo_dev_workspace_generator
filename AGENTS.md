@@ -118,6 +118,7 @@ python tools/verify_grouped_invoice_lines.py  # the repair of grouped invoice it
 python tools/verify_source_taxes.py        # keep a source's journal-item taxes, take back OpenUpgrade 13.0's additions
 python tools/verify_filed_declarations.py  # keep a source's filed declarations, put back what the chain deletes
 python tools/verify_retired_modules.py     # retire modules before the chain, against a throwaway PostgreSQL
+python tools/verify_migrated_payments.py   # the payments repair's duplicates and journals, against a throwaway PostgreSQL
 ```
 
 End-to-end validation (cloning Odoo, building venvs, running `odoo-bin`, migrations) happens on a real

@@ -260,6 +260,16 @@ items are host-dependent.
   column; the only differing rows were the neutralisation's own record, one login and a test cron that
   only the hand-prepared copy had.
 
+  Then migrated payments (change `repair-migrated-payments`). OCA's 14.0 payment-order migration
+  duplicated payments whose remittance line an operator's entry repeated. OpenUpgrade 18.0 left payments
+  posted through a miscellaneous journal without a journal, and every posted payment "In process". The
+  target step now removes the duplicates nothing else points at and gives the payments their order's
+  journal, in SQL. It recomputes payment and invoice states with Odoo's own methods until they settle,
+  and keeps nothing if a journal item would change. On the first client's migrated database every
+  duplicate went and every journal-less payment got its order's journal. The payments became paid,
+  except one batch payment still awaiting its bank match. Invoices settled only by credit notes became
+  "Reversed". No journal item changed, and a second run changed nothing.
+
   Not done yet: a client's own module whose manifest declares Odoo S.A. as its author is reported
   "dropped by Odoo; OpenUpgrade removes it". With an intake, where the module loads from is known, and
   that should decide it rather than the author.

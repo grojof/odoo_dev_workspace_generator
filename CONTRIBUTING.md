@@ -81,6 +81,7 @@ python tools/verify_grouped_invoice_lines.py     # the repair of grouped invoice
 python tools/verify_source_taxes.py              # keep the source's journal-item taxes, take back OpenUpgrade 13.0's additions
 python tools/verify_filed_declarations.py        # keep a source's filed declarations, put back what the chain deletes
 python tools/verify_retired_modules.py           # retire modules before the chain: the driver's stage on a throwaway PostgreSQL
+python tools/verify_migrated_payments.py         # the payments repair's duplicates and journals, on a throwaway PostgreSQL
 ```
 
 | Tool | Needs |
@@ -88,7 +89,7 @@ python tools/verify_retired_modules.py           # retire modules before the cha
 | `verify_support_matrix.py`, `verify_odools_config.py`, `verify_egress_pins.py` | the network |
 | `verify_workspace_versions.py` | the network **and** a host it may change (it previews, asks, and cleans up) |
 | `verify_generated_shell.py` | `shellcheck` on the host |
-| `verify_pg_hba_trust.py`, `verify_mail_capture.py`, `verify_migration_tester.py`, `verify_neutralisation.py`, `verify_migration_audit.py`, `verify_grouped_invoice_lines.py`, `verify_source_taxes.py`, `verify_filed_declarations.py`, `verify_retired_modules.py`, `verify_intake.py` (also `git` and `tar`) | the host's PostgreSQL binaries; each runs a cluster of its own |
+| `verify_pg_hba_trust.py`, `verify_mail_capture.py`, `verify_migration_tester.py`, `verify_neutralisation.py`, `verify_migration_audit.py`, `verify_grouped_invoice_lines.py`, `verify_source_taxes.py`, `verify_filed_declarations.py`, `verify_retired_modules.py`, `verify_migrated_payments.py`, `verify_intake.py` (also `git` and `tar`) | the host's PostgreSQL binaries; each runs a cluster of its own |
 | `verify_neutralise_sources.py` | the local clones under `~/odoo-migrations/.repos` (`git` may fetch an OCA file it cites) |
 | `verify_migration_driver.py`, `verify_demo_seed.py` | nothing but `bash` |
 | `verify_promoted_modules.py` | nothing but `bash` and `git` |
@@ -150,6 +151,17 @@ a throwaway PostgreSQL. Only the source's Odoo is a stub, making an uninstall's 
   stops the stage;
 - the same losses accepted by name, which pass with their reasons listed;
 - an installed dependent not retired, which stops the stage before Odoo runs.
+
+`verify_migrated_payments.py` runs the payments repair's SQL on an 18.0-shaped database. It covers:
+- a duplicate on a manual entry, removed with its own links;
+- duplicates kept because a journal item points at them, because they have a payment line their twin
+  lacks, or because they have a message;
+- two payments on the order's own entry, both kept;
+- a payment given its order's bank journal and method line, its entry untouched;
+- a general journal, or two fitting method lines, which give no journal;
+- a second run that changes nothing, and a database without payment orders.
+
+Odoo's recompute of states runs in the target's Odoo, so it is checked on a real migrated database.
 
 `verify_migration_tester.py` generates the rehearsal tester from analysis lines copied verbatim out of
 OpenUpgrade's files, then asks whether the result is a *module*: every `.py` compiles, the manifest
