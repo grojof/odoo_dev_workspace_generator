@@ -104,10 +104,12 @@ def test_a_field_empty_only_on_archived_records_is_information():
     assert audit.required_result([["acme.thing", "partner_id", "0", "0"]]).verdict == audit.CLEAN
 
 
-def test_the_audit_selects_the_lines_the_repair_recomputes():
+def test_the_audit_selects_the_lines_the_driver_counts_after_the_14_step():
     from odoo_dwg import templates
+    from odoo_dwg.models import MigrationEnv
     assert templates.STALE_RECONCILED_LINES_FROM in audit.STALE_RECONCILED_SQL
-    assert templates.STALE_RECONCILED_LINES_FROM in templates._STATEMENT_LINES_REPAIR
+    driver = templates.render_run_migration_sh(MigrationEnv(source="12.0", target="18.0"))
+    assert "WHERE l.is_reconciled AND EXISTS (" in driver
 
 
 def test_examples_are_capped_and_the_rest_counted():

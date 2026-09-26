@@ -191,7 +191,7 @@ environment. The unit suite can only assert the plans' text; this executes them.
 resume, a gap in the checkpoints, a dump that does not match, a checkpoint that cannot be written, a step
 whose OpenUpgrade code is not on disk, a step that fails — which must name itself and its log — and a
 12 → 14 chain, so the ≤ 13 layout's own step command and preconditions are executed too, not only the
-upgrade-path ones, and the repairs after the 14.0 step are recorded before its checkpoint. The retirement before the chain is run too: an unaccepted loss stops before the source checkpoint, an accepted one is listed with its reason, a resumed run does not retire again, and a dependent not retired stops it before any change. The unit suite may not shell out, so this is where the *behaviour* of the generated shell is checked — run it
+upgrade-path ones, and the check and repair after the 14.0 step are recorded before its checkpoint. A 14.0 checkout without OCA/OpenUpgrade#6005 must stop before the step, and statement lines still stored as reconciled after it must stop it before its checkpoint. The retirement before the chain is run too: an unaccepted loss stops before the source checkpoint, an accepted one is listed with its reason, a resumed run does not retire again, and a dependent not retired stops it before any change. The unit suite may not shell out, so this is where the *behaviour* of the generated shell is checked — run it
 whenever `render_run_migration_sh` changes.
 
 `verify_pg_hba_trust.py` runs the `pg_hba.conf` rewriter over every shape of that file this project has been

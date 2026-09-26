@@ -189,32 +189,30 @@ reversible and have the post-step hook undo exactly it. For example, record whic
 you make usable in a table of your own, and deprecate exactly those again. Record the decision in the
 findings ledger too.
 
-### A known OpenUpgrade 14.0 defect the driver repairs: statement lines stored as reconciled
+### A known OpenUpgrade 14.0 defect, fixed upstream: statement lines stored as reconciled
 
 For a source up to 13.0, OpenUpgrade's 14.0 account post-migration gives every bank statement line
 without an entry one, through the ORM (`fill_statement_lines_with_no_move`). It then computes the lines'
-`is_reconciled` and `amount_residual` in raw SQL (`fill_account_bank_statement_line_reconciliation`). There
-is no flush in between. The ORM still holds the values it computed while each move had no suspense line
-yet (`is_reconciled = True`), and a later flush writes them over the SQL result.
+`is_reconciled` and `amount_residual` in raw SQL (`fill_account_bank_statement_line_reconciliation`).
+There used to be no flush in between: the ORM still held the values it computed while each move had no
+suspense line yet (`is_reconciled = True`), and a later flush wrote them over the SQL result. A line
+still waiting in the suspense account then read as reconciled, and the reconciliation screen hid it.
 
-A line still waiting in the suspense account then reads as reconciled, and the reconciliation screen,
-which filters on that field, hides it. How many lines are hit depends on how many pending values the ORM
-still holds when the script ends: on the first client's copy it was part of such lines in one run and
-all of them in another.
+[OCA/OpenUpgrade#6005](https://github.com/OCA/OpenUpgrade/pull/6005) flushes the lines before the SQL.
+It was merged into 14.0 on 2026-09-25, so the driver no longer repairs anything here:
+- **Before the 14.0 step** it checks that the checkout's `account/14.0.1.1/post-migration.py` holds that
+  flush. It stops before the step when the checkout predates it, with the command that updates it
+  (`git -C <checkout> pull --ff-only`, or regenerating the environment).
+- **After the step and its post hook** it counts the lines stored as reconciled whose entry still has a
+  line on the suspense account, with the same selection `migrate audit` uses. None records
+  `check statement-lines-is-reconciled` in `logs/steps.tsv`. Any stops the step before its checkpoint,
+  with the count: with the fix, that would be a defect nobody knows about yet.
 
-The driver repairs it right after the 14.0 step and its post hook, before the checkpoint. It selects in
-SQL the only lines the defect can leave wrong: stored as reconciled while their move still has a line on
-the journal's suspense account. It then recomputes them in `odoo-bin shell` on the 14.0 Odoo with Odoo's
-own `_compute_is_reconciled` (the same rule as in 18.0), prints how many it selected and how many are
-still reconciled, and records `repair statement-lines-is-reconciled` in `logs/steps.tsv`. Only those lines go through the ORM, so it
-takes seconds on a large database, and it selects nothing once OpenUpgrade flushes itself
-([OCA/OpenUpgrade#6005](https://github.com/OCA/OpenUpgrade/pull/6005)).
-
-### A known OCA defect the same repair covers: the SII certificate file
+### A known OCA defect the driver repairs after the 14.0 step: the SII certificate file
 
 Up to 13.0, `l10n_es_aeat_sii` keeps the AEAT certificate (the `.p12`) in a column of its own table. The
 14.0 migration of `l10n_es_aeat_sii_oca` creates one `l10n.es.aeat.certificate` per old record, but it
-moves attachments only, so the file never reaches the new model. The same run of the 14.0 repair carries
+moves attachments only, so the file never reaches the new model. Right after the 14.0 step, the driver carries
 each file from the old table, through OpenUpgrade's legacy link, when the new certificate has none, and
 records `repair sii-certificate-file` whether or not there was a file to carry (its output says how many). The keys are files on the old server's disk: on the new server,
 open each certificate and obtain the keys again with its password.

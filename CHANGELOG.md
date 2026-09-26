@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+- **The OpenUpgrade 14.0 statement-lines defect is fixed upstream, and the driver requires the fix.**
+  OCA/OpenUpgrade#6005 flushes the statement lines before computing their reconciliation in SQL. It was
+  merged into 14.0 on 2026-09-25.
+  - For a source up to 13.0, the 14.0 step now stops before running when its checkout predates the fix.
+  - After the step it only counts the lines still stored as reconciled, and stops on any, instead of
+    recomputing them.
+
 ### Added
 - **Migrated payments are repaired at the target step.** For a chain that crosses 18.0:
   - the duplicate payments OCA's 14.0 payment-order migration creates when an operator's entry repeats
