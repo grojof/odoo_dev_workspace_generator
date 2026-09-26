@@ -15,6 +15,11 @@ All notable changes to this project are documented here. The format is based on
     recomputing them.
 
 ### Added
+- **Tax grids are refreshed from the chart template after a chain that crosses 17.0.** OpenUpgrade 17.0
+  turns off the reload that gives existing taxes the tax report's signed tags. The target's Odoo now
+  runs that reload restricted to taxes, recomputes every invoice journal item's grids from its repartition
+  lines, and archives the tags nothing uses. Nothing is kept if any amount would change. The list is
+  `logs/<target>-tax-grids.tsv`.
 - **Stock valuation is aligned to on-hand quantity and cost for a source up to 12.0.** OpenUpgrade 13.0
   rebuilds the valuation layers with drift. For a target from 18.0, the target's own Odoo adds one
   labelled layer per product with periodic valuation, bringing its layers to the stock on hand at its

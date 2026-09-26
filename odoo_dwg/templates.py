@@ -25,6 +25,7 @@ from . import (
     payments,
     retire,
     sourcetaxes,
+    taxgrids,
     tester,
     ungroup,
     valuation,
@@ -1197,6 +1198,34 @@ def _render_valuation_alignment(env: MigrationEnv, version: str) -> str:
     )
 
 
+def tax_grids_file(env: MigrationEnv) -> Path:
+    """Where the target step lists what refreshing the tax grids changed or left."""
+    return env.logs_dir / f"{env.target}-tax-grids.tsv"
+
+
+def _render_tax_grids_refresh(env: MigrationEnv, version: str) -> str:
+    """The target step's refresh of tax grids from the chart template (``odoo_dwg/taxgrids.py``),
+    which OpenUpgrade 17.0 turns off. After the valuation alignment, before the checkpoint."""
+    if version != env.target or \
+            not taxgrids.applies(odoo_major(env.source), odoo_major(env.target)):
+        return ""
+    q = shlex.quote
+    listed = q(str(tax_grids_file(env)))
+    shell = (f"{q(f'{env.venv_dir(version)}/bin/python')} {q(str(env.odoo_bin(version)))} shell "
+             f'-c {q(str(env.config_file(version)))} -d "$DB" --no-http '
+             f"--logfile={q(str(env.logs_dir / f'{version}.log'))}")
+    return (
+        "  # Tax grids: the chart template's reload restricted to taxes, which OpenUpgrade 17.0\n"
+        "  # turns off, then every journal item's grids from its repartition lines.\n"
+        f"  : > {listed}\n"
+        f"  ODWG_TAXGRIDS_LIST={listed} {shell} <<'ODWG_TAXGRIDS' \\\n"
+        f"    || die \"{version}: refreshing the tax grids failed; nothing of it was kept\"\n"
+        f"{taxgrids.REFRESH}ODWG_TAXGRIDS\n"
+        f'  echo "[repair] tax grids refreshed: listed in {listed}"\n'
+        f'  mark "{version}" repair tax-grids\n'
+    )
+
+
 #: The client-modules stage's checkpoint and step-record name, after the target step.
 def modules_stage(env: MigrationEnv) -> str:
     return f"{env.target}-modules"
@@ -1985,7 +2014,7 @@ else
     die "step {version} failed — see {env.logs_dir}/{version}.log"
   fi
   step_hook "{version}" post
-{_render_source_taxes_repair(env, version)}{_render_step_repair(env, version)}{_render_declarations_repair(env, version)}{_render_grouped_items_repair(env, version)}{_render_payments_repair(env, version)}{_render_valuation_alignment(env, version)}  neutralise "{version}"
+{_render_source_taxes_repair(env, version)}{_render_step_repair(env, version)}{_render_declarations_repair(env, version)}{_render_grouped_items_repair(env, version)}{_render_payments_repair(env, version)}{_render_valuation_alignment(env, version)}{_render_tax_grids_refresh(env, version)}  neutralise "{version}"
   checkpoint "{version}"
   mark "{version}" ok
 fi"""

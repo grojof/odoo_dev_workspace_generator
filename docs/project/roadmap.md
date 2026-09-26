@@ -280,6 +280,13 @@ items are host-dependent.
   entry. On the first client's migrated database both valuation screens matched the source's figure,
   except a transit quant that 18 values and 12 did not. A second run aligned nothing.
 
+  Then tax grids (change `refresh-tax-grids`). OpenUpgrade 17.0 turns off the chart reload that retags
+  existing taxes, so the unsigned tags of the source's chart stayed on taxes and journal items. The target
+  step now runs Odoo's own reload restricted to taxes, recomputes the journal items' grids from their
+  repartition lines, and archives the tags nothing uses. On the first client's database, the VAT return
+  boxes recomputed from the new grids matched the filed returns. The differences left were those its
+  declarations dossier already attributes.
+
   Not done yet: a client's own module whose manifest declares Odoo S.A. as its author is reported
   "dropped by Odoo; OpenUpgrade removes it". With an intake, where the module loads from is known, and
   that should decide it rather than the author.
