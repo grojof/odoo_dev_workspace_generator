@@ -303,6 +303,10 @@ items are host-dependent.
   and restored on its migrated database, in a transaction rolled back afterwards. Every hidden menu came
   back or was listed with its reason, and a second run in the same transaction changed nothing.
 
+  Then saved filters and exports (change `audit-saved-field-paths`): `migrate audit` lists those naming
+  a field or model the database lacks. On the first client's migrated database it found the same ones as
+  a check made by hand. Rewriting the standard renames automatically stays open.
+
   Not done yet: a client's own module whose manifest declares Odoo S.A. as its author is reported
   "dropped by Odoo; OpenUpgrade removes it". With an intake, where the module loads from is known, and
   that should decide it rather than the author.

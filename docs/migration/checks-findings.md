@@ -38,6 +38,13 @@ run it:
 | Declared unique and check constraints PostgreSQL does not have | any | found; names compared as PostgreSQL truncates them, foreign keys not read |
 | Required fields left empty | any | found on active records; archived-only is information; binaries by their attachment |
 | Statement lines stored as reconciled with a line still in suspense | from 14.0 | found; the same selection as the 14.0 repair |
+| Saved filters and exports naming fields the database lacks | any | found; paths followed through relations, domains parsed and never evaluated |
+
+Saved filters and exports cross the chain as records, but the field names inside them are not
+rewritten when Odoo rebuilds a model (`account.invoice` became `account.move`), when a renamed field sits
+inside a path, or when the module that defined a field is retired. Odoo then fails on them when a user
+opens them. On a database before the client-modules stage, the fields of modules still installed without
+code count as present.
 
 Each finding names its fix (an intake step, a data correction on the working copy, the client's
 decision) and applies none. Examples carry ids, codes and model names, never partner names or statement
