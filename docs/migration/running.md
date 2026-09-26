@@ -70,7 +70,7 @@ Each step of the chain, as the generated `run_migration.sh` runs it:
 ```mermaid
 flowchart LR
     K{Checkpoint for<br/>this version?} -- no --> P[Preconditions<br/>+ pre hook] --> O[OpenUpgrade<br/>step]
-    O -- ok --> H[Post hook] --> R[Known repairs<br/>14.0, from ≤ 13.0<br/>target ≥ 16.0, from ≤ 12.0] --> N[Neutralise<br/>again] --> C[(Checkpoint)]
+    O -- ok --> H[Post hook] --> R[Known repairs<br/>13.0, from ≤ 12.0<br/>14.0, from ≤ 13.0<br/>target ≥ 16.0, from ≤ 12.0] --> N[Neutralise<br/>again] --> C[(Checkpoint)]
     K -- yes --> Y([Skip to the<br/>next version])
     O -- fails --> X([Any failure stops the run<br/>and names the log. A re-run<br/>resumes from the newest checkpoint])
     classDef step fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
@@ -218,6 +218,33 @@ moves attachments only, so the file never reaches the new model. The same run of
 each file from the old table, through OpenUpgrade's legacy link, when the new certificate has none, and
 records `repair sii-certificate-file` whether or not there was a file to carry (its output says how many). The keys are files on the old server's disk: on the new server,
 open each certificate and obtain the keys again with its password.
+
+### A known OpenUpgrade 13.0 defect the driver repairs: taxes added to reused journal items
+
+OpenUpgrade 13.0 (`migration_invoice_moves`) builds each invoice line from the journal item the 12.0
+invoice had posted, where it can match one. It then gives every reused item its invoice line's taxes with
+`INSERT … ON CONFLICT DO NOTHING`, so it *adds* them to the taxes the item already bore and takes none
+away. An item grouped in the source, or a payable line matched to an invoice line, can end up bearing two
+sets. Its amount does not change, but it now counts in the base of every tax it bears. The OCA AEAT
+declarations select lines by their taxes, so a VAT or withholding return recomputed after 13.0 is wrong
+for those periods. On the first client this changed a few VAT return and withholding periods, one of them
+not filed yet.
+
+What the item bore exists only in the source. For a source up to 12.0:
+1. **At the source restore**, before the source checkpoint, the driver copies the source's
+   `account_move_line_account_tax_rel` and its highest journal-item id into tables of its own. It records
+   `keep source-move-line-taxes`.
+2. **Right after the 13.0 step** and its post hook, while tax ids are still the source's, it takes back
+   from each reused item (one that existed in the source and that OpenUpgrade linked to an invoice line)
+   every tax that the item did not bear in the source and that its invoice line did.
+
+The repair changes no amount, account or balance: it only removes those rows of the relation. Taxes
+changed for any other reason stay, such as tax-group children the new model no longer puts on items. Each
+tax taken back is listed in `logs/13.0-taxes-taken-back.tsv`, the step record gets `repair
+move-line-taxes`, and the tool's tables are dropped.
+
+A run resumed from a source checkpoint taken before this repair existed has nothing to compare with. It
+records `repair move-line-taxes-skipped` and says so: only a run from the source dump repairs it.
 
 ### A known OpenUpgrade 16.0 defect the driver repairs: grouped invoice items
 

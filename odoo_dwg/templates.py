@@ -18,7 +18,7 @@ from importlib import resources
 from pathlib import Path
 from xml.sax.saxutils import escape
 
-from . import egress, neutralise, tester, ungroup
+from . import egress, neutralise, sourcetaxes, tester, ungroup
 from .models import (
     LEGACY_LAYOUT_MAX_MAJOR,
     UV_PYTHON,
@@ -998,6 +998,50 @@ def _render_step_repair(env: MigrationEnv, version: str) -> str:
     )
 
 
+def taxes_taken_back_file(env: MigrationEnv) -> Path:
+    """Where the 13.0 step lists the taxes it took back from reused journal items."""
+    return env.logs_dir / f"{sourcetaxes.REPAIR_STEP}-taxes-taken-back.tsv"
+
+
+def _render_keep_source_taxes(env: MigrationEnv) -> str:
+    """At the source restore: the journal items' taxes OpenUpgrade 13.0 will add to."""
+    if not sourcetaxes.applies(odoo_major(env.source)):
+        return ""
+    return (
+        "  # OpenUpgrade 13.0 adds each invoice line's taxes to the journal item it reuses;\n"
+        "  # what the item bore exists only here, and the 13.0 step takes the additions back.\n"
+        "  psql -X -q -v ON_ERROR_STOP=1 -d \"$DB\" <<'ODWG_KEEP' \\\n"
+        "    || die \"could not keep the source's journal-item taxes\"\n"
+        f"{sourcetaxes.keep_sql()}ODWG_KEEP\n"
+        "  mark - keep source-move-line-taxes\n"
+    )
+
+
+def _render_source_taxes_repair(env: MigrationEnv, version: str) -> str:
+    """After the 13.0 step: the taxes it added to reused journal items, taken back while tax
+    ids are still the source's (``odoo_dwg/sourcetaxes.py``)."""
+    if version != sourcetaxes.REPAIR_STEP or not sourcetaxes.applies(odoo_major(env.source)):
+        return ""
+    listed = shlex.quote(str(taxes_taken_back_file(env)))
+    ready = (f"SELECT to_regclass('{sourcetaxes.KEPT_TABLE}') IS NOT NULL")
+    return (
+        "  # OpenUpgrade 13.0 added each invoice line's taxes to the journal item it reused;\n"
+        "  # those the item did not bear in the source are taken back.\n"
+        f"  if [ \"$(psql -X -tAc {shlex.quote(ready)} -d \"$DB\")\" = t ]; then\n"
+        f"    psql -X -q -At -F $'\\t' -v ON_ERROR_STOP=1 -d \"$DB\" > {listed} <<'ODWG_TAXES' \\\n"
+        f"      || die \"{version}: taking back the taxes OpenUpgrade added failed; nothing of it was kept\"\n"
+        f"{sourcetaxes.take_back_sql()}ODWG_TAXES\n"
+        f'    echo "[repair] taxes taken back from reused journal items: listed in {listed}"\n'
+        f'    mark "{version}" repair move-line-taxes\n'
+        "  else\n"
+        "    echo \"[warn] the source checkpoint does not keep the source's journal-item taxes:"
+        " the taxes OpenUpgrade 13.0 added are NOT taken back; only a run from the source dump"
+        " repairs them\" >&2\n"
+        f'    mark "{version}" repair move-line-taxes-skipped\n'
+        "  fi\n"
+    )
+
+
 def grouped_items_left_file(env: MigrationEnv) -> Path:
     """Where the target step lists the grouped invoice items it left as they are."""
     return env.logs_dir / f"{env.target}-grouped-invoice-items-left.tsv"
@@ -1639,7 +1683,7 @@ if ! have_ck 00_source; then
   give_filestore
   pg_restore --no-owner --dbname "$DB" "$SRC_DUMP"
   preflight_db
-  neutralise 00_source
+{_render_keep_source_taxes(env)}  neutralise 00_source
   echo "$SRC_SHA" > "$CK/source.sha256.tmp" && mv "$CK/source.sha256.tmp" "$CK/source.sha256"
   checkpoint 00_source
 else
@@ -1714,7 +1758,7 @@ else
     die "step {version} failed — see {env.logs_dir}/{version}.log"
   fi
   step_hook "{version}" post
-{_render_step_repair(env, version)}{_render_grouped_items_repair(env, version)}  neutralise "{version}"
+{_render_source_taxes_repair(env, version)}{_render_step_repair(env, version)}{_render_grouped_items_repair(env, version)}  neutralise "{version}"
   checkpoint "{version}"
   mark "{version}" ok
 fi"""

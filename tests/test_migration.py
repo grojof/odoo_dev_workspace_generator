@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from odoo_dwg import planners, templates, ungroup
+from odoo_dwg import planners, sourcetaxes, templates, ungroup
 from odoo_dwg.models import MigrationEnv, migration_chain, migration_interpreter
 
 
@@ -586,6 +586,27 @@ def test_grouped_invoice_items_are_repaired_only_where_a_chain_needs_it():
     for source, target in (("13.0", "18.0"), ("14.0", "18.0"), ("12.0", "15.0")):
         assert "ODWG_UNGROUP" not in templates.render_run_migration_sh(
             MigrationEnv(source=source, target=target))
+
+
+def test_a_12_source_keeps_its_journal_item_taxes_and_the_13_step_takes_additions_back():
+    env = MigrationEnv(source="12.0", target="18.0")
+    driver = templates.render_run_migration_sh(env)
+    restore = driver[driver.index('pg_restore --no-owner --dbname "$DB" "$SRC_DUMP"'):
+                     driver.index("checkpoint 00_source")]
+    assert sourcetaxes.keep_sql() in restore and "mark - keep source-move-line-taxes" in restore
+    block = driver[driver.index('step_hook "13.0" post'):driver.index('checkpoint "13.0"')]
+    listed = str(templates.taxes_taken_back_file(env))
+    assert sourcetaxes.take_back_sql() in block and f"> {listed} <<'ODWG_TAXES'" in block
+    assert 'mark "13.0" repair move-line-taxes\n' in block
+    # Without the kept taxes it says so, and records the skip.
+    assert 'mark "13.0" repair move-line-taxes-skipped' in block
+    assert block.index("ODWG_TAXES") < block.index('neutralise "13.0"')
+    assert driver.count("<<'ODWG_TAXES'") == 1 and driver.count("<<'ODWG_KEEP'") == 1
+
+
+def test_a_13_source_keeps_no_taxes_and_takes_none_back():
+    driver = templates.render_run_migration_sh(MigrationEnv(source="13.0", target="18.0"))
+    assert "ODWG_KEEP" not in driver and "ODWG_TAXES" not in driver
 
 
 def test_a_source_from_14_needs_no_statement_lines_repair():

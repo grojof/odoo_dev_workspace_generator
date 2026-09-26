@@ -29,7 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from odoo_dwg import templates  # noqa: E402
+from odoo_dwg import sourcetaxes, templates  # noqa: E402
 from odoo_dwg.models import (  # noqa: E402
     MigrationEnv,
     ModuleDecision,
@@ -58,6 +58,7 @@ def _build(
     source: str = SOURCE,
     target: str = TARGET,
     absorbed: tuple[str, str] | None = None,
+    kept_taxes: bool = False,
 ) -> tuple[Path, MigrationEnv]:
     """Render the driver and the stub host it runs against."""
     MigrationEnv.base_dir = str(root / "envs")
@@ -81,8 +82,11 @@ def _build(
             f'then printf "{absorbed[1]}\\tACME\\n"; '
             f'else printf "{absorbed[0]}\\tACME\\n"; fi'
         )
+    # Whether the source checkpoint holds the source's journal-item taxes the 13.0 step reads.
+    kept = "t" if kept_taxes else "f"
     _stub(stubs / "psql",
-          f'if [[ "$*" == *base* && "$*" == *latest_version* ]]; then echo {source}.1.0; '
+          f'if [[ "$*" == *{sourcetaxes.KEPT_TABLE}* ]]; then echo {kept}; '
+          f'elif [[ "$*" == *base* && "$*" == *latest_version* ]]; then echo {source}.1.0; '
           f'else {listing}; fi')
     for name in ("pg_restore", "dropdb", "createdb", "uv"):
         _stub(stubs / name, "exit 0")
@@ -279,10 +283,18 @@ def main() -> int:
             "grouped-invoice-items" not in steps,
             steps,
         )
+        check(
+            "the source restore keeps the journal items' taxes, and a 13.0 step without them "
+            "skips taking back and records it",
+            "\t-\tkeep\tsource-move-line-taxes" in steps
+            and "\t13.0\trepair\tmove-line-taxes-skipped" in steps
+            and steps.index("\t13.0\trepair\tmove-line-taxes") < steps.index("\t13.0\tok"),
+            steps,
+        )
     # A chain from 12.0 that reaches 16.0: its target step repairs grouped invoice items.
     with tempfile.TemporaryDirectory(prefix="odwg-driver-") as tmp:
         root = Path(tmp)
-        script, env = _build(root, source=LEGACY_SOURCE, target=GROUPED_TARGET)
+        script, env = _build(root, source=LEGACY_SOURCE, target=GROUPED_TARGET, kept_taxes=True)
         grouped = _run(root, script)
         steps = Path(env.steps_file).read_text(encoding="utf-8")
         check(
@@ -294,6 +306,15 @@ def main() -> int:
             and templates.grouped_items_left_file(env).exists()
             and "grouped-invoice-items" not in steps.split(f"\t{GROUPED_TARGET}\tstart")[0],
             grouped.stdout + grouped.stderr + steps,
+        )
+        check(
+            "with the source's taxes kept, the 13.0 step takes the additions back before its "
+            "checkpoint",
+            "\t13.0\trepair\tmove-line-taxes\n" in steps
+            and "move-line-taxes-skipped" not in steps
+            and steps.index("\t13.0\trepair\tmove-line-taxes") < steps.index("\t13.0\tok")
+            and templates.taxes_taken_back_file(env).exists(),
+            steps,
         )
     # Fresh state, or the completed checkpoints above would skip the step.
     with tempfile.TemporaryDirectory(prefix="odwg-driver-") as tmp:

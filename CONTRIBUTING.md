@@ -78,6 +78,7 @@ python tools/verify_neutralise_sources.py        # the catalogue vs Odoo's neutr
 python tools/verify_intake.py                    # intake on real tools: restore, reader role, core, filestore, audits, bank lines, journal codes
 python tools/verify_migration_audit.py           # migrate audit on 12.0- and 18.0-shaped databases, and a role refused one table
 python tools/verify_grouped_invoice_lines.py     # the repair of grouped invoice items, on a throwaway PostgreSQL
+python tools/verify_source_taxes.py              # keep the source's journal-item taxes, take back OpenUpgrade 13.0's additions
 ```
 
 | Tool | Needs |
@@ -85,7 +86,7 @@ python tools/verify_grouped_invoice_lines.py     # the repair of grouped invoice
 | `verify_support_matrix.py`, `verify_odools_config.py`, `verify_egress_pins.py` | the network |
 | `verify_workspace_versions.py` | the network **and** a host it may change (it previews, asks, and cleans up) |
 | `verify_generated_shell.py` | `shellcheck` on the host |
-| `verify_pg_hba_trust.py`, `verify_mail_capture.py`, `verify_migration_tester.py`, `verify_neutralisation.py`, `verify_migration_audit.py`, `verify_grouped_invoice_lines.py`, `verify_intake.py` (also `git` and `tar`) | the host's PostgreSQL binaries; each runs a cluster of its own |
+| `verify_pg_hba_trust.py`, `verify_mail_capture.py`, `verify_migration_tester.py`, `verify_neutralisation.py`, `verify_migration_audit.py`, `verify_grouped_invoice_lines.py`, `verify_source_taxes.py`, `verify_intake.py` (also `git` and `tar`) | the host's PostgreSQL binaries; each runs a cluster of its own |
 | `verify_neutralise_sources.py` | the local clones under `~/odoo-migrations/.repos` (`git` may fetch an OCA file it cites) |
 | `verify_migration_driver.py`, `verify_demo_seed.py` | nothing but `bash` |
 | `verify_promoted_modules.py` | nothing but `bash` and `git` |
@@ -120,6 +121,16 @@ table, that check must be unreadable and the others must stand.
 - databases without grouped items or without OpenUpgrade 13.0's columns.
 
 It found that a two-column detail table (its `id` and the line) was being copied as a many-to-many link.
+
+`verify_source_taxes.py` keeps a 12.0-shaped source's journal-item taxes, simulates what OpenUpgrade 13.0
+leaves, and takes the additions back. It covers:
+- an item grouped in the source that gained its invoice line's other tax;
+- a payable line given its invoice line's tax;
+- an item that gained a tax its invoice line did not bear, which must stay;
+- tax-group children the new model drops, which must not come back;
+- an inserted item, never touched;
+- the list and the dropped tables;
+- a database without the kept taxes (skipped, unchanged) and a source without the relation.
 
 `verify_migration_tester.py` generates the rehearsal tester from analysis lines copied verbatim out of
 OpenUpgrade's files, then asks whether the result is a *module*: every `.py` compiles, the manifest
