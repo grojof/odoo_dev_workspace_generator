@@ -119,6 +119,7 @@ python tools/verify_source_taxes.py        # keep a source's journal-item taxes,
 python tools/verify_filed_declarations.py  # keep a source's filed declarations, put back what the chain deletes
 python tools/verify_retired_modules.py     # retire modules before the chain, against a throwaway PostgreSQL
 python tools/verify_migrated_payments.py   # the payments repair's duplicates and journals, against a throwaway PostgreSQL
+python tools/verify_menu_references.py     # keep and put back rows pointing at menus, against a throwaway PostgreSQL
 ```
 
 End-to-end validation (cloning Odoo, building venvs, running `odoo-bin`, migrations) happens on a real

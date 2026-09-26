@@ -82,6 +82,7 @@ python tools/verify_source_taxes.py              # keep the source's journal-ite
 python tools/verify_filed_declarations.py        # keep a source's filed declarations, put back what the chain deletes
 python tools/verify_retired_modules.py           # retire modules before the chain: the driver's stage on a throwaway PostgreSQL
 python tools/verify_migrated_payments.py         # the payments repair's duplicates and journals, on a throwaway PostgreSQL
+python tools/verify_menu_references.py           # keep and put back rows pointing at menus, on a throwaway PostgreSQL
 ```
 
 | Tool | Needs |
@@ -89,7 +90,7 @@ python tools/verify_migrated_payments.py         # the payments repair's duplica
 | `verify_support_matrix.py`, `verify_odools_config.py`, `verify_egress_pins.py` | the network |
 | `verify_workspace_versions.py` | the network **and** a host it may change (it previews, asks, and cleans up) |
 | `verify_generated_shell.py` | `shellcheck` on the host |
-| `verify_pg_hba_trust.py`, `verify_mail_capture.py`, `verify_migration_tester.py`, `verify_neutralisation.py`, `verify_migration_audit.py`, `verify_grouped_invoice_lines.py`, `verify_source_taxes.py`, `verify_filed_declarations.py`, `verify_retired_modules.py`, `verify_migrated_payments.py`, `verify_intake.py` (also `git` and `tar`) | the host's PostgreSQL binaries; each runs a cluster of its own |
+| `verify_pg_hba_trust.py`, `verify_mail_capture.py`, `verify_migration_tester.py`, `verify_neutralisation.py`, `verify_migration_audit.py`, `verify_grouped_invoice_lines.py`, `verify_source_taxes.py`, `verify_filed_declarations.py`, `verify_retired_modules.py`, `verify_migrated_payments.py`, `verify_menu_references.py`, `verify_intake.py` (also `git` and `tar`) | the host's PostgreSQL binaries; each runs a cluster of its own |
 | `verify_neutralise_sources.py` | the local clones under `~/odoo-migrations/.repos` (`git` may fetch an OCA file it cites) |
 | `verify_migration_driver.py`, `verify_demo_seed.py` | nothing but `bash` |
 | `verify_promoted_modules.py` | nothing but `bash` and `git` |
@@ -162,6 +163,16 @@ a throwaway PostgreSQL. Only the source's Odoo is a stub, making an uninstall's 
 - a second run that changes nothing, and a database without payment orders.
 
 Odoo's recompute of states runs in the target's Odoo, so it is checked on a real migrated database.
+
+`verify_menu_references.py` runs the keep on a source-shaped database, simulates the chain, and runs the
+restore. It covers:
+- a replaced menu, whose row comes back on its successor;
+- a menu the chain created again under its external id, whose row takes the new id;
+- a menu declared without a successor, and one nothing declares: both listed;
+- a deleted user, and a table the target lacks: both listed;
+- rows that survived, with or without an external id, left as they are;
+- Odoo's own menu groups and a wider table, not kept;
+- a second run that inserts nothing.
 
 `verify_migration_tester.py` generates the rehearsal tester from analysis lines copied verbatim out of
 OpenUpgrade's files, then asks whether the result is a *module*: every `.py` compiles, the manifest
