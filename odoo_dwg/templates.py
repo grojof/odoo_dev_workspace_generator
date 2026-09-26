@@ -18,7 +18,7 @@ from importlib import resources
 from pathlib import Path
 from xml.sax.saxutils import escape
 
-from . import declarations, egress, neutralise, retire, sourcetaxes, tester, ungroup
+from . import declarations, egress, neutralise, payments, retire, sourcetaxes, tester, ungroup
 from .models import (
     LEGACY_LAYOUT_MAX_MAJOR,
     UV_PYTHON,
@@ -1112,6 +1112,37 @@ def _render_grouped_items_repair(env: MigrationEnv, version: str) -> str:
     )
 
 
+def payments_repaired_file(env: MigrationEnv) -> Path:
+    """Where the target step lists the payments and invoices it repaired."""
+    return env.logs_dir / f"{env.target}-payments-repaired.tsv"
+
+
+def _render_payments_repair(env: MigrationEnv, version: str) -> str:
+    """The target step's repair of the migrated payments (``odoo_dwg/payments.py``): duplicate
+    payment-order payments removed and journal-less payments given their order's journal, in SQL;
+    then Odoo's own recompute of payment and invoice states, which gives up when any journal item
+    would change. After the grouped-items repair, before the checkpoint."""
+    if version != env.target or not payments.applies(odoo_major(env.source), odoo_major(env.target)):
+        return ""
+    q = shlex.quote
+    listed = q(str(payments_repaired_file(env)))
+    shell = (f"{q(f'{env.venv_dir(version)}/bin/python')} {q(str(env.odoo_bin(version)))} shell "
+             f'-c {q(str(env.config_file(version)))} -d "$DB" --no-http '
+             f"--logfile={q(str(env.logs_dir / f'{version}.log'))}")
+    return (
+        "  # Payments: the duplicates OCA's 14.0 payment-order migration inserts, the journals\n"
+        "  # OpenUpgrade 18.0 leaves empty, and the states it leaves in process.\n"
+        f"  psql -X -q -At -F $'\\t' -v ON_ERROR_STOP=1 -d \"$DB\" > {listed} <<'ODWG_PAYMENTS' \\\n"
+        f"    || die \"{version}: the repair of payments failed; nothing of it was kept\"\n"
+        f"{payments.repair_sql()}ODWG_PAYMENTS\n"
+        f"  ODWG_PAYMENTS_LIST={listed} {shell} <<'ODWG_PAYSTATE' \\\n"
+        f"    || die \"{version}: recomputing payment states failed; nothing of it was kept\"\n"
+        f"{payments.RECOMPUTE}ODWG_PAYSTATE\n"
+        f'  echo "[repair] payments and invoices repaired: listed in {listed}"\n'
+        f'  mark "{version}" repair payments\n'
+    )
+
+
 #: The client-modules stage's checkpoint and step-record name, after the target step.
 def modules_stage(env: MigrationEnv) -> str:
     return f"{env.target}-modules"
@@ -1900,7 +1931,7 @@ else
     die "step {version} failed — see {env.logs_dir}/{version}.log"
   fi
   step_hook "{version}" post
-{_render_source_taxes_repair(env, version)}{_render_step_repair(env, version)}{_render_declarations_repair(env, version)}{_render_grouped_items_repair(env, version)}  neutralise "{version}"
+{_render_source_taxes_repair(env, version)}{_render_step_repair(env, version)}{_render_declarations_repair(env, version)}{_render_grouped_items_repair(env, version)}{_render_payments_repair(env, version)}  neutralise "{version}"
   checkpoint "{version}"
   mark "{version}" ok
 fi"""

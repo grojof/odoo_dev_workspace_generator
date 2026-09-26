@@ -7,6 +7,15 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Migrated payments are repaired at the target step.** For a chain that crosses 18.0:
+  - the duplicate payments OCA's 14.0 payment-order migration creates when an operator's entry repeats
+    a remittance line are removed, only when nothing but their own links points at them;
+  - payments OpenUpgrade 18.0 leaves without a journal get their order's journal, in SQL, so their
+    entries stay as they are;
+  - payment and invoice states are recomputed with Odoo's own methods until they settle, and nothing is
+    kept if any journal item would change.
+  - Everything is listed in `logs/<target>-payments-repaired.tsv`.
+  - Verified by `tools/verify_migrated_payments.py` against a throwaway PostgreSQL.
 - **Modules with no code at a later step are retired by the driver, with a guard on the data.** A
   `dropped` decision can say `--before-chain`. The driver then uninstalls the module right after the
   source restore, with the source version's own Odoo, as the intake's rehearsal did. Before that was done

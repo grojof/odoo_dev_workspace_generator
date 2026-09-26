@@ -313,6 +313,39 @@ Analysing the first client's database, the left groups were invoices the source 
 inconsistently: lines at zero with a journal entry edited by hand, or entry taxes that differ from the
 lines'.
 
+### Known defects the driver repairs in payments: duplicates, journals, states
+
+Three things are wrong with a migrated database's payments, and no step repairs them:
+- OCA `account_payment_order` 14.0 creates one payment per bank payment line, joining the journal items
+  that carry the line. When an operator's own entry repeats a line's reference (an expense or a reversal
+  of a remittance), the line gets one payment per entry. Every payment list then counts the extra ones,
+  though no journal item points at them.
+- OpenUpgrade 18.0 fills a payment's journal from its entry only when the entry's journal is a bank, cash
+  or credit one. A payment order posted through a miscellaneous journal leaves its payments with none,
+  though Odoo 18 requires one.
+- OpenUpgrade 18.0 marks a payment `paid` only when its entry's `payment_state` is, which a payment's
+  entry never is in 17. Every posted payment stays "In process". The payment-order payments also keep
+  empty reconciliation flags.
+
+When the chain crosses 18.0, the target step repairs them after the grouped items and before its
+checkpoint, and lists everything in `logs/<target>-payments-repaired.tsv`:
+1. **Duplicates**, in SQL. A bank payment line with several payments keeps the one on its order's own
+   entry. The others are removed only when nothing points at them but their own links: their own entry,
+   and payment lines the kept payment also has. Anything else keeps them, listed as `duplicate-kept` with
+   the reason.
+2. **Journals**, in SQL. A payment with no journal gets its order's journal, when that journal is a bank,
+   cash or credit one with exactly one method line for the payment's method. An ORM write would rewrite
+   the payment's entry, so this is SQL, and the entry keeps its journal and name. Payments left without
+   a journal are listed as `no-journal`.
+3. **States**, with the target's own Odoo. Every posted payment's state and reconciliation flags, then
+   every posted invoice's payment status, are recomputed with Odoo's methods, and nothing is written
+   through the ORM. A payment's state reads its invoices' status, and an invoice's reads its payments', so
+   the recompute repeats until neither changes. Every journal item and entry is fingerprinted before and
+   after; any difference rolls it all back and stops the step.
+
+An invoice settled only by credit notes, or a credit note settled only by journal entries, is "Reversed"
+in 18, where 12 had no such status: the recompute gives it that status, and lists it.
+
 ### When a module has no code anywhere: `decisions.json`
 
 Coverage stops a run when an installed module resolves in no source of a step and OpenUpgrade declares no
