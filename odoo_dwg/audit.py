@@ -8,6 +8,8 @@ database. It changes nothing: a finding names the fix, it does not apply it.
 
 from __future__ import annotations
 
+import ast
+import json
 import re
 from dataclasses import dataclass
 
@@ -43,6 +45,8 @@ _MARKERS = (
     ("res_company", "period_lock_date"),
     ("ir_model_constraint", "type"),
     ("ir_model_fields", "required"),
+    ("ir_filters", "domain"),
+    ("ir_exports_line", "name"),
 )
 
 CATALOGUE_SQL = (
@@ -91,13 +95,16 @@ def applies(check: str, catalogue: Catalogue) -> bool:
         case "statement-lines-reconciled":
             return (has(("account_bank_statement_line", "is_reconciled"))
                     and has(("account_journal", "suspense_account_id")))
+        case "saved-field-paths":
+            return has(("ir_filters", "domain")) and has(("ir_exports_line", "name"))
     raise ValueError(f"unknown check {check!r}")
 
 
 #: In the order they are run and printed: the source's problems first, then what the
 #: chain can leave behind.
 CHECKS = ("journal-codes", "bank-duplicates", "bank-payments", "bank-closed-lines",
-          "constraints-missing", "required-empty", "statement-lines-reconciled")
+          "constraints-missing", "required-empty", "statement-lines-reconciled",
+          "saved-field-paths")
 
 
 @dataclass(frozen=True)
@@ -312,6 +319,150 @@ def stale_reconciled_result(rows: list[list[str]]) -> Result:
     return _listed("statement-lines-reconciled", FOUND, len(lines), examples)
 
 
+# --- saved filters and exports -------------------------------------------------------------
+
+#: One JSON array per row, so that no tab or newline a user saved in a domain splits it:
+#: every field with its relation, every saved filter, every export column.
+SAVED_PATHS_SQL = (
+    "SELECT json_build_array('field', model, name, coalesce(relation, ''))::text "
+    "FROM ir_model_fields "
+    "UNION ALL SELECT json_build_array('filter', f.id, f.model_id, f.domain, f.context, "
+    "coalesce(to_jsonb(f) ->> 'sort', ''))::text FROM ir_filters f "
+    "UNION ALL SELECT json_build_array('export', e.id, e.resource, l.name)::text "
+    "FROM ir_exports_line l JOIN ir_exports e ON e.id = l.export_id"
+)
+
+#: The context keys whose values name fields to group by or measure.
+_GROUPING_KEYS = ("group_by", "col_group_by", "pivot_row_groupby", "pivot_column_groupby",
+                  "pivot_measures", "graph_groupbys", "graph_measure")
+#: A domain leaf's operators: what tells a leaf from a value that is a list of three strings.
+_OPERATORS = frozenset(("=", "!=", "<>", "<", ">", "<=", ">=", "=?", "=like", "=ilike",
+                        "like", "not like", "ilike", "not ilike", "in", "not in",
+                        "child_of", "parent_of", "any", "not any"))
+
+
+def _expression(text: str) -> ast.expr | None:
+    """A domain, context or sort as Python parses it. Not evaluated: a saved domain may
+    call ``context_today()``, and only the field names matter here."""
+    try:
+        return ast.parse(text or "[]", mode="eval").body
+    except (SyntaxError, ValueError):
+        return None
+
+
+def _string(node: ast.AST) -> str | None:
+    return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
+
+
+def _leaf_names(node: ast.AST) -> list[str]:
+    """A leaf's field, or the leaves of a list of leaves and operators. A leaf's value is
+    not looked into: ``["a", "in", "b"]`` there is a value, not a leaf."""
+    if not isinstance(node, (ast.List, ast.Tuple)):
+        return []
+    if len(node.elts) == 3:
+        name, operator = _string(node.elts[0]), _string(node.elts[1])
+        if name is not None and operator in _OPERATORS:
+            return [name]
+    return [name for element in node.elts for name in _leaf_names(element)]
+
+
+def domain_paths(text: str) -> list[str] | None:
+    """The field paths a domain's leaves name; None when it does not parse."""
+    node = _expression(text)
+    return None if node is None else _leaf_names(node)
+
+
+def context_paths(text: str) -> list[str] | None:
+    """The fields a context groups, measures or orders by; None when it does not parse."""
+    node = _expression(text or "{}")
+    if node is None:
+        return None
+    paths: list[str] = []
+    if not isinstance(node, ast.Dict):
+        return paths
+    for key, value in zip(node.keys, node.values, strict=True):
+        name = _string(key) if key is not None else None
+        items = value.elts if isinstance(value, (ast.List, ast.Tuple)) else [value]
+        if name in _GROUPING_KEYS:
+            paths += [s for s in map(_string, items) if s]
+        elif name == "orderedBy":
+            for item in items:
+                if isinstance(item, ast.Dict):
+                    paths += [s for k, v in zip(item.keys, item.values, strict=True)
+                              if k is not None and _string(k) == "name" and (s := _string(v))]
+    return paths
+
+
+def sort_paths(text: str) -> list[str] | None:
+    """The fields a saved sort names (``["name desc", ...]``); None when it does not parse."""
+    node = _expression(text)
+    if node is None:
+        return None
+    items = node.elts if isinstance(node, (ast.List, ast.Tuple)) else [node]
+    return [s.split()[0] for s in map(_string, items) if s and s.split()]
+
+
+def broken_segment(fields: dict[str, dict[str, str]], model: str, path: str,
+                   separator: str) -> str | None:
+    """Where a field path breaks, as ``model.field`` (or ``model x`` when the model is
+    gone); None when every segment exists. Group-by suffixes (``:month``), a sort's ``-``,
+    ``id`` and an export's ``.id`` are not fields."""
+    if model not in fields:
+        return f"model {model}"
+    for raw in path.split(separator):
+        segment = raw.split(":")[0].lstrip("-").strip()
+        if segment in ("", "id", ".id") or segment.startswith("__"):
+            return None
+        if segment not in fields[model]:
+            return f"{model}.{segment}"
+        model = fields[model][segment]
+        if not model:
+            return None
+        if model not in fields:
+            return f"model {model}"
+    return None
+
+
+def saved_paths_result(rows: list[list[str]]) -> Result:
+    fields: dict[str, dict[str, str]] = {}
+    saved: list[list] = []
+    for row in rows:
+        try:
+            item = json.loads(row[0])
+        except (IndexError, ValueError):
+            continue
+        if item[0] == "field":
+            fields.setdefault(item[1], {})[item[2]] = item[3]
+        else:
+            saved.append(item)
+    broken: dict[tuple[str, int, str], list[str]] = {}
+    for item in saved:
+        kind, rid, model = item[0], int(item[1]), item[2]
+        if model not in fields:
+            broken[(kind, rid, model)] = [f"model {model} is gone"]
+            continue
+        if kind == "filter":
+            parts = ((domain_paths(item[3]), ".", "domain"),
+                     (context_paths(item[4]), ".", "context"),
+                     (sort_paths(item[5]), ".", "sort"))
+        else:
+            parts = (([item[3]], "/", "column"),)
+        for paths, separator, where in parts:
+            if paths is None:
+                broken.setdefault((kind, rid, model), []).append(f"its {where} does not parse")
+                continue
+            for path in paths:
+                if broken_segment(fields, model, path, separator):
+                    broken.setdefault((kind, rid, model), []).append(path)
+    if not broken:
+        return Result("saved-field-paths", CLEAN)
+    lines = [f"{kind} {rid} on {model}: {', '.join(dict.fromkeys(paths))}"
+             for (kind, rid, model), paths in sorted(broken.items())]
+    filters = sum(1 for kind, *_ in broken if kind == "filter")
+    return _listed("saved-field-paths", FOUND, len(broken), lines,
+                   f"{filters} filters, {len(broken) - filters} exports")
+
+
 def exit_code(results: list[Result]) -> int:
     """1 when a check found something, else 2 when one could not be read, else 0."""
     if any(r.verdict == FOUND for r in results):
@@ -330,4 +481,5 @@ QUERIES = {
     "constraints-missing": CONSTRAINTS_MISSING_SQL,
     "required-empty": REQUIRED_CANDIDATES_SQL,
     "statement-lines-reconciled": STALE_RECONCILED_SQL,
+    "saved-field-paths": SAVED_PATHS_SQL,
 }

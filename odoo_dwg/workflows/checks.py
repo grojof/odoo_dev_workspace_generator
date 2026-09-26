@@ -114,6 +114,11 @@ _AUDIT_TEXT = {
         "Bank statement lines stored as reconciled with a line still in suspense",
         "The driver's 14.0 repair recomputes them; a database migrated without it needs the same "
         "recompute."),
+    "saved-field-paths": (
+        "Saved filters and exports naming fields the database lacks",
+        "The migration keeps them, but Odoo fails on them. Rewrite each to the target's field, or "
+        "have its user save it again. Fields of modules still installed without code count as "
+        "present until the client-modules stage uninstalls them."),
 }
 
 
@@ -151,8 +156,10 @@ def _run_audit(database: str, host: str, port: int, user: str,
                 results.append(audit.constraints_result(rows))
             case "required-empty":
                 results.append(audit.required_result(rows))
-            case _:
+            case "statement-lines-reconciled":
                 results.append(audit.stale_reconciled_result(rows))
+            case _:
+                results.append(audit.saved_paths_result(rows))
     return results
 
 

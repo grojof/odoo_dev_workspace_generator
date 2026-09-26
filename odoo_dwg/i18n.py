@@ -1072,6 +1072,14 @@ _ES: dict[str, str] = {
     'recompute.':
         'La reparación del driver tras la 14.0 las recalcula; una base migrada sin ella necesita '
         'el mismo recálculo.',
+    'Saved filters and exports naming fields the database lacks':
+        'Filtros y exportaciones guardados que nombran campos que la base no tiene',
+    "The migration keeps them, but Odoo fails on them. Rewrite each to the target's field, or "
+    'have its user save it again. Fields of modules still installed without code count as '
+    'present until the client-modules stage uninstalls them.':
+        'La migración los conserva, pero Odoo falla con ellos. Se reescribe cada uno al campo del '
+        'destino, o su usuario lo vuelve a guardar. Los campos de módulos aún instalados sin '
+        'código cuentan como presentes hasta que la etapa de módulos del cliente los desinstala.',
     # The client-modules stage (migrate modules / migrate decide).
     "Show what the client-modules stage will do at the target. Reads only.":
         "Muestra qué hará la etapa de módulos del cliente en la versión destino. Solo lee.",

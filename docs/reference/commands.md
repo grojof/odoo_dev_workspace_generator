@@ -117,7 +117,7 @@ not tell — and exit 2 is never a clean result.
 | `odoo-dwg mail check --database X` | Can mail leave this database? |
 | `odoo-dwg migrate report --source A --target B` | The cumulative run report, to stdout (the menu action writes a file; this does not). |
 | `odoo-dwg migrate probes --source A --target B --database X` | What became of each rehearsal probe's subject. |
-| `odoo-dwg migrate audit --database X [--db-user R]` | What in this database breaks or distorts a migration: journal codes, bank lines, missing constraints, empty required fields, stale reconciled flags. Checks apply by the database's shape ([migration](../migration/checks-findings.md#checking-a-databases-coherence-migrate-audit)). |
+| `odoo-dwg migrate audit --database X [--db-user R]` | What in this database breaks or distorts a migration: journal codes, bank lines, missing constraints, empty required fields, stale reconciled flags, saved filters and exports naming fields the database lacks. Checks apply by the database's shape ([migration](../migration/checks-findings.md#checking-a-databases-coherence-migrate-audit)). |
 | `odoo-dwg neutralise check --database X` | Can anything in this database still act on the outside? Rule by rule, with the mail verdict. |
 | `odoo-dwg migrate findings list --source A --target B` | The findings and their decisions; exit 1 while one is still pending. |
 | `odoo-dwg migrate findings show ID --source A --target B` | One finding in full, as the ledger holds it. |

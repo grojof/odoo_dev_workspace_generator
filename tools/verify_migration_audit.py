@@ -118,6 +118,26 @@ V18_DB = _IR + f"""
         ('acme_thing_partner_id_fkey', '', 'f', 1, 1),
         ('acme_type_gone_uniq', 'unique(x)', 'u', 2, 2),
         ('account_journal_code_company_uniq', 'unique(company_id,code)', 'u', 5, 1);
+    ALTER TABLE ir_model_fields ADD COLUMN relation varchar;
+    INSERT INTO ir_model_fields (model, name, ttype, relation) VALUES
+        ('sale.order', 'name', 'char', NULL), ('sale.order', 'state', 'selection', NULL),
+        ('sale.order', 'date_order', 'datetime', NULL),
+        ('sale.order', 'partner_id', 'many2one', 'res.partner'),
+        ('res.partner', 'name', 'char', NULL);
+    CREATE TABLE ir_filters (id int, model_id varchar, domain text, context text, sort text);
+    INSERT INTO ir_filters VALUES
+        (1, 'sale.order', E'[("partner_id.name", "ilike", "a"),\n\t("date_order", ">=", '
+            '(context_today() - relativedelta(days=7)).strftime("%Y-%m-%d"))]',
+            '{{''group_by'': [''date_order:month'']}}', '["-date_order", "name desc"]'),
+        (2, 'sale.order', '[("pnt_state", "=", "x"), ("state", "in", ["a", "in", "b"])]',
+            '{{''orderedBy'': [{{''name'': ''amount'', ''asc'': True}}]}}', '[]'),
+        (3, 'stock.inventory', '[]', '{{}}', '[]'),
+        (4, 'sale.order', '[("name", "=", ', '{{}}', '[]');
+    CREATE TABLE ir_exports (id int, resource varchar);
+    CREATE TABLE ir_exports_line (id int, export_id int, name varchar);
+    INSERT INTO ir_exports VALUES (1, 'sale.order');
+    INSERT INTO ir_exports_line VALUES (1, 1, 'partner_id/name'), (2, 1, 'partner_id/.id'),
+        (3, 1, '.id'), (4, 1, 'invoice_ids/date_invoice');
     CREATE ROLE reader LOGIN;
     GRANT SELECT ON ALL TABLES IN SCHEMA public TO reader;
     REVOKE SELECT ON ir_model_constraint FROM reader;
@@ -183,12 +203,20 @@ def main() -> int:
                   "or the uninstalled module's)",
                   "Declared constraints PostgreSQL does not have: 1" in out
                   and "acme.thing: acme_thing_name_uniq unique(name) (acme)" in out
-                  and "rather_long" not in out and "fkey" not in out and "gone" not in out, out)
+                  and "rather_long" not in out and "fkey" not in out
+                  and "acme_type_gone_uniq" not in out, out)
             check("18.0: the empty required fields, the archived-only one as information",
                   "acme.certificate.file: 1 empty, 1 active" in out
                   and "acme.thing.partner_id: 1 empty, 1 active" in out
                   and "acme.type.location_id: 1 empty, archived only" in out
                   and "acme.thing.name" not in out and "acme.wizard" not in out, out)
+            check("18.0: saved filters and exports naming fields the database lacks, and only them",
+                  "naming fields the database lacks: 4" in out
+                  and "filter 2 on sale.order: pnt_state, amount" in out
+                  and "filter 3 on stock.inventory: model stock.inventory is gone" in out
+                  and "filter 4 on sale.order: its domain does not parse" in out
+                  and "export 1 on sale.order: invoice_ids/date_invoice" in out
+                  and "3 filters, 1 exports" in out and "filter 1 " not in out, out)
             check("18.0: the line stored as reconciled with a suspense line, and only it",
                   "suspense: 1" in out and "line 1 (journal BANK1, 2025-03-05)" in out, out)
 

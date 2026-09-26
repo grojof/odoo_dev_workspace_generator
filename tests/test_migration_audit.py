@@ -189,3 +189,56 @@ def test_the_cli_runs_it_without_asking_anything(monkeypatch):
     monkeypatch.setattr("builtins.input", lambda *a: pytest.fail("prompted"))
     cli.main(["migrate", "audit", "--database", "acme_copy", "--db-port", "5433"])
     assert seen["args"] == ("acme_copy", "127.0.0.1", 5433, "odoo")
+
+
+# --- saved filters and exports ---------------------------------------------------------------
+
+def test_a_domain_is_read_for_its_fields_without_being_evaluated():
+    domain = ('["&", ("partner_id.name", "ilike", "a"), ("date", ">=", '
+              '(context_today() - relativedelta(days=7)).strftime("%Y-%m-%d"))]')
+    assert audit.domain_paths(domain) == ["partner_id.name", "date"]
+    # A leaf's value is not a leaf, even when it reads like one.
+    assert audit.domain_paths('[("state", "in", ["a", "in", "b"])]') == ["state"]
+    assert audit.domain_paths("") == [] and audit.domain_paths('[("name", "=", ') is None
+
+
+def test_a_context_names_its_groupings_and_order_and_a_sort_its_fields():
+    context = ("{'group_by': ['date_invoice:month', 'user_id'], 'pivot_measures': ['__count'], "
+               "'orderedBy': [{'name': 'amount', 'asc': True}], 'other': ['x']}")
+    assert audit.context_paths(context) == ["date_invoice:month", "user_id", "__count", "amount"]
+    assert audit.context_paths("{'group_by': 'state'}") == ["state"]
+    assert audit.sort_paths('["-date", "name desc"]') == ["-date", "name"]
+
+
+def test_a_path_breaks_at_its_first_missing_segment():
+    fields = {"sale.order": {"partner_id": "res.partner", "date": ""},
+              "res.partner": {"name": "", "country_id": "res.country"}}
+    assert audit.broken_segment(fields, "sale.order", "partner_id/name", "/") is None
+    assert audit.broken_segment(fields, "sale.order", "partner_id/.id", "/") is None
+    assert audit.broken_segment(fields, "sale.order", "-date:month", ".") is None
+    assert audit.broken_segment(fields, "sale.order", "invoice_ids/date", "/") == \
+        "sale.order.invoice_ids"
+    assert audit.broken_segment(fields, "sale.order", "partner_id.country_id.code", ".") == \
+        "model res.country"
+    assert audit.broken_segment(fields, "stock.inventory", "name", ".") == "model stock.inventory"
+
+
+def _row(*item):
+    import json
+    return [json.dumps(list(item))]
+
+
+def test_saved_filters_and_exports_are_listed_by_id_and_model_only():
+    rows = [_row("field", "sale.order", "name", ""), _row("field", "sale.order", "state", ""),
+            _row("filter", 7, "sale.order", '[("state", "=", "sale")]', "{}", "[]"),
+            _row("filter", 8, "sale.order", '[("pnt_state", "=", "x")]',
+                 "{'group_by': ['pnt_state']}", "[]"),
+            _row("filter", 9, "stock.inventory", "[]", "{}", ""),
+            _row("export", 3, "sale.order", "name"), _row("export", 3, "sale.order", "date_x")]
+    result = audit.saved_paths_result(rows)
+    assert result.verdict == audit.FOUND and result.count == 3
+    assert result.examples == ("export 3 on sale.order: date_x",
+                               "filter 8 on sale.order: pnt_state",
+                               "filter 9 on stock.inventory: model stock.inventory is gone")
+    assert result.detail == "2 filters, 1 exports"
+    assert audit.saved_paths_result(rows[:3]).verdict == audit.CLEAN

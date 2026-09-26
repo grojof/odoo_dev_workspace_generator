@@ -15,6 +15,10 @@ All notable changes to this project are documented here. The format is based on
     recomputing them.
 
 ### Added
+- **`migrate audit` finds saved filters and exports naming fields the database lacks.** They cross the
+  chain as records, but OpenUpgrade does not rewrite the fields inside them when Odoo rebuilds a model or
+  a renamed field sits in a path, and a retired module's fields are gone. Each path is followed through
+  relations; domains are parsed, never evaluated; examples carry ids and models only.
 - **Rows that point at menus the chain deletes are put back.** A module that hides menus from users or
   groups loses its rows when OpenUpgrade deletes a menu Odoo replaced. The driver now:
   - keeps, at the source restore, every row of each many2many table on `ir_ui_menu` except Odoo's own
