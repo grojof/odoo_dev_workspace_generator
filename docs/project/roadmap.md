@@ -241,6 +241,12 @@ items are host-dependent.
   unchanged. On the first client's database every filed VAT return and EC sales list recalculated
   identical before and after, and the invoice analysis by product matched the source.
 
+  Then the taxes OpenUpgrade 13.0 adds to reused journal items (change
+  `restore-source-move-line-taxes`): the source's journal-item taxes are kept at the source restore, and
+  right after the 13.0 step each reused item loses the taxes it did not bear in the source and its
+  invoice line did. On the first client's database the affected VAT and withholding returns came back to
+  the source's figures.
+
   Not done yet: a client's own module whose manifest declares Odoo S.A. as its author is reported
   "dropped by Odoo; OpenUpgrade removes it". With an intake, where the module loads from is known, and
   that should decide it rather than the author.

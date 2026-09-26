@@ -7,6 +7,15 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **The taxes OpenUpgrade 13.0 adds to a reused journal item are taken back.** OpenUpgrade 13.0 gives each
+  journal item it reuses as an invoice line that line's taxes, on top of the ones the item bore. An item
+  grouped in the source then counts in the base of taxes it never bore, and a VAT or withholding return
+  recomputed for its period is wrong.
+  - For a source up to 12.0, the driver keeps the source's journal-item taxes at the source restore.
+  - Right after the 13.0 step it takes back, from each reused item, the taxes it did not bear in the source
+    and its invoice line did. No amount changes.
+  - It lists them in `logs/13.0-taxes-taken-back.tsv`.
+  - Verified by `tools/verify_source_taxes.py` against a throwaway PostgreSQL.
 - **Grouped invoice items become the invoice lines they stand for again.** Up to 12.0 an invoice's journal
   items can be grouped per account and taxes; OpenUpgrade 16.0 turns each group into an extra "/" invoice
   line with the whole amount, leaving the real lines at zero. The invoice analysis then shows no product,
