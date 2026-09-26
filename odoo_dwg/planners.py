@@ -13,7 +13,7 @@ import shlex
 from collections.abc import Callable
 from pathlib import Path
 
-from . import egress, neutralise, templates, tester
+from . import egress, neutralise, retire, templates, tester
 from .i18n import tf
 from .models import (
     DB_NAME_RE,
@@ -1687,21 +1687,7 @@ def uninstall_script(modules: list[str]) -> str:
     names = sorted(modules)
     if not names or not all(MODULE_NAME_RE.fullmatch(m) for m in names):
         raise ValueError(tf("Invalid module names: {}", ", ".join(names)))
-    return (
-        f"names = {names!r}\n"
-        "mods = env['ir.module.module'].search([('name', 'in', names), ('state', '=', 'installed')])\n"
-        "missing = sorted(set(names) - set(mods.mapped('name')))\n"
-        "if missing:\n"
-        "    raise SystemExit('not installed: ' + ', '.join(missing))\n"
-        "mods.button_immediate_uninstall()\n"
-        "env.cr.commit()\n"
-        "env.cr.execute(\"SELECT name FROM ir_module_module WHERE name IN %s "
-        "AND state <> 'uninstalled'\", (tuple(names),))\n"
-        "left = [r[0] for r in env.cr.fetchall()]\n"
-        "if left:\n"
-        "    raise SystemExit('still installed: ' + ', '.join(left))\n"
-        "print('[uninstalled] ' + ', '.join(names))\n"
-    )
+    return retire.uninstall_script(repr(names))
 
 
 def plan_uninstall_rehearsal(env: MigrationEnv, copy: str, scratch: str,

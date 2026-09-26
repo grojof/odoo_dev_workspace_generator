@@ -126,10 +126,14 @@ not tell — and exit 2 is never a clean result.
 | `odoo-dwg migrate findings links --source A --target B` | Every reference link in the ledger, requested; the ones that do not answer, named. Never a URL recorded as evidence. |
 | `odoo-dwg migrate modules --source A --target B [--database X]` | What the driver's client-modules stage will do: renames and merges, updates, installs, uninstalls, and what would stop it ([running](../migration/running.md#the-clients-own-modules-under-new-names-the-client-modules-stage)). Exit 1 when the stage would stop. |
 
-One command writes, and only the environment's own record: `odoo-dwg migrate decide MODULE --source A
---target B --decision KIND [--to M…] [--reason TEXT]` prints the decision it would record, and writes it
-to `decisions.json` only with `--write`. `--to` takes several modules for a split: the first takes the
-old module, the others are installed.
+Two commands write, and only the environment's own record, `decisions.json`. Each prints the entry it
+would record and writes it only with `--write`:
+- `odoo-dwg migrate decide MODULE --source A --target B --decision KIND [--to M…] [--reason TEXT]
+  [--before-chain]`. `--to` takes several modules for a split: the first takes the old module, the
+  others are installed. `--before-chain`, with `dropped`, has the driver uninstall the module right after
+  the source restore ([running](../migration/running.md#retiring-a-module-before-the-chain)).
+- `odoo-dwg migrate accept-loss TABLE[.COLUMN] --source A --target B --reason TEXT`. It accepts a loss
+  that retiring modules before the chain may cause, named by the intake's uninstall rehearsal.
 
 Anything that changes the host or a database stays in the menus behind its confirmation phrase, or in
 the driver you start. A read-only command that

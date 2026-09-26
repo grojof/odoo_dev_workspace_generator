@@ -418,3 +418,107 @@ def test_redo_modules_and_the_resume():
     assert ': > "$MODULES_DIRTY"' in sh[redo:redo + 300]
     assert 'rm -f "$CK"/*.dump "$CK"/*.dump.tmp "$CK"/*.dirty' in sh
     assert 'if [ "$LAST" = "18.0" ] || [ "$LAST" = "$MODULES_CK" ]; then' in sh
+
+
+def _retire(module):
+    return {**_entry(module, "dropped"), "when": carry.BEFORE_CHAIN}
+
+
+def test_before_chain_is_only_for_a_dropped_decision():
+    assert carry.entry_problems(_retire("web_diagram")) == []
+    wrong = {**_entry("acme", "kept"), "when": carry.BEFORE_CHAIN}
+    assert [code for _, code, _ in carry.entry_problems(wrong)] == ["bad-when"]
+    other = {**_entry("acme", "dropped"), "when": "at-target"}
+    assert [code for _, code, _ in carry.entry_problems(other)] == ["bad-when"]
+
+
+def test_retirement_takes_the_installed_modules_decided_before_the_chain():
+    entries = [_retire("web_diagram"), _retire("not_installed"), _entry("acme", "dropped"),
+               _retire("other_pair") | {"target": "17.0"}]
+    result = carry.retirement(entries, [], "12.0", "18.0", {"web_diagram", "acme", "other_pair"}, {})
+    assert result["retire"] == ["web_diagram"] and result["problems"] == []
+
+
+def test_a_module_that_depends_on_a_retired_one_must_be_retired_too():
+    installed = {"stock_barcodes", "barcodes_custom", "report_on_it", "sale"}
+    depends = {"barcodes_custom": {"stock_barcodes"}, "report_on_it": {"barcodes_custom"},
+               "sale": {"base"}}
+    result = carry.retirement([_retire("stock_barcodes")], [], "12.0", "18.0", installed, depends)
+    assert sorted(p["args"][0] for p in result["problems"]) == ["barcodes_custom", "report_on_it"]
+    assert carry.blocked(result)
+    both = [_retire("stock_barcodes"), _retire("barcodes_custom"), _retire("report_on_it")]
+    assert not carry.blocked(carry.retirement(both, [], "12.0", "18.0", installed, depends))
+
+
+def test_accepted_losses_are_read_for_the_pair_and_named_by_table_or_column(tmp_path):
+    path = tmp_path / "decisions.json"
+    path.write_text(json.dumps({"decisions": [], "accepted_losses": [
+        {"name": "account_journal.group_method", "source": "12.0", "target": "18.0", "reason": "setting"},
+        {"name": "res_groups_users_rel", "source": "12.0", "target": "17.0", "reason": "other pair"},
+    ]}))
+    losses = carry.read_accepted_losses(str(path), "12.0", "18.0")
+    assert losses == [["account_journal.group_method", "setting"]]
+    result = carry.retirement([], losses + [["bad name", "x"]], "12.0", "18.0", set(), {})
+    assert result["accepted"] == [["account_journal.group_method", "setting"]]
+    assert [p["code"] for p in result["problems"]] == ["bad-loss"]
+
+
+def test_the_driver_entry_writes_the_retirement_plan(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "decisions.json"
+    path.write_text(json.dumps({"decisions": [_retire("web_diagram")]}))
+    out = tmp_path / "plan.json"
+    monkeypatch.setenv("ODWG_INSTALLED", "web_diagram\nbase\n")
+    monkeypatch.setenv("ODWG_DEPENDS", "web_diagram\tweb\n")
+    assert carry.main(["retire", str(path), "12.0", "18.0", str(out)]) == 0
+    assert capsys.readouterr().out.strip() == "web_diagram"
+    assert json.loads(out.read_text())["retire"] == ["web_diagram"]
+    monkeypatch.setenv("ODWG_INSTALLED", "base\n")
+    assert carry.main(["retire", str(path), "12.0", "18.0", str(out)]) == 3
+
+
+def test_a_before_chain_decision_keeps_its_when():
+    entry = decide.build_entry("gone", "12.0", "18.0", "dropped", [], "", "2026-09-26",
+                               before_chain=True)
+    assert entry["when"] == carry.BEFORE_CHAIN
+    decision = ModuleDecision.from_dict(entry)
+    assert decision is not None and decision.to_dict()["when"] == carry.BEFORE_CHAIN
+    assert "when" not in decide.build_entry("gone", "12.0", "18.0", "dropped", [], "",
+                                            "2026-09-26")
+
+
+def test_an_accepted_loss_replaces_its_name_and_keeps_the_decisions():
+    first = decide.build_loss("res_groups_users_rel", "12.0", "18.0", "old", "2026-09-26")
+    text = decide.merged_loss(json.dumps([_entry("a", "dropped")]), first)
+    again = decide.build_loss("res_groups_users_rel", "12.0", "18.0", "new", "2026-09-26")
+    data = json.loads(decide.merged_loss(text, again))
+    assert data["decisions"][0]["module"] == "a"
+    assert [loss["reason"] for loss in data["accepted_losses"]] == ["new"]
+    try:
+        decide.merged_loss('{"accepted_losses": 3}', first)
+    except ValueError:
+        return
+    raise AssertionError("accepted a non-list")
+
+
+def test_accept_loss_refuses_a_bad_name_or_no_reason(tmp_path, monkeypatch):
+    _environment_at(tmp_path, monkeypatch)
+    applied = []
+    monkeypatch.setattr(decide, "apply_commands", applied.append)
+    assert decide.record_loss("bad name;", "12.0", "18.0", "why", write=True) == checks.FOUND
+    assert decide.record_loss("account_journal.group_method", "12.0", "18.0", " ",
+                              write=True) == checks.FOUND
+    assert applied == []
+    assert decide.record_loss("account_journal.group_method", "12.0", "18.0", "a setting",
+                              write=True) == checks.CLEAN
+    assert len(applied) == 1
+
+
+def test_the_cli_records_a_before_chain_decision_and_a_loss(tmp_path, monkeypatch, capsys):
+    from odoo_dwg import cli
+    _environment_at(tmp_path, monkeypatch)
+    chain = ["--source", "12.0", "--target", "18.0", "--lang", "en"]
+    assert cli.main(["migrate", "decide", "gone", "--decision", "dropped", "--before-chain",
+                     *chain]) == 0
+    assert '"when": "before-chain"' in capsys.readouterr().out
+    assert cli.main(["migrate", "accept-loss", "stock_log", "--reason", "a log", *chain]) == 0
+    assert '"name": "stock_log"' in capsys.readouterr().out

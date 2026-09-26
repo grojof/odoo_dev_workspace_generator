@@ -50,7 +50,7 @@ def _select_language(preferred: str | None = None, *, ask: bool = True) -> None:
 #: The migrate actions that run without a menu. `decide` writes the operator's decisions
 #: file, and only with --write; it never prompts either.
 _READ_ONLY_MIGRATE_ACTIONS = frozenset({"report", "probes", "audit", "findings", "modules",
-                                        "decide"})
+                                        "decide", "accept-loss"})
 
 
 def _is_read_only(args: argparse.Namespace) -> bool:
@@ -185,8 +185,19 @@ def _build_parser() -> argparse.ArgumentParser:
     decide.add_argument("--to", nargs="+", default=[],
                         help=t("The module(s) that carry it: one for renamed, any for replaced."))
     decide.add_argument("--reason", default="", help=t("Why, in a sentence."))
+    decide.add_argument("--before-chain", action="store_true",
+                        help=t("With dropped: uninstall it right after the source restore, "
+                               "before the chain."))
     decide.add_argument("--write", action="store_true",
                         help=t("Write it; without this, only print it."))
+    loss = migrate_actions.add_parser(
+        "accept-loss", parents=[common, chain],
+        help=t("Accept a table or column that retiring modules before the chain may empty; "
+               "writes decisions.json only with --write."))
+    loss.add_argument("name", help=t("The table, or table.column."))
+    loss.add_argument("--reason", required=True, help=t("Why losing it is acceptable."))
+    loss.add_argument("--write", action="store_true",
+                      help=t("Write it; without this, only print it."))
     findings = migrate_actions.add_parser(
         "findings", parents=[common],
         help=t("Read the findings ledger and render its reports. Writes nothing."))
@@ -315,7 +326,11 @@ def main(argv: list[str] | None = None) -> int:
                                              args.db_host, args.db_port, args.db_user)
             if action == "decide":
                 return decide.record_decision(args.module, args.source, args.target,
-                                              args.decision, args.to, args.reason, args.write)
+                                              args.decision, args.to, args.reason, args.write,
+                                              args.before_chain)
+            if action == "accept-loss":
+                return decide.record_loss(args.name, args.source, args.target, args.reason,
+                                          args.write)
             migration_menu()
     except (KeyboardInterrupt, EOFError):
         print(t("\nExiting."))

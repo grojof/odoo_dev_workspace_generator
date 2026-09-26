@@ -80,6 +80,7 @@ python tools/verify_migration_audit.py           # migrate audit on 12.0- and 18
 python tools/verify_grouped_invoice_lines.py     # the repair of grouped invoice items, on a throwaway PostgreSQL
 python tools/verify_source_taxes.py              # keep the source's journal-item taxes, take back OpenUpgrade 13.0's additions
 python tools/verify_filed_declarations.py        # keep a source's filed declarations, put back what the chain deletes
+python tools/verify_retired_modules.py           # retire modules before the chain: the driver's stage on a throwaway PostgreSQL
 ```
 
 | Tool | Needs |
@@ -87,7 +88,7 @@ python tools/verify_filed_declarations.py        # keep a source's filed declara
 | `verify_support_matrix.py`, `verify_odools_config.py`, `verify_egress_pins.py` | the network |
 | `verify_workspace_versions.py` | the network **and** a host it may change (it previews, asks, and cleans up) |
 | `verify_generated_shell.py` | `shellcheck` on the host |
-| `verify_pg_hba_trust.py`, `verify_mail_capture.py`, `verify_migration_tester.py`, `verify_neutralisation.py`, `verify_migration_audit.py`, `verify_grouped_invoice_lines.py`, `verify_source_taxes.py`, `verify_filed_declarations.py`, `verify_intake.py` (also `git` and `tar`) | the host's PostgreSQL binaries; each runs a cluster of its own |
+| `verify_pg_hba_trust.py`, `verify_mail_capture.py`, `verify_migration_tester.py`, `verify_neutralisation.py`, `verify_migration_audit.py`, `verify_grouped_invoice_lines.py`, `verify_source_taxes.py`, `verify_filed_declarations.py`, `verify_retired_modules.py`, `verify_intake.py` (also `git` and `tar`) | the host's PostgreSQL binaries; each runs a cluster of its own |
 | `verify_neutralise_sources.py` | the local clones under `~/odoo-migrations/.repos` (`git` may fetch an OCA file it cites) |
 | `verify_migration_driver.py`, `verify_demo_seed.py` | nothing but `bash` |
 | `verify_promoted_modules.py` | nothing but `bash` and `git` |
@@ -140,6 +141,16 @@ its id and amount, with its map line, map and links, except the link to the jour
 changed by hand must stop it and keep nothing. Without the copies it skips, and a source without
 declarations keeps nothing.
 
+`verify_retired_modules.py` runs the driver's own `retire_before_chain` against a 12.0-shaped registry on
+a throwaway PostgreSQL. Only the source's Odoo is a stub, making an uninstall's changes in SQL. It covers:
+- exact row counts with no ANALYZE, and a column's values that ignore `false` and `''`;
+- the registry, a wizard, the module's own group, an empty column and a stored related one, none of them
+  data;
+- a table's rows, a membership the group's removal cascaded to, and a filled column: data lost, which
+  stops the stage;
+- the same losses accepted by name, which pass with their reasons listed;
+- an installed dependent not retired, which stops the stage before Odoo runs.
+
 `verify_migration_tester.py` generates the rehearsal tester from analysis lines copied verbatim out of
 OpenUpgrade's files, then asks whether the result is a *module*: every `.py` compiles, the manifest
 evaluates to a dict that ships what it declares and sets no `auto_install`, the data file parses with one
@@ -168,7 +179,7 @@ environment. The unit suite can only assert the plans' text; this executes them.
 resume, a gap in the checkpoints, a dump that does not match, a checkpoint that cannot be written, a step
 whose OpenUpgrade code is not on disk, a step that fails — which must name itself and its log — and a
 12 → 14 chain, so the ≤ 13 layout's own step command and preconditions are executed too, not only the
-upgrade-path ones, and the repairs after the 14.0 step are recorded before its checkpoint. The unit suite may not shell out, so this is where the *behaviour* of the generated shell is checked — run it
+upgrade-path ones, and the repairs after the 14.0 step are recorded before its checkpoint. The retirement before the chain is run too: an unaccepted loss stops before the source checkpoint, an accepted one is listed with its reason, a resumed run does not retire again, and a dependent not retired stops it before any change. The unit suite may not shell out, so this is where the *behaviour* of the generated shell is checked — run it
 whenever `render_run_migration_sh` changes.
 
 `verify_pg_hba_trust.py` runs the `pg_hba.conf` rewriter over every shape of that file this project has been

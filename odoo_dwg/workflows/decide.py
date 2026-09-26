@@ -22,13 +22,42 @@ from .checks import CLEAN, FOUND, UNKNOWN, _environment
 
 
 def build_entry(module: str, source: str, target: str, kind: str, to: list[str],
-                reason: str, today: str) -> dict:
+                reason: str, today: str, before_chain: bool = False) -> dict:
     entry: dict = {"module": module, "source": source, "target": target, "decision": kind,
                    "reason": reason,
                    "evidence": {"checked": today, "recorded_by": "migrate decide"}}
     if to:
         entry["to"] = to[0] if kind == "renamed" and len(to) == 1 else list(to)
+    if before_chain:
+        entry["when"] = carry.BEFORE_CHAIN
     return entry
+
+
+def build_loss(name: str, source: str, target: str, reason: str, today: str) -> dict:
+    return {"name": name, "source": source, "target": target, "reason": reason,
+            "evidence": {"checked": today, "recorded_by": "migrate accept-loss"}}
+
+
+def merged_loss(text: str | None, loss: dict) -> str:
+    """The file with ``loss`` in place of the same name's accepted loss for the pair, or
+    appended. A bare-list file becomes the wrapper object, keeping its decisions."""
+    data: object = {"decisions": []} if not (text or "").strip() else json.loads(text or "")
+    if isinstance(data, list):
+        data = {"decisions": data}
+    if not isinstance(data, dict):
+        raise ValueError(t("The decisions file holds no list of decisions."))
+    losses = data.setdefault("accepted_losses", [])
+    if not isinstance(losses, list):
+        raise ValueError(t("The decisions file's accepted losses are not a list."))
+    key = (loss["name"], loss["source"], loss["target"])
+    for index, existing in enumerate(losses):
+        if isinstance(existing, dict) and \
+                (existing.get("name"), existing.get("source"), existing.get("target")) == key:
+            losses[index] = loss
+            break
+    else:
+        losses.append(loss)
+    return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
 def merged(text: str | None, entry: dict) -> str:
@@ -52,14 +81,15 @@ def merged(text: str | None, entry: dict) -> str:
 
 
 def record_decision(module: str, source: str, target: str, kind: str, to: list[str],
-                    reason: str, write: bool) -> int:
+                    reason: str, write: bool, before_chain: bool = False) -> int:
     env = _environment(source, target)
     if env is None:
         return UNKNOWN
     if not carry.is_module_name(module):
         print(level_text("ERROR", tf("{} is not a module name.", module)))
         return FOUND
-    entry = build_entry(module, env.source, env.target, kind, to, reason, date.today().isoformat())
+    entry = build_entry(module, env.source, env.target, kind, to, reason, date.today().isoformat(),
+                        before_chain)
     problems = carry.entry_problems(entry)
     for level, code, args in problems:
         print(level_text("ERROR" if level == carry.BLOCKING else "WARN",
@@ -67,6 +97,28 @@ def record_decision(module: str, source: str, target: str, kind: str, to: list[s
     if any(level == carry.BLOCKING for level, _, _ in problems):
         return FOUND
     print(json.dumps(entry, indent=2, ensure_ascii=False))
+    return _write(env, lambda text: merged(text, entry), write)
+
+
+def record_loss(name: str, source: str, target: str, reason: str, write: bool) -> int:
+    """Accept, by name, a table or column that retiring modules before the chain may empty."""
+    env = _environment(source, target)
+    if env is None:
+        return UNKNOWN
+    loss = build_loss(name, env.source, env.target, reason, date.today().isoformat())
+    result = carry.retirement([], [[name, reason]], env.source, env.target, set(), {})
+    if result["problems"]:
+        print(level_text("ERROR", tf(carry.MESSAGES["bad-loss"], name)))
+        return FOUND
+    if not reason.strip():
+        print(level_text("ERROR", t("An accepted loss needs its reason (--reason).")))
+        return FOUND
+    print(json.dumps(loss, indent=2, ensure_ascii=False))
+    return _write(env, lambda text: merged_loss(text, loss), write)
+
+
+def _write(env, merge, write: bool) -> int:
+    """Merge into the environment's decisions file, and write it only with ``write``."""
     if not env.root.is_dir():
         print(level_text("ERROR", tf("No migration environment at {}.", str(env.root))))
         return UNKNOWN
@@ -78,7 +130,7 @@ def record_decision(module: str, source: str, target: str, kind: str, to: list[s
         print(level_text("ERROR", tf("Cannot read {}: {}", str(path), t("permission denied"))))
         return UNKNOWN
     try:
-        content = merged(text, entry)
+        content = merge(text)
     except ValueError as error:
         print(level_text("ERROR", tf("Cannot read {}: {}", str(path), error)))
         return UNKNOWN

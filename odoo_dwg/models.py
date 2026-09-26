@@ -837,6 +837,8 @@ class ModuleDecision:
     #: The module(s) that carry this one at the target: one for ``renamed``, one or
     #: more for ``replaced``. Kept as read, so a wrong ``to`` is reported, not lost.
     to: tuple[str, ...] = ()
+    #: ``before-chain`` on a ``dropped`` decision: retired right after the source restore.
+    when: str = ""
 
     def key(self) -> tuple[str, str, str]:
         return (self.module, self.source, self.target)
@@ -850,6 +852,7 @@ class ModuleDecision:
             "reason": self.reason,
             "evidence": dict(self.evidence),
             **({"to": self.to[0] if len(self.to) == 1 else list(self.to)} if self.to else {}),
+            **({"when": self.when} if self.when else {}),
         }
 
     @classmethod
@@ -873,6 +876,7 @@ class ModuleDecision:
             evidence=evidence if isinstance(evidence, dict) else {},
             to=(to,) if isinstance(to, str) else tuple(str(t) for t in to)
             if isinstance(to, list) else (),
+            when=data.get("when") if isinstance(data.get("when"), str) else "",
         )
 
 
