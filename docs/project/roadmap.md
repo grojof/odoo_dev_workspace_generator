@@ -305,7 +305,18 @@ items are host-dependent.
 
   Then saved filters and exports (change `audit-saved-field-paths`): `migrate audit` lists those naming
   a field or model the database lacks. On the first client's migrated database it found the same ones as
-  a check made by hand. Rewriting the standard renames automatically stays open.
+  a check made by hand.
+
+  Then the rewrite (change `rewrite-saved-field-paths`): the target step renames those fields to their
+  successors, with the evidence of each. On the first client's migrated database, all but one of the
+  filters and exports broken by Odoo's standard changes were rewritten, and every one searched,
+  grouped, sorted or exported in Odoo. The one left was on a model that is gone.
+
+  Not done yet: harvesting the successors from OpenUpgrade's and OCA's own migration scripts
+  (`rename_fields`, `rename_columns`, `rename_models`, `map_values`, chained across the steps). The
+  analysis files would also flag fields whose selection values changed under the same name, such as an
+  invoice's `state`. That needs each saved record's source model, kept at the source restore. Only
+  what OpenUpgrade moved in SQL would stay curated.
 
   Not done yet: a client's own module whose manifest declares Odoo S.A. as its author is reported
   "dropped by Odoo; OpenUpgrade removes it". With an intake, where the module loads from is known, and

@@ -15,6 +15,11 @@ All notable changes to this project are documented here. The format is based on
     recomputing them.
 
 ### Added
+- **Saved filters and exports are rewritten to the fields the chain renamed.** For a source up to
+  12.0, the target step follows each path through the target's relations and renames the fields whose
+  successor `savedpaths.py` declares with its evidence. It also maps a domain value that changed with its
+  field, and replaces a field no single field replaces by its condition. It drops export columns with no
+  successor and leaves whole any filter it cannot rewrite. The list is `logs/<target>-saved-paths.tsv`.
 - **`migrate audit` finds saved filters and exports naming fields the database lacks.** They cross the
   chain as records, but OpenUpgrade does not rewrite the fields inside them when Odoo rebuilds a model or
   a renamed field sits in a path, and a retired module's fields are gone. Each path is followed through

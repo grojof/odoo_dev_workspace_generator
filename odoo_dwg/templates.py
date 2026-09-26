@@ -26,6 +26,7 @@ from . import (
     neutralise,
     payments,
     retire,
+    savedpaths,
     sourceconfig,
     sourcetaxes,
     taxgrids,
@@ -1139,6 +1140,39 @@ def _render_menu_refs_restore(env: MigrationEnv, version: str) -> str:
     )
 
 
+def saved_paths_file(env: MigrationEnv) -> Path:
+    """Where the target step lists the saved filters and exports it rewrote or left."""
+    return env.logs_dir / f"{env.target}-saved-paths.tsv"
+
+
+def saved_paths_source() -> str:
+    """``odoo_dwg/savedpaths.py`` as the driver embeds it, followed by what runs it."""
+    text = resources.files("odoo_dwg").joinpath("savedpaths.py").read_text(encoding="utf-8")
+    return text + savedpaths.APPLY
+
+
+def _render_saved_paths_rewrite(env: MigrationEnv, version: str) -> str:
+    """At the target, after the menu references: saved filters and export columns whose fields
+    the chain renamed, rewritten to their successors by the target's Odoo."""
+    if version != env.target or not savedpaths.applies(odoo_major(env.source),
+                                                       odoo_major(env.target)):
+        return ""
+    q = shlex.quote
+    listed = q(str(saved_paths_file(env)))
+    shell = (f"{q(f'{env.venv_dir(version)}/bin/python')} {q(str(env.odoo_bin(version)))} shell "
+             f'-c {q(str(env.config_file(version)))} -d "$DB" --no-http '
+             f"--logfile={q(str(env.logs_dir / f'{version}.log'))}")
+    return (
+        "  # Saved filters and exports naming fields the chain renamed, to their successors.\n"
+        f"  : > {listed}\n"
+        f"  ODWG_SAVED_PATHS_LIST={listed} {shell} <<'ODWG_SAVEDPATHS' \\\n"
+        f"    || die \"{version}: rewriting saved filters and exports failed\"\n"
+        f"{saved_paths_source()}ODWG_SAVEDPATHS\n"
+        f'  echo "[repair] saved filters and exports rewritten: listed in {listed}"\n'
+        f'  mark "{version}" repair saved-paths\n'
+    )
+
+
 def _render_declarations_repair(env: MigrationEnv, version: str) -> str:
     """At the target, before the grouped-items repair moves their links: the declaration boxes
     the chain deleted, put back (``odoo_dwg/declarations.py``)."""
@@ -2140,7 +2174,7 @@ else
     die "step {version} failed — see {env.logs_dir}/{version}.log"
   fi
   step_hook "{version}" post
-{_render_source_taxes_repair(env, version)}{_render_step_repair(env, version)}{_render_declarations_repair(env, version)}{_render_grouped_items_repair(env, version)}{_render_payments_repair(env, version)}{_render_valuation_alignment(env, version)}{_render_tax_grids_refresh(env, version)}{_render_source_config_restore(env, version)}{_render_menu_refs_restore(env, version)}{_render_module_states_repair(env, version)}  neutralise "{version}"
+{_render_source_taxes_repair(env, version)}{_render_step_repair(env, version)}{_render_declarations_repair(env, version)}{_render_grouped_items_repair(env, version)}{_render_payments_repair(env, version)}{_render_valuation_alignment(env, version)}{_render_tax_grids_refresh(env, version)}{_render_source_config_restore(env, version)}{_render_menu_refs_restore(env, version)}{_render_saved_paths_rewrite(env, version)}{_render_module_states_repair(env, version)}  neutralise "{version}"
   checkpoint "{version}"
   mark "{version}" ok
 fi"""
