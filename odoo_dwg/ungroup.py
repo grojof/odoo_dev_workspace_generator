@@ -23,8 +23,14 @@ from __future__ import annotations
 SOURCE_MAX_MAJOR = 12
 TARGET_MIN_MAJOR = 16
 
-#: Tables that hold the line's own attributes: kept by each line, never copied to others.
-OWN_LINK_TABLES = ("account_move_line_account_tax_rel", "account_account_tag_account_move_line_rel")
+#: Tables that hold the line's own attributes: its taxes, its tax tags, and the analytic accounts
+#: OCA ``account_financial_report`` stores from its analytic distribution. Kept by each line,
+#: never copied to others, and no reason to keep a line out of a repair.
+OWN_LINK_TABLES = (
+    "account_move_line_account_tax_rel",
+    "account_account_tag_account_move_line_rel",
+    "account_analytic_account_account_move_line_rel",
+)
 
 #: Single references the repair moves to the group's largest line: rows that describe the
 #: line's amount, kept once. Any other reference to a grouped item leaves its group as it is.
@@ -65,6 +71,7 @@ DECLARE
   fk record;
   other_col text;
   removed integer;
+  kept integer := 0;
   moved integer;
   restored integer := 0;
 BEGIN
@@ -83,6 +90,34 @@ BEGIN
     RETURN;
   END IF;
 
+  -- What points at a journal item: a link table (two columns) is copied from a grouped item to
+  -- its lines, a known single reference moves to the largest line, anything else keeps its group.
+  CREATE TEMP TABLE odwg_fk (tbl text, col text, other text, kind text) ON COMMIT DROP;
+  FOR fk IN
+    SELECT cl.relname::text tbl, a.attname::text col, c.conrelid,
+      (SELECT count(*) FROM pg_attribute x
+        WHERE x.attrelid = c.conrelid AND x.attnum > 0 AND NOT x.attisdropped) ncols
+    FROM pg_constraint c
+    JOIN pg_class cl ON cl.oid = c.conrelid
+    JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+    WHERE c.contype = 'f' AND c.confrelid = 'account_move_line'::regclass
+      AND array_length(c.conkey, 1) = 1
+  LOOP
+    SELECT x.attname INTO other_col FROM pg_attribute x
+      WHERE x.attrelid = fk.conrelid AND x.attnum > 0 AND NOT x.attisdropped AND x.attname <> fk.col
+      ORDER BY x.attnum LIMIT 1;
+    IF fk.tbl IN ({own}) THEN
+      CONTINUE;
+    ELSIF (fk.tbl, fk.col) IN ({movable}) THEN
+      INSERT INTO odwg_fk VALUES (fk.tbl, fk.col, NULL, 'single');
+    ELSIF fk.ncols = 2 AND other_col <> 'id' THEN
+      -- A many-to-many table: the line's column and the other record's, nothing else.
+      INSERT INTO odwg_fk VALUES (fk.tbl, fk.col, other_col, 'link');
+    ELSE
+      INSERT INTO odwg_fk VALUES (fk.tbl, fk.col, NULL, 'other');
+    END IF;
+  END LOOP;
+
   -- The invoice lines OpenUpgrade 13.0 inserted at a zero amount, keyed on their own taxes.
   CREATE TEMP TABLE odwg_z ON COMMIT DROP AS
     SELECT l.id, l.move_id, l.account_id, coalesce(l.price_subtotal, 0) price_subtotal,
@@ -93,6 +128,16 @@ BEGIN
     WHERE l.move_id IN (SELECT move_id FROM odwg_g) AND l.display_type = 'product'
       AND NOT coalesce(l.exclude_from_invoice_tab, false) AND l.old_invoice_line_id IS NOT NULL
       AND l.balance = 0 AND coalesce(l.amount_currency, 0) = 0;
+  -- A zero-amount line whose invoice line OpenUpgrade 13.0 matched to a source journal item
+  -- (``account_invoice_line.aml_matched``) is that item, reused: it has a history (a
+  -- declaration's detail, a VAT book line, an analytic line) that giving it an amount would
+  -- falsify. It keeps its zero, and its group is left if it needed it.
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()
+             AND table_name = 'account_invoice_line' AND column_name = 'aml_matched') THEN
+    EXECUTE 'DELETE FROM odwg_z z USING account_invoice_line il
+              WHERE il.id = z.old_invoice_line_id AND il.aml_matched';
+    GET DIAGNOSTICS kept = ROW_COUNT;
+  END IF;
   ALTER TABLE odwg_z ADD COLUMN tk text;
   UPDATE odwg_z SET tk = cur_tk;
   CREATE INDEX ON odwg_g (id);
@@ -147,37 +192,14 @@ BEGIN
     END
   FROM odwg_m m WHERE m.move_id = p.move_id;
 
-  -- What points at a grouped item: a link table (two columns) is copied to the lines, a
-  -- known single reference moves to the largest line, anything else keeps its group.
-  CREATE TEMP TABLE odwg_fk (tbl text, col text, other text, kind text) ON COMMIT DROP;
-  FOR fk IN
-    SELECT cl.relname::text tbl, a.attname::text col, c.conrelid,
-      (SELECT count(*) FROM pg_attribute x
-        WHERE x.attrelid = c.conrelid AND x.attnum > 0 AND NOT x.attisdropped) ncols
-    FROM pg_constraint c
-    JOIN pg_class cl ON cl.oid = c.conrelid
-    JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
-    WHERE c.contype = 'f' AND c.confrelid = 'account_move_line'::regclass
-      AND array_length(c.conkey, 1) = 1
-  LOOP
-    SELECT x.attname INTO other_col FROM pg_attribute x
-      WHERE x.attrelid = fk.conrelid AND x.attnum > 0 AND NOT x.attisdropped AND x.attname <> fk.col
-      ORDER BY x.attnum LIMIT 1;
-    IF fk.tbl IN ({own}) THEN
-      CONTINUE;
-    ELSIF (fk.tbl, fk.col) IN ({movable}) THEN
-      INSERT INTO odwg_fk VALUES (fk.tbl, fk.col, NULL, 'single');
-    ELSIF fk.ncols = 2 AND other_col <> 'id' THEN
-      -- A many-to-many table: the line's column and the other record's, nothing else.
-      INSERT INTO odwg_fk VALUES (fk.tbl, fk.col, other_col, 'link');
-    ELSE
-      EXECUTE format(
-        'UPDATE odwg_grp p SET reason = %L FROM odwg_g g
-          WHERE p.reason IS NULL AND p.b IS NOT NULL AND g.move_id = p.move_id
-            AND g.account_id = p.account_id AND g.tk = p.tk
-            AND EXISTS (SELECT 1 FROM %I x WHERE x.%I = g.id)',
-        'referenced by ' || fk.tbl || '.' || fk.col, fk.tbl, fk.col);
-    END IF;
+  -- A grouped item something else points at (a reconciliation, say) keeps its group.
+  FOR fk IN SELECT * FROM odwg_fk WHERE kind = 'other' LOOP
+    EXECUTE format(
+      'UPDATE odwg_grp p SET reason = %L FROM odwg_g g
+        WHERE p.reason IS NULL AND p.b IS NOT NULL AND g.move_id = p.move_id
+          AND g.account_id = p.account_id AND g.tk = p.tk
+          AND EXISTS (SELECT 1 FROM %I x WHERE x.%I = g.id)',
+      'referenced by ' || fk.tbl || '.' || fk.col, fk.tbl, fk.col);
   END LOOP;
 
   CREATE TEMP TABLE odwg_ok ON COMMIT DROP AS
@@ -213,6 +235,19 @@ BEGIN
   CREATE TEMP TABLE odwg_b_amt ON COMMIT DROP AS
     SELECT id, amount_untaxed, amount_tax, amount_total, amount_residual
     FROM account_move WHERE id IN (SELECT move_id FROM odwg_moves);
+  -- What a record linked to a repaired grouped item adds up to (what a declaration's box shows
+  -- when it is drilled into): the item's lines take its links, so it must not change.
+  CREATE TEMP TABLE odwg_b_sum (tbl text, other text, s numeric) ON COMMIT DROP;
+  FOR fk IN SELECT * FROM odwg_fk WHERE kind = 'link' LOOP
+    EXECUTE format(
+      'INSERT INTO odwg_b_sum SELECT %L, x.%I::text, sum(l.balance) FROM %I x
+        JOIN account_move_line l ON l.id = x.%I
+        WHERE x.%I IN (SELECT x2.%I FROM %I x2 JOIN odwg_g g ON g.id = x2.%I
+                       JOIN odwg_ok o ON o.move_id = g.move_id AND o.account_id = g.account_id
+                                     AND o.tk = g.tk)
+        GROUP BY 2',
+      fk.tbl, fk.other, fk.tbl, fk.col, fk.other, fk.other, fk.tbl, fk.col);
+  END LOOP;
   CREATE TEMP TABLE odwg_b_ref (tbl text, move_id integer, other text, n bigint) ON COMMIT DROP;
   FOR fk IN SELECT * FROM odwg_fk LOOP
     IF fk.kind = 'link' THEN
@@ -342,8 +377,24 @@ BEGIN
         EXCEPT SELECT tbl, move_id, other, n FROM odwg_a_ref) lost);
   END IF;
 
-  RAISE NOTICE '[repair] grouped invoice items: % groups repaired on % invoices (% items removed, % lines given their amount, % lines given back their own taxes), % groups left',
-    (SELECT count(*) FROM odwg_ok), (SELECT count(*) FROM odwg_moves), removed, moved, restored,
+  CREATE TEMP TABLE odwg_a_sum (tbl text, other text, s numeric) ON COMMIT DROP;
+  FOR fk IN SELECT * FROM odwg_fk WHERE kind = 'link' LOOP
+    EXECUTE format(
+      'INSERT INTO odwg_a_sum SELECT %L, x.%I::text, sum(l.balance) FROM %I x
+        JOIN account_move_line l ON l.id = x.%I
+        WHERE x.%I::text IN (SELECT other FROM odwg_b_sum WHERE tbl = %L)
+        GROUP BY 2',
+      fk.tbl, fk.other, fk.tbl, fk.col, fk.other, fk.tbl);
+  END LOOP;
+  IF EXISTS (SELECT 1 FROM odwg_b_sum b LEFT JOIN odwg_a_sum a USING (tbl, other)
+             WHERE abs(coalesce(a.s, 0) - b.s) >= 0.005) THEN
+    RAISE EXCEPTION '[repair] grouped invoice items: check failed: what a link adds up to changed (%)',
+      (SELECT string_agg(DISTINCT b.tbl, ', ') FROM odwg_b_sum b LEFT JOIN odwg_a_sum a USING (tbl, other)
+       WHERE abs(coalesce(a.s, 0) - b.s) >= 0.005);
+  END IF;
+
+  RAISE NOTICE '[repair] grouped invoice items: % groups repaired on % invoices (% items removed, % lines given their amount, % lines given back their own taxes, % reused zero-amount lines kept as they are), % groups left',
+    (SELECT count(*) FROM odwg_ok), (SELECT count(*) FROM odwg_moves), removed, moved, restored, kept,
     (SELECT count(*) FROM odwg_left);
 END
 $odwg$;

@@ -39,3 +39,18 @@ def test_the_lines_own_tables_are_never_copied_and_unknown_references_keep_their
 def test_it_does_nothing_without_openupgrade_13_columns():
     sql = ungroup.ungroup_sql()
     assert "\\if :odwg_ready" in sql and "not applicable" in sql
+
+
+def test_a_reused_source_item_is_never_given_an_amount():
+    sql = ungroup.ungroup_sql()
+    assert "column_name = 'aml_matched'" in sql
+    assert "WHERE il.id = z.old_invoice_line_id AND il.aml_matched" in sql
+    # Found before the groups, so the zero-amount lines are known when the groups are built.
+    assert sql.index("CREATE TEMP TABLE odwg_fk") < sql.index("CREATE TEMP TABLE odwg_grp")
+
+
+def test_what_a_linked_record_adds_up_to_is_checked():
+    sql = ungroup.ungroup_sql()
+    assert "check failed: what a link adds up to changed" in sql
+    assert sql.index("CREATE TEMP TABLE odwg_b_sum") < sql.index("DELETE FROM account_move_line WHERE id IN")
+    assert "account_analytic_account_account_move_line_rel" in ungroup.OWN_LINK_TABLES

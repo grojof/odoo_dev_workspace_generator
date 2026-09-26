@@ -13,7 +13,7 @@ happens where the source grouped journal items, and on the odd payable line matc
 criteria. The amount does not change, but it now counts in the base of every tax it bears.
 
 The OCA AEAT declarations select lines by their taxes. So from 13.0 on, a VAT return or withholding return
-recomputed for such a period is wrong. On the first client, 50 journal items were affected:
+recomputed for such a period is wrong. On the first client, a few dozen journal items were affected:
 - withholding and deductible VAT bases were overstated by thousands;
 - one intra-EU base was off by a large amount;
 - a month not yet filed at the time was among the affected periods.

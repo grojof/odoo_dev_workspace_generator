@@ -270,13 +270,18 @@ time: one move, one account and one set of taxes.
   largest line. On a reconcilable account the lines stay open, as the grouped item was.
 - **A line OpenUpgrade 13.0 gave the union of its group's taxes** takes back its own, read from the
   source's `account_invoice_line_tax`.
+- **A source journal item at zero that OpenUpgrade 13.0 reused as an invoice line** (its invoice line
+  marked `aml_matched`) keeps its zero, taxes and links: a filed declaration box may count it. A group
+  that needed it is left.
 - **What pointed at the grouped item moves.** A many-to-many link is copied to the lines. An analytic line
   and an EC sales list detail move to the largest line.
 
 Before committing, the repair checks, per move:
 - balances per account and partner, per tax, and the move's balance;
 - the invoices' stored amounts;
-- that no link or reference was lost.
+- that no link or reference was lost;
+- that every record a repaired grouped item was linked to (a declaration box, a VAT book line) adds up
+  to the same over its journal items: what an auditor sees when drilling into a box.
 
 If any check fails, nothing is kept and the run stops, naming the check.
 

@@ -26,6 +26,9 @@ All notable changes to this project are documented here. The format is based on
     are unchanged.
   - **Groups that cannot be repaired stay as they are**, listed with their reason in
     `logs/<target>-grouped-invoice-items-left.tsv`.
+  - **A source item at zero that OpenUpgrade 13.0 reused as an invoice line keeps its zero**: a filed
+    declaration box may count it. And what every record a repaired item was linked to adds up to (a
+    declaration box's detail) is checked unchanged.
   - **Verified** by `tools/verify_grouped_invoice_lines.py` against a throwaway PostgreSQL.
 - **The client's own modules can be carried to new names after the chain.** Optional, per module, as
   decisions: `renamed` (one module; several renamed to one are merged), `replaced` (the replacements are
