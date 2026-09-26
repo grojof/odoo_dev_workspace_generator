@@ -293,6 +293,10 @@ items are host-dependent.
   source restore and put back at the target. On the first client's database the active operation types
   matched the source's count again, and a second run changed nothing.
 
+  Then pending installs with no code (change `cancel-codeless-pending-installs`). OpenUpgrade 18.0 marks
+  auto-install modules "to install" even when their code is gone. The target step now cancels them with
+  Odoo's own method, so later module operations no longer stop on inconsistent states.
+
   Not done yet: a client's own module whose manifest declares Odoo S.A. as its author is reported
   "dropped by Odoo; OpenUpgrade removes it". With an intake, where the module loads from is known, and
   that should decide it rather than the author.

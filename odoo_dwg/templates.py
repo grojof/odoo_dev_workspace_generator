@@ -21,6 +21,7 @@ from xml.sax.saxutils import escape
 from . import (
     declarations,
     egress,
+    modulestates,
     neutralise,
     payments,
     retire,
@@ -1277,6 +1278,34 @@ def _render_tax_grids_refresh(env: MigrationEnv, version: str) -> str:
     )
 
 
+def module_states_file(env: MigrationEnv) -> Path:
+    """Where the target step lists the pending installs it cancelled or left."""
+    return env.logs_dir / f"{env.target}-module-states.tsv"
+
+
+def _render_module_states_repair(env: MigrationEnv, version: str) -> str:
+    """At the target, last before the checkpoint: pending installs whose code the target cannot
+    find, cancelled by its own Odoo (``odoo_dwg/modulestates.py``), so the client-modules stage and
+    every later update do not stop on inconsistent states."""
+    if version != env.target or \
+            not modulestates.applies(odoo_major(env.source), odoo_major(env.target)):
+        return ""
+    q = shlex.quote
+    listed = q(str(module_states_file(env)))
+    shell = (f"{q(f'{env.venv_dir(version)}/bin/python')} {q(str(env.odoo_bin(version)))} shell "
+             f'-c {q(str(env.config_file(version)))} -d "$DB" --no-http '
+             f"--logfile={q(str(env.logs_dir / f'{version}.log'))}")
+    return (
+        "  # Auto-install modules OpenUpgrade 18.0 marks to install though their code is gone.\n"
+        f"  : > {listed}\n"
+        f"  ODWG_MODULE_STATES_LIST={listed} {shell} <<'ODWG_MODSTATES' \\\n"
+        f"    || die \"{version}: cancelling pending installs with no code failed\"\n"
+        f"{modulestates.CANCEL}ODWG_MODSTATES\n"
+        f'  echo "[repair] pending installs with no code cancelled: listed in {listed}"\n'
+        f'  mark "{version}" repair module-states\n'
+    )
+
+
 #: The client-modules stage's checkpoint and step-record name, after the target step.
 def modules_stage(env: MigrationEnv) -> str:
     return f"{env.target}-modules"
@@ -2065,7 +2094,7 @@ else
     die "step {version} failed — see {env.logs_dir}/{version}.log"
   fi
   step_hook "{version}" post
-{_render_source_taxes_repair(env, version)}{_render_step_repair(env, version)}{_render_declarations_repair(env, version)}{_render_grouped_items_repair(env, version)}{_render_payments_repair(env, version)}{_render_valuation_alignment(env, version)}{_render_tax_grids_refresh(env, version)}{_render_source_config_restore(env, version)}  neutralise "{version}"
+{_render_source_taxes_repair(env, version)}{_render_step_repair(env, version)}{_render_declarations_repair(env, version)}{_render_grouped_items_repair(env, version)}{_render_payments_repair(env, version)}{_render_valuation_alignment(env, version)}{_render_tax_grids_refresh(env, version)}{_render_source_config_restore(env, version)}{_render_module_states_repair(env, version)}  neutralise "{version}"
   checkpoint "{version}"
   mark "{version}" ok
 fi"""
