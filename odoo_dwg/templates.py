@@ -21,6 +21,7 @@ from xml.sax.saxutils import escape
 from . import (
     declarations,
     egress,
+    menurefs,
     modulestates,
     neutralise,
     payments,
@@ -1093,6 +1094,51 @@ def _render_source_config_restore(env: MigrationEnv, version: str) -> str:
     )
 
 
+def _render_keep_menu_refs(env: MigrationEnv) -> str:
+    """At the source restore: the rows that point at menus, which the chain deletes with the menus
+    it replaces (``odoo_dwg/menurefs.py``)."""
+    if not menurefs.applies(odoo_major(env.source), odoo_major(env.target)):
+        return ""
+    return (
+        "  # Rows pointing at menus (hidden menus, restrictions); the target step puts back those the\n"
+        "  # chain deletes with a menu.\n"
+        "  psql -X -q -v ON_ERROR_STOP=1 -d \"$DB\" <<'ODWG_KEEP_MENUS' \\\n"
+        "    || die \"could not keep the source's menu references\"\n"
+        f"{menurefs.keep_sql()}ODWG_KEEP_MENUS\n"
+        "  mark - keep menu-references\n"
+    )
+
+
+def menu_refs_file(env: MigrationEnv) -> Path:
+    """Where the target step lists the menu references it put back or left."""
+    return env.logs_dir / f"{env.target}-menu-references.tsv"
+
+
+def _render_menu_refs_restore(env: MigrationEnv, version: str) -> str:
+    """At the target, after the source configuration: the menu references kept at the source
+    restore, put back where missing. Skipped, and said, when the source checkpoint has none."""
+    if version != env.target or \
+            not menurefs.applies(odoo_major(env.source), odoo_major(env.target)):
+        return ""
+    q = shlex.quote
+    listed = q(str(menu_refs_file(env)))
+    ready = q(f"SELECT to_regclass('{menurefs.KEPT}') IS NOT NULL")
+    return (
+        "  # Rows pointing at menus the chain deleted, put back on the same menu or its successor.\n"
+        f'  if [ "$(psql -X -tAc {ready} -d "$DB")" = t ]; then\n'
+        f"    psql -X -q -At -F $'\\t' -v ON_ERROR_STOP=1 -d \"$DB\" > {listed} <<'ODWG_MENUS' \\\n"
+        f"      || die \"{version}: putting back the menu references failed\"\n"
+        f"{menurefs.restore_sql()}ODWG_MENUS\n"
+        f'    echo "[repair] menu references put back: listed in {listed}"\n'
+        f'    mark "{version}" repair menu-references\n'
+        "  else\n"
+        "    echo \"[warn] the source checkpoint does not keep the menu references: rows pointing at"
+        " menus the chain deleted are NOT put back; only a run from the source dump does\" >&2\n"
+        f'    mark "{version}" repair menu-references-skipped\n'
+        "  fi\n"
+    )
+
+
 def _render_declarations_repair(env: MigrationEnv, version: str) -> str:
     """At the target, before the grouped-items repair moves their links: the declaration boxes
     the chain deleted, put back (``odoo_dwg/declarations.py``)."""
@@ -2019,7 +2065,7 @@ if ! have_ck 00_source; then
   pg_restore --no-owner --dbname "$DB" "$SRC_DUMP"
   retire_before_chain
   preflight_db
-{_render_keep_source_taxes(env)}{_render_keep_declarations()}{_render_keep_source_config(env)}  neutralise 00_source
+{_render_keep_source_taxes(env)}{_render_keep_declarations()}{_render_keep_source_config(env)}{_render_keep_menu_refs(env)}  neutralise 00_source
   echo "$SRC_SHA" > "$CK/source.sha256.tmp" && mv "$CK/source.sha256.tmp" "$CK/source.sha256"
   checkpoint 00_source
 else
@@ -2094,7 +2140,7 @@ else
     die "step {version} failed — see {env.logs_dir}/{version}.log"
   fi
   step_hook "{version}" post
-{_render_source_taxes_repair(env, version)}{_render_step_repair(env, version)}{_render_declarations_repair(env, version)}{_render_grouped_items_repair(env, version)}{_render_payments_repair(env, version)}{_render_valuation_alignment(env, version)}{_render_tax_grids_refresh(env, version)}{_render_source_config_restore(env, version)}{_render_module_states_repair(env, version)}  neutralise "{version}"
+{_render_source_taxes_repair(env, version)}{_render_step_repair(env, version)}{_render_declarations_repair(env, version)}{_render_grouped_items_repair(env, version)}{_render_payments_repair(env, version)}{_render_valuation_alignment(env, version)}{_render_tax_grids_refresh(env, version)}{_render_source_config_restore(env, version)}{_render_menu_refs_restore(env, version)}{_render_module_states_repair(env, version)}  neutralise "{version}"
   checkpoint "{version}"
   mark "{version}" ok
 fi"""

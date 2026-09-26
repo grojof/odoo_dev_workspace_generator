@@ -427,6 +427,30 @@ Odoo:
 The list is `logs/<target>-source-configuration.tsv`. A resumed run whose source checkpoint predates
 this skips it, says so, and records `repair source-configuration-skipped`.
 
+### Rows that point at menus the chain deletes
+
+A module outside Odoo's core can reference menus through a many2many table. For example, a module that
+hides menus from some users or groups stores one row per user or group and menu. When OpenUpgrade deletes
+a menu Odoo replaced, PostgreSQL deletes those rows with it, and nothing says so. For example:
+- 13.0 deletes the four invoice menus of `account`;
+- 16.0 deletes `sale.menu_report_product_all`.
+
+At the source restore, the driver keeps every row of each two-column table that references `ir_ui_menu`,
+with the menu's external id (`keep menu-references` in the step record). `ir_ui_menu_group_rel` is left
+out, because each module update rewrites it from the module's data. After the source configuration, the
+target step puts back every kept row that is missing:
+- on the same menu, found by its external id, even if the chain created it again under a new id;
+- on its successor, for the menus the chain replaced. `odoo_dwg/menurefs.py` declares each successor
+  with its evidence: the OpenUpgrade analysis, and both menus opening the same documents.
+
+A row whose menu has no successor, whose user or group is gone, or whose table is gone is listed and not
+inserted. The Purchase app's vendor bills menu (13.0) is declared without a successor, because the
+Invoicing app's is another app's menu. The list is `logs/<target>-menu-references.tsv`. A resumed run
+whose source checkpoint predates this skips it, says so, and records `repair menu-references-skipped`.
+
+Hiding a menu is not access control. A user can still open what the hidden menu opens through a link or
+another menu. Rights come from groups and record rules.
+
 ### Pending installs with no code, cancelled after the target step
 
 OpenUpgrade 18.0 patches `update_list` to mark "to install" every auto-install module whose recorded

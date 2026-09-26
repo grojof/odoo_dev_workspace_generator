@@ -15,6 +15,14 @@ All notable changes to this project are documented here. The format is based on
     recomputing them.
 
 ### Added
+- **Rows that point at menus the chain deletes are put back.** A module that hides menus from users or
+  groups loses its rows when OpenUpgrade deletes a menu Odoo replaced. The driver now:
+  - keeps, at the source restore, every row of each many2many table on `ir_ui_menu` except Odoo's own
+    menu groups;
+  - puts back, at the target, those that are missing: on the same menu by its external id, or on its
+    declared successor, such as the `account.move` invoice menus for the 12.0 ones.
+
+  What cannot be put back is listed in `logs/<target>-menu-references.tsv`.
 - **Pending installs with no code are cancelled after the target step.** OpenUpgrade 18.0 marks
   auto-install modules "to install" even when their code is gone. The target's Odoo now cancels those
   whose code it cannot find, leaves the others for the operator, and lists both in

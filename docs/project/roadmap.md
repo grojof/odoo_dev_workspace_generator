@@ -297,6 +297,12 @@ items are host-dependent.
   auto-install modules "to install" even when their code is gone. The target step now cancels them with
   Odoo's own method, so later module operations no longer stop on inconsistent states.
 
+  Then rows that point at menus (change `keep-menu-references`). A paid module that hides menus from
+  users lost its rows on the menus OpenUpgrade replaced. They are kept at the source restore and put back
+  at the target, on the same menu or its declared successor. The first client's source rows were kept
+  and restored on its migrated database, in a transaction rolled back afterwards. Every hidden menu came
+  back or was listed with its reason, and a second run in the same transaction changed nothing.
+
   Not done yet: a client's own module whose manifest declares Odoo S.A. as its author is reported
   "dropped by Odoo; OpenUpgrade removes it". With an intake, where the module loads from is known, and
   that should decide it rather than the author.
