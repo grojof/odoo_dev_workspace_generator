@@ -427,6 +427,21 @@ Odoo:
 The list is `logs/<target>-source-configuration.tsv`. A resumed run whose source checkpoint predates
 this skips it, says so, and records `repair source-configuration-skipped`.
 
+### Pending installs with no code, cancelled after the target step
+
+OpenUpgrade 18.0 patches `update_list` to mark "to install" every auto-install module whose recorded
+dependencies are installed, even when its code no longer exists. Dependencies merged or renamed along
+the chain make old auto-install modules look satisfied. Odoo skips them and reports "Some modules have
+inconsistent states" at every later module operation.
+
+When the chain crosses 18.0, the target step runs the target's Odoo last before its checkpoint:
+- each pending install whose code Odoo cannot find (`get_module_path`) is cancelled with
+  `button_install_cancel`, as the Apps screen does;
+- a pending install whose code exists is left for you to install or cancel.
+
+Both are listed in `logs/<target>-module-states.tsv`. Modules left "to upgrade" with no code are the
+client's own, waiting for their port; `decisions.json` and the client-modules stage deal with those.
+
 ### When a module has no code anywhere: `decisions.json`
 
 Coverage stops a run when an installed module resolves in no source of a step and OpenUpgrade declares no

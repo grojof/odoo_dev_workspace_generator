@@ -15,6 +15,10 @@ All notable changes to this project are documented here. The format is based on
     recomputing them.
 
 ### Added
+- **Pending installs with no code are cancelled after the target step.** OpenUpgrade 18.0 marks
+  auto-install modules "to install" even when their code is gone. The target's Odoo now cancels those
+  whose code it cannot find, leaves the others for the operator, and lists both in
+  `logs/<target>-module-states.tsv`.
 - **Configuration the chain changes is put back as the source had it.** For a target from 18.0 the
   driver keeps, at the source restore, the operation types' return types, the reconciliation rules and
   the journals' alias names. At the target it:
