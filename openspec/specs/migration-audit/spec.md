@@ -105,12 +105,13 @@ and quoted.
 ### Requirement: Statement lines stored as reconciled with a suspense line are found
 
 When the statement lines have `is_reconciled` and the journals have `suspense_account_id`, the audit SHALL
-report, as a finding, the lines stored as reconciled whose entry still has a line on the journal's suspense
-account. It SHALL select them with the same query the 14.0 repair uses.
+report, as a finding, the lines stored as reconciled whose entry still has an amount waiting on the
+journal's suspense account, by Odoo's own rule: a line of zero amount is reconciled. It SHALL select them
+with the same query the 14.0 repair uses.
 
 #### Scenario: A line OpenUpgrade 14.0 left wrong
 
-- **WHEN** a statement line is stored as reconciled and its entry has a line on the suspense account
+- **WHEN** a statement line is stored as reconciled and its entry has an amount on the suspense account
 - **THEN** it is reported, with the repair named as the fix
 
 ### Requirement: Saved filters and exports naming fields the database lacks are found

@@ -16,7 +16,8 @@ V12 = [["account_journal", "code"], ["account_journal", "default_debit_account_i
 V18 = [["account_journal", "code"], ["account_journal", "suspense_account_id"],
        ["account_bank_statement_line", "id"], ["account_bank_statement_line", "move_id"],
        ["account_bank_statement_line", "is_reconciled"], ["account_move_line", "statement_line_id"],
-       ["account_move_line", "payment_id"], ["ir_model_constraint", "type"],
+       ["account_move_line", "payment_id"], ["account_move_line", "amount_residual_currency"],
+       ["account_account", "reconcile"], ["ir_model_constraint", "type"],
        ["ir_model_fields", "required"]]
 
 
@@ -109,7 +110,9 @@ def test_the_audit_selects_the_lines_the_driver_counts_after_the_14_step():
     from odoo_dwg.models import MigrationEnv
     assert templates.STALE_RECONCILED_LINES_FROM in audit.STALE_RECONCILED_SQL
     driver = templates.render_run_migration_sh(MigrationEnv(source="12.0", target="18.0"))
-    assert "WHERE l.is_reconciled AND EXISTS (" in driver
+    assert "WHERE l.is_reconciled AND (" in driver
+    # Odoo's own rule: an amount still waiting in suspense, so a line of zero amount is not one.
+    assert "THEN aml.amount_residual_currency" in driver and ") <> 0" in driver
 
 
 def test_examples_are_capped_and_the_rest_counted():

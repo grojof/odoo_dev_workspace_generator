@@ -933,15 +933,21 @@ STATEMENT_LINES_FIX = "OCA/OpenUpgrade#6005"
 STATEMENT_LINES_FIX_MARKER = 'env["account.bank.statement.line"].flush()'
 STATEMENT_LINES_FIX_FILE = "account/14.0.1.1/post-migration.py"
 
-#: The only lines the defect can leave wrong: stored as reconciled while their move still
-#: has a line on the journal's suspense account. The check after the step and ``migrate audit``
-#: both select them with this, so they agree on what is affected.
+#: The only lines the defect can leave wrong: stored as reconciled while their move still has
+#: an amount waiting on the journal's suspense account. Odoo's own rule (14.0
+#: ``account_bank_statement.py``, ``_compute_is_reconciled``): with suspense lines, a line is
+#: reconciled when their residual is zero, read as ``amount_residual_currency`` on a reconcilable
+#: account and ``amount_currency`` otherwise. So a line of zero amount is reconciled. The check
+#: after the step and ``migrate audit`` both select them with this, so they agree on what is
+#: affected.
 STALE_RECONCILED_LINES_FROM = """FROM account_bank_statement_line l
     JOIN account_move m ON m.id = l.move_id
     JOIN account_journal j ON j.id = m.journal_id
-    WHERE l.is_reconciled AND EXISTS (
-        SELECT 1 FROM account_move_line aml
-        WHERE aml.move_id = m.id AND aml.account_id = j.suspense_account_id)"""
+    WHERE l.is_reconciled AND (
+        SELECT coalesce(sum(CASE WHEN a.reconcile THEN aml.amount_residual_currency
+                                 ELSE aml.amount_currency END), 0)
+        FROM account_move_line aml JOIN account_account a ON a.id = aml.account_id
+        WHERE aml.move_id = m.id AND aml.account_id = j.suspense_account_id) <> 0"""
 
 #: Run by the 14.0 Odoo's shell: the SII certificate file the OCA 14.0 migration of
 #: ``l10n_es_aeat_sii_oca`` leaves behind. It creates each certificate from the old

@@ -557,7 +557,7 @@ def test_the_14_step_needs_the_openupgrade_fix_and_checks_the_statement_lines():
     assert "account/14.0.1.1/post-migration.py" in before and "pull --ff-only" in before
     # After it: the lines are counted, never recomputed, and any stops the step.
     block = driver[driver.index('step_hook "14.0" post'):driver.index('checkpoint "14.0"')]
-    assert "WHERE l.is_reconciled AND EXISTS" in block and "j.suspense_account_id" in block
+    assert "WHERE l.is_reconciled AND (" in block and "j.suspense_account_id) <> 0" in block
     assert '[ "$stale" = 0 ] || die' in block
     assert "_compute_is_reconciled" not in driver
     assert 'mark "14.0" check statement-lines-is-reconciled' in block

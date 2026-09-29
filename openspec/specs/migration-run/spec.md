@@ -446,8 +446,9 @@ post-migration holds the flush of the statement lines that OCA/OpenUpgrade#6005 
 the driver SHALL stop before the step, naming the pull request and the command that updates the checkout.
 
 Right after the 14.0 step and its post hook, before neutralising and checkpointing, the driver SHALL count
-the bank statement lines stored as reconciled whose move still has a line on the journal's suspense
-account, with the same selection `migrate audit` uses. It SHALL record the check in the step record when
+the bank statement lines stored as reconciled whose move still has an amount waiting on the journal's
+suspense account, by Odoo's own rule (a line of zero amount is reconciled), with the same selection
+`migrate audit` uses. It SHALL record the check in the step record when
 there are none, and stop the run, with the count, when there is any. It SHALL NOT recompute them. A chain
 whose source is 14.0 or later SHALL NOT run the precondition or the check.
 
