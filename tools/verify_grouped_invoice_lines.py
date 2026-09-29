@@ -39,11 +39,12 @@ from verify_mail_capture import Cluster, _bindir  # noqa: E402
 from odoo_dwg import ungroup  # noqa: E402
 
 SCHEMA = """
-    CREATE TABLE res_company (id integer PRIMARY KEY, currency_id integer);
+    CREATE TABLE res_company (id integer PRIMARY KEY, currency_id integer,
+      fiscalyear_lock_date date DEFAULT '2026-07-31', tax_lock_date date DEFAULT '2026-06-30');
     CREATE TABLE account_account (id integer PRIMARY KEY, code varchar, reconcile boolean);
     CREATE TABLE account_move (id integer PRIMARY KEY, name varchar, move_type varchar,
       company_id integer, currency_id integer, amount_untaxed numeric, amount_tax numeric,
-      amount_total numeric, amount_residual numeric);
+      amount_total numeric, amount_residual numeric, date date DEFAULT '2026-09-01');
     CREATE TABLE account_move_line (id serial PRIMARY KEY,
       move_id integer REFERENCES account_move(id) ON DELETE CASCADE, account_id integer,
       partner_id integer, balance numeric, amount_currency numeric, debit numeric,
@@ -188,6 +189,20 @@ FIXTURE = """
     INSERT INTO account_move_line_account_tax_rel VALUES (1102, 1), (1103, 4), (1104, 1);
     INSERT INTO account_invoice_line_tax VALUES (11001, 1), (11002, 1);
     INSERT INTO account_move_line_l10n_es_aeat_tax_line_rel VALUES (28, 1103), (29, 1102);
+    -- 12. A paid invoice of a closed period: kept as OpenUpgrade left it, not listed.
+    INSERT INTO account_move VALUES (12, 'INV/12', 'out_invoice', 1, 1, 10, 0, 10, 0, '2026-07-31');
+    INSERT INTO account_move_line (id, move_id, account_id, partner_id, balance, amount_currency,
+        debit, credit, price_subtotal, display_type, exclude_from_invoice_tab, old_invoice_line_id)
+      VALUES (1201, 12, 400, 7, 10, 10, 10, 0, NULL, 'payment_term', true, NULL),
+             (1202, 12, 700, 7, -10, -10, 0, 10, NULL, 'product', true, NULL),
+             (1203, 12, 700, 7, 0, 0, 0, 0, 10, 'product', false, 12001);
+    -- 13. An invoice of a closed period still open: repaired, as any open invoice.
+    INSERT INTO account_move VALUES (13, 'INV/13', 'out_invoice', 1, 1, 10, 0, 10, 10, '2025-03-01');
+    INSERT INTO account_move_line (id, move_id, account_id, partner_id, balance, amount_currency,
+        debit, credit, price_subtotal, display_type, exclude_from_invoice_tab, old_invoice_line_id)
+      VALUES (1301, 13, 400, 7, 10, 10, 10, 0, NULL, 'payment_term', true, NULL),
+             (1302, 13, 700, 7, -10, -10, 0, 10, NULL, 'product', true, NULL),
+             (1303, 13, 700, 7, 0, 0, 0, 0, 10, 'product', false, 13001);
     INSERT INTO account_invoice_line SELECT DISTINCT old_invoice_line_id, false FROM account_move_line
       WHERE old_invoice_line_id IS NOT NULL;
     UPDATE account_invoice_line SET aml_matched = true WHERE id = 11001;
@@ -249,8 +264,16 @@ def main() -> int:
             code, out, err = _run(cluster, "probe")
             check("the repair runs and commits", code == 0, err.strip())
             check("it says what it repaired",
-                  "7 groups repaired on 6 invoices" in err and "5 groups left" in err
+                  "8 groups repaired on 7 invoices" in err and "5 groups left" in err
                   and "1 reused zero-amount lines kept" in err, err.strip())
+            check("a paid invoice of a closed period keeps OpenUpgrade's result, counted",
+                  cluster.value(LINES.format(12), "probe")
+                  == "1201:400:7:10 1202:700:7:-10 1203:700:7:0"
+                  and "1 paid invoice(s) of closed periods kept as OpenUpgrade left them" in err
+                  and "INV/12" not in out, err.strip())
+            check("an invoice of a closed period still open is repaired",
+                  cluster.value(LINES.format(13), "probe") == "1301:400:7:10 1303:700:7:-10",
+                  cluster.value(LINES.format(13), "probe"))
 
             check("a grouped invoice: each line its amount, the cent to the largest, the "
                   "grouped item's partner, the item gone",
@@ -338,7 +361,7 @@ def main() -> int:
                   cluster.value(LINES.format(1), "broken") == before
                   and cluster.value("SELECT count(*) FROM account_move_line "
                                     "WHERE exclude_from_invoice_tab AND display_type = 'product'",
-                                    "broken") == "14")
+                                    "broken") == "16")
 
             setup(cluster, "none", SCHEMA)
             code, out3, err = _run(cluster, "none")

@@ -273,9 +273,16 @@ purchase lands under "no product", quantities count twice, and margins by produc
 reprint and every credit note carries the extra line. Resetting one such invoice to draft makes Odoo
 itself move the amounts back to the lines.
 
-For a chain from 12.0 or older to 16.0 or later, the driver does that for every invoice. It runs right
-after the target step and its post hook, before the checkpoint, in one SQL transaction, one group at a
-time: one move, one account and one set of taxes.
+For a chain from 12.0 or older to 16.0 or later, the driver does that for the invoices of open periods,
+and for any invoice still open. It runs right after the target step and its post hook, before the
+checkpoint, in one SQL transaction, one group at a time: one move, one account and one set of taxes.
+
+A closed period is one on or before the later of the company's lock dates (`fiscalyear_lock_date`,
+`tax_lock_date`). A paid invoice of a closed period keeps OpenUpgrade's result, the extra line with the
+whole amount, and is counted. The repair would not change its balances or its taxes, but it would
+change the journal detail of a year already closed and declared, and OpenUpgrade's maintainers advise
+against changing closed fiscal years (OCA/OpenUpgrade#3054). An invoice still open is repaired wherever
+it is dated, since a payment or a credit note on it needs its lines.
 - **An amount only moves inside a group**, so no account's, partner's or tax's sum can change. A VAT
   return or EC sales list filed from the source recomputes the same. On the first client's database every
   filed one was recalculated before and after, identical.
@@ -388,7 +395,9 @@ When the chain crosses 17.0, the target step runs the target's own Odoo after th
 1. **The chart template's reload, restricted to taxes.** For a tax whose template is unchanged (amount
    type, amount, number of repartition lines), only its repartition lines' tags are set from the
    template. Any other tax is left and listed.
-2. **Every journal item's grids from repartition lines**, the rule Odoo applies when it posts:
+2. **The grids of every journal item of an open period, from repartition lines**, the rule Odoo applies
+   when it posts. A closed period's items keep their grids, as OCA's `account_chart_update` leaves
+   them: their taxes are declared, and they are counted:
    - a tax line takes its repartition line's tags;
    - a base line takes its taxes' base repartition tags for the document's type (credit note or
      invoice);

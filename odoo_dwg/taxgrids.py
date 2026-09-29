@@ -13,9 +13,11 @@ At the target step, the target's own Odoo:
 1. runs the chart template's reload restricted to taxes (``_pre_reload_data`` then ``_load_data`` on the
    template's ``account.tax`` data): for a tax whose template is unchanged, only its repartition lines'
    tags are set from the template; a tax with no template, or a changed one, is left and listed;
-2. recomputes every journal item's tax tags from its repartition line (a tax line) and from the base
-   repartition lines of its taxes for the document's type (a base line), as Odoo sets them when it posts;
-   journal items of plain entries, whose type Odoo derives from more than the move, are left and counted;
+2. recomputes the tax tags of every journal item of an open period (``lockdates.py``) from its
+   repartition line (a tax line) and from the base repartition lines of its taxes for the document's type
+   (a base line), as Odoo sets them when it posts; journal items of plain entries, whose type Odoo derives
+   from more than the move, are left and counted. A closed period's items keep their tags, as OCA's
+   ``account_chart_update`` leaves them: its taxes are declared;
 3. archives the tax tags nothing uses any more and no tax report generates.
 
 No amount moves: every journal item's amounts are fingerprinted before and after, and any difference
@@ -26,6 +28,8 @@ Pure: this module holds the shell script; the migration driver runs it.
 
 from __future__ import annotations
 
+from .lockdates import after_lock
+
 #: The version whose tax reports generate the signed tags.
 FROM_STEP = 17
 
@@ -35,11 +39,12 @@ def applies(source_major: int, target_major: int) -> bool:
 
 
 #: Journal items' tags as Odoo sets them: a tax line's from its repartition line, a base line's
-#: from its taxes' base repartition lines for the document's type. Plain entries are left.
-_RECOMPUTE_SQL = """
+#: from its taxes' base repartition lines for the document's type. Plain entries, and closed
+#: periods, are left.
+_RECOMPUTE_SQL = f"""
 CREATE TEMP TABLE odwg_grid_scope AS
   SELECT l.id FROM account_move_line l JOIN account_move m ON m.id = l.move_id
-  WHERE m.move_type <> 'entry' AND (l.tax_repartition_line_id IS NOT NULL
+  WHERE m.move_type <> 'entry' AND {after_lock("m")} AND (l.tax_repartition_line_id IS NOT NULL
     OR EXISTS (SELECT 1 FROM account_move_line_account_tax_rel x
                WHERE x.account_move_line_id = l.id));
 CREATE TEMP TABLE odwg_grid_new AS
@@ -67,6 +72,13 @@ DELETE FROM account_account_tag_account_move_line_rel t USING odwg_grid_old o
   WHERE t.account_move_line_id = o.aml AND t.account_account_tag_id = o.tag;
 INSERT INTO account_account_tag_account_move_line_rel (account_move_line_id, account_account_tag_id)
   SELECT aml, tag FROM odwg_grid_new ON CONFLICT DO NOTHING;
+"""
+
+#: Journal items with taxes that a closed period keeps as they are.
+_CLOSED_SQL = f"""
+SELECT count(*) FROM account_move_line l JOIN account_move m ON m.id = l.move_id
+WHERE m.move_type <> 'entry' AND NOT {after_lock("m")} AND (l.tax_repartition_line_id IS NOT NULL
+  OR EXISTS (SELECT 1 FROM account_move_line_account_tax_rel x WHERE x.account_move_line_id = l.id))
 """
 
 #: Tax tags no repartition line or journal item uses, and no tax report generates.
@@ -136,6 +148,7 @@ entries = rows("SELECT count(*) FROM account_move_line l JOIN account_move m ON 
                "WHERE m.move_type = 'entry' AND (l.tax_repartition_line_id IS NOT NULL OR EXISTS "
                "(SELECT 1 FROM account_move_line_account_tax_rel x "
                "WHERE x.account_move_line_id = l.id))")[0][0]
+closed = rows({_CLOSED_SQL!r})[0][0]
 for tag_id, name in rows({_ARCHIVE_SQL!r}):
     listed.append(("tag-archived", tag_id, name))
 if rows(AMOUNTS)[0][0] != before:
@@ -144,12 +157,12 @@ if rows(AMOUNTS)[0][0] != before:
 with open(os.environ["ODWG_TAXGRIDS_LIST"], "a", encoding="utf-8") as out:
     for kind, rid, detail in listed:
         out.write("%s\\t%s\\t%s\\n" % (kind, rid, detail))
-    out.write("journal-items\\t-\\t%d with other tax grids; %d of plain entries left\\n"
-              % (changed, entries))
+    out.write("journal-items\\t-\\t%d with other tax grids; %d of plain entries left; %d of "
+              "closed periods kept\\n" % (changed, entries, closed))
 cr.commit()
 print("[repair] tax grids: %d repartition line(s) retagged, %d tax(es) left, %d journal item(s) "
-      "regridded, %d of plain entries left, %d tag(s) archived" % (
+      "regridded, %d of plain entries left, %d of closed periods kept, %d tag(s) archived" % (
           sum(1 for k, *_ in listed if k == "repartition"),
-          sum(1 for k, *_ in listed if k == "tax-left"), changed, entries,
+          sum(1 for k, *_ in listed if k == "tax-left"), changed, entries, closed,
           sum(1 for k, *_ in listed if k == "tag-archived")))
 """

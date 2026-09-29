@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from odoo_dwg import ungroup
+from odoo_dwg import lockdates, ungroup
 
 
 def test_it_applies_to_a_source_that_can_group_and_a_target_that_shows_the_items():
@@ -54,3 +54,10 @@ def test_what_a_linked_record_adds_up_to_is_checked():
     assert "check failed: what a link adds up to changed" in sql
     assert sql.index("CREATE TEMP TABLE odwg_b_sum") < sql.index("DELETE FROM account_move_line WHERE id IN")
     assert "account_analytic_account_account_move_line_rel" in ungroup.OWN_LINK_TABLES
+
+
+def test_a_paid_invoice_of_a_closed_period_keeps_openupgrades_result():
+    sql = ungroup.ungroup_sql()
+    assert f"AND ({lockdates.after_lock('m')} OR m.amount_residual <> 0);" in sql
+    assert f"AND NOT ({lockdates.after_lock('m')} OR m.amount_residual <> 0);" in sql
+    assert "paid invoice(s) of closed periods kept as OpenUpgrade left them" in sql

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from odoo_dwg import taxgrids, templates
+from odoo_dwg import lockdates, taxgrids, templates
 from odoo_dwg.models import MigrationEnv
 
 
@@ -45,3 +45,9 @@ def test_the_target_step_refreshes_after_the_valuation_and_before_its_checkpoint
 
 def test_a_chain_from_17_does_not_refresh():
     assert "ODWG_TAXGRIDS" not in _driver(source="17.0")
+
+
+def test_a_closed_periods_journal_items_keep_their_tags():
+    script = taxgrids.REFRESH
+    assert lockdates.after_lock("m") in script
+    assert "of closed periods kept" in script
