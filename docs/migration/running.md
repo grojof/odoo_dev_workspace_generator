@@ -477,6 +477,22 @@ What cannot be rewritten stays as it is:
 Everything is listed in `logs/<target>-saved-paths.tsv`. Run `migrate audit` afterwards: what it
 still reports is what users save again.
 
+OpenUpgrade also archives, at every step, each active filter whose domain or grouping stops loading,
+and nothing reactivates it: a filter the rewrite repaired would stay hidden. So the driver keeps which
+filters were active at the source restore, and after the rewrite, and again at the end of the
+client-modules stage:
+1. a filter saved on a window action the chain deleted moves to the target's action for the same
+   documents (Odoo 12's invoice actions, one per invoice type, to the move actions for that type);
+2. the filters the chain archived are reactivated;
+3. OpenUpgrade's own check (`disable_invalid_filters`) runs again, so one still invalid is archived by
+   the same rule.
+
+Each filter moved, reactivated or left is listed in `logs/<step>-saved-filters.tsv`. A filter archived
+in the source stays archived.
+
+When the run completes, the driver drops its kept tables (`odwg_kept_*`) from the working database. The
+checkpoints keep them, so a resumed run and `--redo-modules` still find them.
+
 A field with the same name and another meaning is not seen: an invoice's `name` was its description in
 12.0 and is its number from 13.0, and its `state` no longer says paid. Check exports made on invoices by
 hand.

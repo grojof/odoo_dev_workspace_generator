@@ -17,6 +17,13 @@ A path is followed segment by segment through the target's relations, as the aud
 A filter is rewritten whole or not at all: one leaf, grouping or sort it cannot rewrite leaves
 it untouched and listed. An export's columns that end up the same are kept once.
 
+OpenUpgrade archives, at every step, each active filter whose domain or grouping no longer loads
+(openupgradelib's ``disable_invalid_filters``), and nothing reactivates it. The source's active
+filters are kept at the source restore (:func:`keep_sql`); after the rewrite, and again after the
+client-modules stage, those the chain archived are reactivated and OpenUpgrade's own check runs
+again on the active filters, so one still invalid is archived by the same rule
+(:data:`REACTIVATE`).
+
 Stdlib only, and the driver embeds this file verbatim: it runs inside the target's
 ``odoo-bin shell``, which reads the fields, filters and exports and writes the changes
 (:data:`APPLY`).
@@ -395,4 +402,83 @@ for kind, *_ in listed:
     counts[kind] = counts.get(kind, 0) + 1
 print("[repair] saved filters and exports: %s" % (", ".join(
     "%s %d" % item for item in sorted(counts.items())) or "nothing to rewrite"))
+'''
+
+#: The source's active filters, kept at the source restore with their action's external id.
+KEPT_ACTIVE = "odwg_kept_active_filter"
+
+#: Window actions the chain deletes, by external id, mapped to the target's action for the same
+#: documents. A filter saved on one is archived by OpenUpgrade's check (its action is gone), and is
+#: moved to the successor before the check runs again. 12.0 account_invoice_view.xml: each action
+#: lists one invoice type of ``account.invoice``; 18.0 account_move_views.xml: each action opens
+#: ``account.move`` with that type as default, beside its refunds.
+ACTION_SUCCESSORS: dict[str, str] = {
+    "account.action_invoice_tree1": "account.action_move_out_invoice_type",
+    "account.action_invoice_out_refund": "account.action_move_out_refund_type",
+    "account.action_vendor_bill_template": "account.action_move_in_invoice_type",
+    "account.action_invoice_in_refund": "account.action_move_in_refund_type",
+}
+
+
+def keep_sql() -> str:
+    """Run on the restored source: the filters OpenUpgrade's check would look at, active."""
+    return (f"DROP TABLE IF EXISTS {KEPT_ACTIVE};\n"
+            f"CREATE TABLE {KEPT_ACTIVE} AS SELECT f.id, (SELECT d.module || '.' || d.name\n"
+            f"    FROM ir_model_data d WHERE d.model LIKE 'ir.actions.%' AND d.res_id = f.action_id\n"
+            f"    ORDER BY d.id LIMIT 1) AS action_xmlid\n"
+            f"  FROM ir_filters f WHERE f.active AND coalesce(f.domain, '[]') <> '[]';\n")
+
+
+def reactivate_source() -> str:
+    """What the driver embeds: the successors, then :data:`REACTIVATE`."""
+    return f"ACTION_SUCCESSORS = {ACTION_SUCCESSORS!r}\n" + REACTIVATE
+
+
+#: Run by ``odoo-bin shell`` at the target: reactivate the kept filters the chain archived, then
+#: let OpenUpgrade's own check archive again whatever still does not load. The ORM does the
+#: writes, so it runs on any target.
+REACTIVATE = r'''
+import os
+from openupgradelib import openupgrade
+cr = env.cr
+Filters = env["ir.filters"].with_context(active_test=False)
+cr.execute("SELECT to_regclass('odwg_kept_active_filter') IS NOT NULL")
+if not cr.fetchone()[0]:
+    print("[warn] saved filters: the source's active filters were not kept; none reactivated")
+else:
+    cr.execute("SELECT f.id, f.action_id, k.action_xmlid FROM ir_filters f "
+               "JOIN odwg_kept_active_filter k ON k.id = f.id WHERE NOT f.active ORDER BY f.id")
+    found = cr.fetchall()
+    ids = [fid for fid, _, _ in found]
+    listed, moved = [], {}
+    for fid, action_id, xmlid in found:
+        # An action the chain deleted: the filter moves to the action for the same documents.
+        if action_id and not env["ir.actions.actions"].browse(action_id).exists():
+            successor = env.ref(ACTION_SUCCESSORS.get(xmlid or "", ""), raise_if_not_found=False) \
+                if xmlid in ACTION_SUCCESSORS else None
+            if successor:
+                Filters.browse(fid).write({"action_id": successor.id})
+                listed.append(("action", fid))
+                moved[fid] = "%s -> %s" % (xmlid, ACTION_SUCCESSORS[xmlid])
+    active_before = set(Filters.search([("active", "=", True)]).ids)
+    Filters.browse(ids).write({"active": True})
+    openupgrade.disable_invalid_filters(env, verbose=False)
+    flush = getattr(env, "flush_all", None)
+    flush() if flush else env["base"].flush()
+    active_after = set(Filters.search([("active", "=", True)]).ids)
+    listed += [("reactivated" if fid in active_after else "left-archived", fid)
+               for fid in ids]
+    listed += [("archived", fid) for fid in sorted(active_before - active_after)]
+    with open(os.environ["ODWG_SAVED_FILTERS_LIST"], "w", encoding="utf-8") as out:
+        for kind, fid in listed:
+            record = Filters.browse(fid)
+            detail = moved[fid] if kind == "action" else record.name or ""
+            out.write("%s\t%s\t%s\t%s\n" % (kind, fid, record.model_id,
+                                              (detail or "").replace("\t", " ")))
+    cr.commit()
+    counts = {}
+    for kind, _ in listed:
+        counts[kind] = counts.get(kind, 0) + 1
+    print("[repair] saved filters the chain archived: %s" % (", ".join(
+        "%s %d" % item for item in sorted(counts.items())) or "none"))
 '''

@@ -124,3 +124,44 @@ def test_the_driver_rewrites_after_the_menu_references_and_before_the_checkpoint
     assert "def rewrite_filter(" in sh and "ODWG_SAVED_PATHS_LIST" in sh
     assert "ODWG_SAVEDPATHS" not in templates.render_run_migration_sh(
         MigrationEnv(source="13.0", target="18.0"))
+
+
+def test_the_source_restore_keeps_the_active_filters_with_their_action():
+    sql = savedpaths.keep_sql()
+    assert f"CREATE TABLE {savedpaths.KEPT_ACTIVE}" in sql
+    assert "f.active AND coalesce(f.domain, '[]') <> '[]'" in sql
+    assert "d.model LIKE 'ir.actions.%' AND d.res_id = f.action_id" in sql
+
+
+def test_reactivation_uses_openupgrades_own_check_after_moving_deleted_actions():
+    script = savedpaths.reactivate_source()
+    compile(script, "reactivate", "exec")
+    assert script.startswith("ACTION_SUCCESSORS = {")
+    # Actions first, then reactivate, then OpenUpgrade archives what still does not load.
+    order = [script.index(marker) for marker in (
+        '{"action_id": successor.id}', 'write({"active": True})',
+        "openupgrade.disable_invalid_filters(env, verbose=False)", "cr.commit()")]
+    assert order == sorted(order)
+    # Every successor is a target action for one invoice type.
+    assert all(new.startswith("account.action_move_") for new in
+               savedpaths.ACTION_SUCCESSORS.values())
+
+
+def test_the_driver_keeps_reactivates_twice_and_cleans_up():
+    sh = templates.render_run_migration_sh(MigrationEnv(source="12.0", target="18.0"))
+    keep = sh.index("<<'ODWG_KEEP_FILTERS'")
+    assert keep < sh.index('neutralise 00_source')
+    target = [sh.index(marker) for marker in (
+        'mark "18.0" repair saved-paths', 'mark "18.0" repair saved-filters',
+        'checkpoint "18.0"')]
+    assert target == sorted(target)
+    stage = [sh.index(marker) for marker in (
+        'step_hook "18.0-modules" post', 'mark "18.0-modules" repair saved-filters',
+        'neutralise "18.0-modules"')]
+    assert stage == sorted(stage)
+    assert "18.0-modules-saved-filters.tsv" in sh
+    cleanup = sh.index("<<'ODWG_CLEANUP'")
+    assert stage[-1] < cleanup < sh.index("mark - run-ok")
+    assert "LIKE 'odwg\\_kept\\_%'" in templates.KEPT_TABLES_CLEANUP
+    assert "ODWG_KEEP_FILTERS" not in templates.render_run_migration_sh(
+        MigrationEnv(source="13.0", target="18.0"))
