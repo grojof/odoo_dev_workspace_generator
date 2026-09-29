@@ -583,6 +583,11 @@ For a chain whose source is 12.0 or older and whose target is 16.0 or later, the
 invoices whose journal items were grouped at the source. It SHALL run right after the target step and its
 post hook, and before neutralising and checkpointing.
 
+It SHALL repair only invoices of open periods: dated after the later of their company's
+`fiscalyear_lock_date` and `tax_lock_date`, or with an amount still open. A paid invoice of a closed period
+SHALL keep OpenUpgrade's result, the grouped item as a line of its own, as OpenUpgrade's maintainers advise
+(OCA/OpenUpgrade#3054); the repair SHALL say how many it kept that way.
+
 A grouped item is a journal item of an invoice or credit note that:
 - OpenUpgrade 13.0 excluded from the invoice tab;
 - is typed as a product line;
@@ -677,6 +682,16 @@ the columns it reads.
 
 - **WHEN** a run resumes after the target checkpoint
 - **THEN** the repair does not run again, since the checkpoint already holds its result
+
+#### Scenario: A paid invoice of a closed period
+
+- **WHEN** a grouped invoice is dated on or before its company's lock date and nothing of it is open
+- **THEN** its grouped item and zero-amount lines stay as OpenUpgrade left them, and the repair counts it
+
+#### Scenario: An invoice of a closed period still open
+
+- **WHEN** a grouped invoice is dated on or before its company's lock date and has an amount open
+- **THEN** it is repaired like an invoice of an open period
 
 ### Requirement: The taxes OpenUpgrade 13.0 adds to a reused journal item are taken back after the 13.0 step
 
@@ -887,14 +902,16 @@ When the chain crosses 17.0, the target step SHALL, after the valuation alignmen
 run the target's Odoo to:
 - apply the chart template's reload restricted to taxes, setting the repartition lines' tags of every tax
   whose template is unchanged, and leaving any other tax;
-- recompute the tax tags of every journal item of an invoice or credit note from repartition lines: a tax
-  line from its repartition line, a base line from its taxes' base repartition lines for the document's
-  type;
+- recompute the tax tags of every journal item of an invoice or credit note of an open period (dated after
+  the later of its company's `fiscalyear_lock_date` and `tax_lock_date`) from repartition lines: a tax line
+  from its repartition line, a base line from its taxes' base repartition lines for the document's type. A
+  closed period's items SHALL keep their tags, as OCA's `account_chart_update` leaves them: their taxes are
+  declared;
 - archive the tax tags no repartition line or journal item uses and no tax report generates.
 
 It SHALL keep nothing when any journal item's amounts, taxes or tag inversion would change. It SHALL list
 every repartition line retagged, every tax left, every tag archived, and the number of journal items
-regridded and of plain-entry items left, in `logs/<target>-tax-grids.tsv`.
+regridded, of plain-entry items left and of closed periods' items kept, in `logs/<target>-tax-grids.tsv`.
 
 #### Scenario: Unsigned tags from an older chart
 
@@ -910,6 +927,11 @@ regridded and of plain-entry items left, in `logs/<target>-tax-grids.tsv`.
 
 - **WHEN** the refresh runs on a database it already refreshed
 - **THEN** it retags nothing
+
+#### Scenario: A closed period's journal items
+
+- **WHEN** an invoice dated on or before its company's lock date carries the source chart's tags
+- **THEN** its journal items keep them, and are counted as kept
 
 ### Requirement: Source configuration the chain changes is put back at the target step
 

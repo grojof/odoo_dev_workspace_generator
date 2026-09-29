@@ -9,7 +9,9 @@ so from 16.0 the item is an invoice line of its own, carrying the whole amount, 
 real lines carry none.
 
 The repair moves each item's amount to its lines and deletes it, one group at a time: one
-move, one account, one set of taxes. Inside a group no account's, partner's or tax's sum
+move, one account, one set of taxes. It repairs only invoices of open periods, or still open
+(``lockdates.py``): an invoice of a closed period keeps OpenUpgrade's result, the grouped item
+as a line of its own, as OpenUpgrade's maintainers advise (OCA/OpenUpgrade#3054). Inside a group no account's, partner's or tax's sum
 can change, so a declaration filed from the source recomputes the same. It commits only
 when its checks hold, and names every group it leaves.
 
@@ -17,6 +19,8 @@ Pure: this module holds SQL; the migration driver runs it with ``psql``.
 """
 
 from __future__ import annotations
+
+from .lockdates import after_lock
 
 #: The source up to which invoices can hold grouped items, and the target from which
 #: OpenUpgrade has typed them as product lines.
@@ -56,6 +60,7 @@ def ungroup_sql() -> str:
     Progress goes to stderr (notices). The groups left, one per row
     (move id, move, account id, tax ids, grouped amount, reason), go to stdout."""
     own = ", ".join(f"'{table}'" for table in OWN_LINK_TABLES)
+    in_scope = after_lock("m")
     movable = _sql_list(MOVABLE_REFERENCES)
     return f"""\
 \\set ON_ERROR_STOP 1
@@ -84,7 +89,18 @@ BEGIN
       (coalesce(l.reconciled, false) OR coalesce(l.amount_residual, 0) NOT IN (0, l.balance)) settled
     FROM account_move_line l JOIN account_move m ON m.id = l.move_id
     WHERE l.exclude_from_invoice_tab AND l.display_type = 'product' AND l.old_invoice_line_id IS NULL
-      AND m.move_type IN ('out_invoice', 'out_refund', 'in_invoice', 'in_refund');
+      AND m.move_type IN ('out_invoice', 'out_refund', 'in_invoice', 'in_refund')
+      -- A closed period's invoice keeps OpenUpgrade's result, unless it is still open.
+      AND ({in_scope} OR m.amount_residual <> 0);
+  SELECT count(DISTINCT l.move_id) INTO kept
+    FROM account_move_line l JOIN account_move m ON m.id = l.move_id
+    WHERE l.exclude_from_invoice_tab AND l.display_type = 'product' AND l.old_invoice_line_id IS NULL
+      AND m.move_type IN ('out_invoice', 'out_refund', 'in_invoice', 'in_refund')
+      AND NOT ({in_scope} OR m.amount_residual <> 0);
+  IF kept > 0 THEN
+    RAISE NOTICE '[repair] grouped invoice items: % paid invoice(s) of closed periods kept as OpenUpgrade left them', kept;
+  END IF;
+  kept := 0;
   IF NOT EXISTS (SELECT 1 FROM odwg_g) THEN
     RAISE NOTICE '[repair] grouped invoice items: none';
     RETURN;
