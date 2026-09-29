@@ -186,8 +186,9 @@ def _build_parser() -> argparse.ArgumentParser:
                         help=t("The module(s) that carry it: one for renamed, any for replaced."))
     decide.add_argument("--reason", default="", help=t("Why, in a sentence."))
     decide.add_argument("--before-chain", action="store_true",
-                        help=t("With dropped: uninstall it right after the source restore, "
-                               "before the chain."))
+                        help=t("With dropped or replaced: uninstall it right after the source "
+                               "restore, before the chain; replaced may then name the module "
+                               "itself, installed again at the target."))
     decide.add_argument("--write", action="store_true",
                         help=t("Write it; without this, only print it."))
     loss = migrate_actions.add_parser(

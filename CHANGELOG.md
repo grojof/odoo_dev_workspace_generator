@@ -15,6 +15,11 @@ All notable changes to this project are documented here. The format is based on
     recomputing them.
 
 ### Added
+- **A module with a gap in the chain can leave before it and come back at the target.** A `replaced`
+  decision now takes `--before-chain` too, and its `--to` may then name the module itself. The driver
+  uninstalls it after the source restore, with the same checks as a `dropped` one, and the client-modules
+  stage installs it again at the target. Until now, such a module could only be `dropped`, and a check the
+  client used was silently gone at the target.
 - **Saved filters and exports are rewritten to the fields the chain renamed.** For a source up to
   12.0, the target step follows each path through the target's relations and renames the fields whose
   successor `savedpaths.py` declares with its evidence. It also maps a domain value that changed with its

@@ -130,8 +130,9 @@ Two commands write, and only the environment's own record, `decisions.json`. Eac
 would record and writes it only with `--write`:
 - `odoo-dwg migrate decide MODULE --source A --target B --decision KIND [--to M…] [--reason TEXT]
   [--before-chain]`. `--to` takes several modules for a split: the first takes the old module, the
-  others are installed. `--before-chain`, with `dropped`, has the driver uninstall the module right after
-  the source restore ([running](../migration/running.md#retiring-a-module-before-the-chain)).
+  others are installed. `--before-chain`, with `dropped` or `replaced`, has the driver uninstall the module
+  right after the source restore ([running](../migration/running.md#retiring-a-module-before-the-chain)).
+  With `replaced`, `--to` may then name the module itself: it is installed again at the target.
 - `odoo-dwg migrate accept-loss TABLE[.COLUMN] --source A --target B --reason TEXT`. It accepts a loss
   that retiring modules before the chain may cause, named by the intake's uninstall rehearsal.
 

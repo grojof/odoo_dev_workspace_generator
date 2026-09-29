@@ -424,12 +424,42 @@ def _retire(module):
     return {**_entry(module, "dropped"), "when": carry.BEFORE_CHAIN}
 
 
-def test_before_chain_is_only_for_a_dropped_decision():
+def _reinstall(module):
+    return {**_entry(module, "replaced", [module]), "when": carry.BEFORE_CHAIN}
+
+
+def test_before_chain_is_only_for_a_dropped_or_replaced_decision():
     assert carry.entry_problems(_retire("web_diagram")) == []
+    assert carry.entry_problems(_reinstall("acme_check")) == []
     wrong = {**_entry("acme", "kept"), "when": carry.BEFORE_CHAIN}
     assert [code for _, code, _ in carry.entry_problems(wrong)] == ["bad-when"]
     other = {**_entry("acme", "dropped"), "when": "at-target"}
     assert [code for _, code, _ in carry.entry_problems(other)] == ["bad-when"]
+
+
+def test_a_module_names_itself_only_when_it_leaves_before_the_chain():
+    at_target = _entry("acme_check", "replaced", ["acme_check"])
+    assert [code for _, code, _ in carry.entry_problems(at_target)] == ["to-itself"]
+    renamed = {**_entry("acme_check", "renamed", "acme_check"), "when": carry.BEFORE_CHAIN}
+    assert [code for _, code, _ in carry.entry_problems(renamed)] == ["to-itself", "bad-when"]
+
+
+def test_a_module_retired_before_the_chain_is_installed_again_at_the_target():
+    target = {**TARGET, "acme_check": {"version": "18.0.1.0.0"}}
+    entries = [_reinstall("acme_check"), _retire("web_diagram")]
+    # At the target the retired modules are gone: the stage installs the replacement only.
+    result = carry.plan(entries, "12.0", "18.0", _reader(target), installed={"sale"})
+    assert result["retired"] == ["acme_check", "web_diagram"]
+    assert result["installs"] == ["acme_check"] and result["uninstalls"] == []
+    assert carry.has_work(result) and not carry.blocked(result)
+    # The driver's retirement takes it, like a dropped one.
+    retired = carry.retirement(entries, [], "12.0", "18.0", {"acme_check", "web_diagram"}, {})
+    assert retired["retire"] == ["acme_check", "web_diagram"]
+    # Its code must be at the target, as for any replacement.
+    missing = carry.plan([_reinstall("acme_check")], "12.0", "18.0", _reader(TARGET),
+                         installed=set())
+    assert [p["code"] for p in missing["problems"]] == ["unresolved"]
+    assert missing["installs"] == [] and carry.blocked(missing)
 
 
 def test_retirement_takes_the_installed_modules_decided_before_the_chain():
@@ -484,6 +514,10 @@ def test_a_before_chain_decision_keeps_its_when():
     assert decision is not None and decision.to_dict()["when"] == carry.BEFORE_CHAIN
     assert "when" not in decide.build_entry("gone", "12.0", "18.0", "dropped", [], "",
                                             "2026-09-26")
+    back = decide.build_entry("acme_check", "12.0", "18.0", "replaced", ["acme_check"], "",
+                              "2026-09-29", before_chain=True)
+    assert back["to"] == ["acme_check"] and back["when"] == carry.BEFORE_CHAIN
+    assert carry.entry_problems(back) == []
 
 
 def test_an_accepted_loss_replaces_its_name_and_keeps_the_decisions():

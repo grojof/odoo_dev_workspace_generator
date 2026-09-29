@@ -46,13 +46,16 @@ MESSAGES = {
     "not-installable": "{} is not installable (its manifest says installable: False)",
     "merge-installed":
         "{} is already installed: merging into it runs none of its migration scripts",
-    "bad-when": "`when` can only be before-chain, on a dropped decision, not {}",
+    "bad-when": "`when` can only be before-chain, on a dropped or replaced decision, not {}",
     "dependent": "{} depends on it and is installed, but is not retired before the chain",
     "bad-loss": "{} is not a table or table.column name",
 }
 
-#: When a ``dropped`` decision may act instead of at the target.
+#: When a ``dropped`` or ``replaced`` decision may retire its module instead of at the target.
 BEFORE_CHAIN = "before-chain"
+#: The decisions that may carry it. A ``replaced`` one leaves before the chain and has its ``to``
+#: installed at the target, which may be the module itself: a gap in the chain, back at the target.
+BEFORE_CHAIN_KINDS = ("dropped", "replaced")
 
 #: A table or ``table.column`` of the source database, as an accepted loss names it.
 _LOSS_NAME = re.compile(r"^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)?$")
@@ -86,15 +89,15 @@ def entry_problems(entry: dict) -> list[tuple[str, str, list]]:
     for name in to:
         if not is_module_name(name):
             problems.append((BLOCKING, "bad-name", [name]))
-        elif name == entry.get("module"):
+        elif name == entry.get("module") and not retires_before_chain(entry):
             problems.append((BLOCKING, "to-itself", []))
-    if "when" in entry and (kind != "dropped" or entry.get("when") != BEFORE_CHAIN):
+    if "when" in entry and (kind not in BEFORE_CHAIN_KINDS or entry.get("when") != BEFORE_CHAIN):
         problems.append((BLOCKING, "bad-when", [f"{entry.get('when')} on {kind}"]))
     return problems
 
 
 def retires_before_chain(entry: dict) -> bool:
-    return entry.get("decision") == "dropped" and entry.get("when") == BEFORE_CHAIN
+    return entry.get("decision") in BEFORE_CHAIN_KINDS and entry.get("when") == BEFORE_CHAIN
 
 
 def message(problem: dict) -> str:
@@ -187,8 +190,13 @@ def plan(entries: list, source: str, target: str, read, installed=None) -> dict:
         if any(level == BLOCKING for level, _, _ in own) or kind not in KINDS:
             continue
         if retires_before_chain(entry):
-            # The driver uninstalls it right after the source restore: never this stage's.
+            # The driver uninstalls it right after the source restore: never this stage's. A
+            # replaced one still has its replacements, itself included, installed here.
             retired.append(module)
+            to = targets(entry) if kind == "replaced" else []
+            if all([check_target(module, name) for name in to]):
+                installs.extend(name for name in to
+                                if installed is None or name not in installed)
             continue
         present = installed is None or module in installed
         if kind in ("kept", "deferred"):
