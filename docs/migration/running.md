@@ -567,8 +567,20 @@ odoo-dwg migrate accept-loss res_groups_users_rel --source 12.0 --target 18.0 \
   --reason "the users of the module's own option group" --write
 ```
 
-`--before-chain` works only with `dropped`. Without it, `dropped` means the client-modules stage
-uninstalls the module at the target. `accept-loss` takes a table, or `table.column`. It records a loss
+`--before-chain` works with `dropped` and `replaced`. Without it, `dropped` means the client-modules stage
+uninstalls the module at the target.
+
+Check first whether the module exists again at the target, and whether the client uses it. A module
+with only a gap in the chain, such as a check that refuses to post an invoice without a VAT number, leaves
+before the chain and comes back at the target: decide it `replaced` by itself, and the client-modules
+stage installs it again. Its settings in core fields are still there; the retirement's comparison names
+any setting it kept in its own columns.
+
+```bash
+odoo-dwg migrate decide account_invoice_tax_required --source 12.0 --target 18.0 --decision replaced \
+  --to account_invoice_tax_required --before-chain \
+  --reason "no code at 17.0; in force: no posted line without a tax" --write
+``` `accept-loss` takes a table, or `table.column`. It records a loss
 the rehearsal named as data that you accept, with your reason, in the same `decisions.json`, under
 `accepted_losses`.
 

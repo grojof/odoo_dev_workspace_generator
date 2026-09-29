@@ -1092,8 +1092,11 @@ _ES: dict[str, str] = {
     "The module(s) that carry it: one for renamed, any for replaced.":
         "El módulo o módulos que lo recogen: uno para renamed, los que sean para replaced.",
     "Why, in a sentence.": "Por qué, en una frase.",
-    "With dropped: uninstall it right after the source restore, before the chain.":
-        "Con dropped: desinstalarlo justo después de restaurar el origen, antes de la cadena.",
+    "With dropped or replaced: uninstall it right after the source restore, before the chain; "
+    "replaced may then name the module itself, installed again at the target.":
+        "Con dropped o replaced: desinstalarlo justo después de restaurar el origen, antes de la "
+        "cadena; replaced puede entonces nombrar el propio módulo, que se vuelve a instalar en el "
+        "destino.",
     "Accept a table or column that retiring modules before the chain may empty; writes "
     "decisions.json only with --write.":
         "Aceptar una tabla o columna que retirar módulos antes de la cadena puede vaciar; escribe "

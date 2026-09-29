@@ -502,7 +502,8 @@ and applies them in this order:
 2. every `renamed` module that is installed, renamed to its `to` module, or merged into it when that module
    already exists;
 3. one Odoo run that updates the renamed modules and installs the `replaced` modules' replacements, so that
-   each renamed module's own migration scripts run on the old module's data;
+   each renamed module's own migration scripts run on the old module's data; a `replaced` module retired
+   before the chain is not installed any more, and its replacements, itself included, are installed;
 4. the uninstall of every `replaced` and `dropped` module still installed, only after step 3 succeeded,
    and never when it would also remove an installed module that no decision drops or replaces;
 5. `hooks/<target>-modules-post.sql`, when present.
@@ -567,6 +568,13 @@ to come from the given dump, so the stage alone runs again from the target check
 
 - **WHEN** the driver is run with `--redo-modules` after a completed run
 - **THEN** it restores the target checkpoint and runs only the client-modules stage again
+
+#### Scenario: A module retired before the chain is installed again at the target
+
+- **WHEN** a module is decided `replaced` by itself with `"when": "before-chain"`, and its code is on the
+  target's addons path
+- **THEN** the driver uninstalls it after the source restore, and the stage installs it at the target, with
+  the settings it keeps in core fields as the chain left them
 
 ### Requirement: Grouped invoice items become the invoice lines they stand for, after the target step
 
@@ -760,7 +768,7 @@ repair as skipped, and say that only a run from the source dump checks them.
 
 On a fresh run, right after restoring the source dump into the working database and before the database
 preflight, the kept taxes and declarations and the source checkpoint, the driver SHALL uninstall every
-installed module decided `dropped` with `"when": "before-chain"` for the chain's pair. It SHALL read the
+installed module decided `dropped` or `replaced` with `"when": "before-chain"` for the chain's pair. It SHALL read the
 decisions when it runs.
 
 Before uninstalling, it SHALL refuse to start, naming them, when an installed module that depends on one of

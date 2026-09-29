@@ -837,7 +837,8 @@ class ModuleDecision:
     #: The module(s) that carry this one at the target: one for ``renamed``, one or
     #: more for ``replaced``. Kept as read, so a wrong ``to`` is reported, not lost.
     to: tuple[str, ...] = ()
-    #: ``before-chain`` on a ``dropped`` decision: retired right after the source restore.
+    #: ``before-chain`` on a ``dropped`` or ``replaced`` decision: retired right after the source
+    #: restore; a ``replaced`` one has its ``to`` installed at the target.
     when: str = ""
 
     def key(self) -> tuple[str, str, str]:
