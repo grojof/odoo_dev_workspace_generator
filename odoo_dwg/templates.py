@@ -1110,6 +1110,46 @@ def _render_keep_menu_refs(env: MigrationEnv) -> str:
     )
 
 
+def _render_keep_active_filters(env: MigrationEnv) -> str:
+    """At the source restore: which saved filters are active, since OpenUpgrade archives those that
+    stop loading at a step and nothing reactivates them (``odoo_dwg/savedpaths.py``)."""
+    if not savedpaths.applies(odoo_major(env.source), odoo_major(env.target)):
+        return ""
+    return (
+        "  # The active saved filters; the target reactivates those the chain archived.\n"
+        "  psql -X -q -v ON_ERROR_STOP=1 -d \"$DB\" <<'ODWG_KEEP_FILTERS' \\\n"
+        "    || die \"could not keep the source's active filters\"\n"
+        f"{savedpaths.keep_sql()}ODWG_KEEP_FILTERS\n"
+        "  mark - keep active-filters\n"
+    )
+
+
+def saved_filters_file(env: MigrationEnv, label: str) -> Path:
+    """Where a reactivation lists the filters it reactivated, left or archived."""
+    return env.logs_dir / f"{label}-saved-filters.tsv"
+
+
+def _render_filters_reactivation(env: MigrationEnv, label: str, fail: str) -> str:
+    """The source's active filters the chain archived, reactivated, then OpenUpgrade's check again.
+    ``fail`` is the shell command that stops the run, message included."""
+    if not savedpaths.applies(odoo_major(env.source), odoo_major(env.target)):
+        return ""
+    q = shlex.quote
+    target = env.target
+    listed = q(str(saved_filters_file(env, label)))
+    shell = (f"{q(f'{env.venv_dir(target)}/bin/python')} {q(str(env.odoo_bin(target)))} shell "
+             f'-c {q(str(env.config_file(target)))} -d "$DB" --no-http '
+             f"--logfile={q(str(env.logs_dir / f'{label}.log'))}")
+    return (
+        "  # Saved filters the chain archived, reactivated where OpenUpgrade's check passes now.\n"
+        f"  ODWG_SAVED_FILTERS_LIST={listed} {shell} <<'ODWG_FILTERS' \\\n"
+        f"    || {fail}\n"
+        f"{savedpaths.reactivate_source()}ODWG_FILTERS\n"
+        f'  echo "[repair] saved filters reactivated or left: listed in {listed}"\n'
+        f'  mark "{label}" repair saved-filters\n'
+    )
+
+
 def menu_refs_file(env: MigrationEnv) -> Path:
     """Where the target step lists the menu references it put back or left."""
     return env.logs_dir / f"{env.target}-menu-references.tsv"
@@ -1170,6 +1210,8 @@ def _render_saved_paths_rewrite(env: MigrationEnv, version: str) -> str:
         f"{saved_paths_source()}ODWG_SAVEDPATHS\n"
         f'  echo "[repair] saved filters and exports rewritten: listed in {listed}"\n'
         f'  mark "{version}" repair saved-paths\n'
+        + _render_filters_reactivation(
+            env, version, f'die "{version}: reactivating the saved filters failed"')
     )
 
 
@@ -1613,7 +1655,7 @@ else
 {_MODULES_UNINSTALL}ODWG_UNINSTALL
     mark "{stage}" uninstalled "$(python3 -c 'import json, sys; print(" ".join(json.load(open(sys.argv[1]))["uninstalls"]))' "$MODULES_PLAN")"
     ( step_hook "{stage}" post ) || modules_fail hook "the post hook failed"
-    neutralise "{stage}"
+{_render_filters_reactivation(env, stage, 'modules_fail filters "reactivating the saved filters failed"')}    neutralise "{stage}"
     checkpoint "{stage}"
     rm -f "$MODULES_DIRTY"
     mark "{stage}" ok
@@ -2099,7 +2141,7 @@ if ! have_ck 00_source; then
   pg_restore --no-owner --dbname "$DB" "$SRC_DUMP"
   retire_before_chain
   preflight_db
-{_render_keep_source_taxes(env)}{_render_keep_declarations()}{_render_keep_source_config(env)}{_render_keep_menu_refs(env)}  neutralise 00_source
+{_render_keep_source_taxes(env)}{_render_keep_declarations()}{_render_keep_source_config(env)}{_render_keep_menu_refs(env)}{_render_keep_active_filters(env)}  neutralise 00_source
   echo "$SRC_SHA" > "$CK/source.sha256.tmp" && mv "$CK/source.sha256.tmp" "$CK/source.sha256"
   checkpoint 00_source
 else
@@ -2187,11 +2229,33 @@ fi"""
     steps[-1] = steps[-1][: -len(done)] + (f'  mark "{env.target}" ok\n  AT_TARGET=1\n  rm -f "$MODULES_DIRTY"\nfi')
     steps.append(_render_modules_stage(env))
     footer = (
-        '\n\nmark - run-ok\n'
+        "\n\n# The tool's kept tables served the repairs and the modules stage, whose checkpoints keep\n"
+        "# them for --redo-modules; the working database ends without them.\n"
+        "psql -X -q -v ON_ERROR_STOP=1 -d \"$DB\" <<'ODWG_CLEANUP' \\\n"
+        "  || die \"could not drop the tool's kept tables\"\n"
+        f"{KEPT_TABLES_CLEANUP}ODWG_CLEANUP\n"
+        'echo "[cleanup] the tool\'s kept tables dropped from the working database"\n'
+        'mark - cleanup kept-tables\n'
+        '\nmark - run-ok\n'
         f'echo "[done] migration complete — working DB is now Odoo {env.target}"\n'
     )
     return header + "".join(steps) + footer
 
+
+#: Drops every table the driver kept at the source restore (``odwg_kept_*``); the
+#: neutralisation's own tables stay, since restoring a neutralised copy needs them.
+KEPT_TABLES_CLEANUP = """\
+DO $odwg$
+DECLARE
+  t record;
+BEGIN
+  FOR t IN SELECT tablename FROM pg_tables
+    WHERE schemaname = current_schema() AND tablename LIKE 'odwg\\_kept\\_%'
+  LOOP
+    EXECUTE format('DROP TABLE %I', t.tablename);
+  END LOOP;
+END $odwg$;
+"""
 
 #: The environment's neutralisation, as the driver and ``open_for_testing.sh`` run it.
 NEUTRALISE_FILE = "neutralise.sql"

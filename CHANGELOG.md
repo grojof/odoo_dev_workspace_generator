@@ -15,6 +15,14 @@ All notable changes to this project are documented here. The format is based on
     recomputing them.
 
 ### Added
+- **Saved filters the chain archived are reactivated.** OpenUpgrade archives, at every step, each
+  filter whose domain or grouping stops loading, and nothing reactivated it: the filters the target step
+  rewrote stayed hidden. The driver keeps the source's active filters; after the rewrite and after the
+  client-modules stage, it moves a filter saved on an invoice action the chain deleted to the target's
+  action for the same documents, reactivates the filters the chain archived, and runs OpenUpgrade's own
+  check again. The list is `logs/<step>-saved-filters.tsv`.
+- **The tool's kept tables are dropped when the run completes.** The checkpoints keep them for a resumed
+  run and `--redo-modules`; the working database ends without them.
 - **A module with a gap in the chain can leave before it and come back at the target.** A `replaced`
   decision now takes `--before-chain` too, and its `--to` may then name the module itself. The driver
   uninstalls it after the source restore, with the same checks as a `dropped` one, and the client-modules
