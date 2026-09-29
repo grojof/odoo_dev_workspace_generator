@@ -86,14 +86,23 @@ V18_DB = _IR + f"""
     CREATE TABLE account_journal (id int, company_id int, code varchar, name varchar,
         type varchar, active boolean, suspense_account_id int,
         CONSTRAINT account_journal_code_company_uniq UNIQUE (company_id, code));
+    CREATE TABLE account_account (id int, reconcile boolean);
     CREATE TABLE account_move (id int, journal_id int, date date);
     CREATE TABLE account_move_line (id serial, move_id int, account_id int,
-                                    statement_line_id int, payment_id int);
+                                    statement_line_id int, payment_id int,
+                                    amount_currency numeric, amount_residual_currency numeric);
     CREATE TABLE account_bank_statement_line (id int, move_id int, is_reconciled boolean);
+    INSERT INTO account_account VALUES (2, false), (9, false);
     INSERT INTO account_journal VALUES (1, 1, 'BANK1', 'Bank', 'bank', true, 9);
-    INSERT INTO account_move VALUES (1, 1, '2025-03-05'), (2, 1, '2025-03-06'), (3, 1, '2025-03-07');
-    INSERT INTO account_move_line (move_id, account_id) VALUES (1, 9), (1, 2), (2, 2), (3, 9);
-    INSERT INTO account_bank_statement_line VALUES (1, 1, true), (2, 2, true), (3, 3, false);
+    INSERT INTO account_move VALUES (1, 1, '2025-03-05'), (2, 1, '2025-03-06'), (3, 1, '2025-03-07'),
+        (4, 1, '2025-03-08');
+    -- Line 1 waits 100 in suspense yet is stored as reconciled; line 4 is of zero amount, so
+    -- Odoo itself stores it as reconciled with its suspense line at zero.
+    INSERT INTO account_move_line (move_id, account_id, amount_currency, amount_residual_currency)
+        VALUES (1, 9, 100, 100), (1, 2, -100, 0), (2, 2, 0, 0), (3, 9, 50, 50), (4, 9, 0, 0),
+               (4, 2, 0, 0);
+    INSERT INTO account_bank_statement_line VALUES (1, 1, true), (2, 2, true), (3, 3, false),
+        (4, 4, true);
 
     CREATE TABLE acme_thing (id int, name varchar NOT NULL, partner_id int, active boolean,
                              CONSTRAINT "{LONG_NAME}" CHECK (id > 0));
@@ -217,7 +226,8 @@ def main() -> int:
                   and "filter 4 on sale.order: its domain does not parse" in out
                   and "export 1 on sale.order: invoice_ids/date_invoice" in out
                   and "3 filters, 1 exports" in out and "filter 1 " not in out, out)
-            check("18.0: the line stored as reconciled with a suspense line, and only it",
+            check("18.0: the line stored as reconciled with an amount in suspense, and only it: "
+                  "a line of zero amount is reconciled, as Odoo stores it",
                   "suspense: 1" in out and "line 1 (journal BANK1, 2025-03-05)" in out, out)
 
             code, out = _audit(cluster, "a18", "reader")

@@ -42,6 +42,8 @@ _MARKERS = (
     ("account_bank_statement_line", "is_reconciled"),
     ("account_move_line", "statement_line_id"),
     ("account_move_line", "payment_id"),
+    ("account_move_line", "amount_residual_currency"),
+    ("account_account", "reconcile"),
     ("res_company", "period_lock_date"),
     ("ir_model_constraint", "type"),
     ("ir_model_fields", "required"),
@@ -94,7 +96,9 @@ def applies(check: str, catalogue: Catalogue) -> bool:
             return has(("ir_model_fields", "required"))
         case "statement-lines-reconciled":
             return (has(("account_bank_statement_line", "is_reconciled"))
-                    and has(("account_journal", "suspense_account_id")))
+                    and has(("account_journal", "suspense_account_id"))
+                    and has(("account_move_line", "amount_residual_currency"))
+                    and has(("account_account", "reconcile")))
         case "saved-field-paths":
             return has(("ir_filters", "domain")) and has(("ir_exports_line", "name"))
     raise ValueError(f"unknown check {check!r}")

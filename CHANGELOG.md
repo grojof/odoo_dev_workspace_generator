@@ -436,6 +436,10 @@ All notable changes to this project are documented here. The format is based on
   capture and restore, which move no value at all.
 
 ### Fixed
+- **A statement line of zero amount no longer stops the 14.0 step.** The check after the step, and
+  `migrate audit`, counted every reconciled line with a line on the suspense account. Odoo itself
+  stores a line of zero amount as reconciled, its suspense line at zero. They now count only lines with
+  an amount still waiting in suspense, by Odoo's own rule.
 - **`odoo-dwg mail` without `check` is a usage error**, not a Python traceback, as `neutralise` already was.
 - **`egress check` names the action that rewrites the firewall rules**: Apply, answering yes to the
   outbound firewall. It named the on/off menu, which cannot.
