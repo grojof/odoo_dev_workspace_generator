@@ -79,6 +79,7 @@ python tools/verify_intake.py                    # intake on real tools: restore
 python tools/verify_migration_audit.py           # migrate audit on 12.0- and 18.0-shaped databases, and a role refused one table
 python tools/verify_grouped_invoice_lines.py     # the repair of grouped invoice items, on a throwaway PostgreSQL
 python tools/verify_source_taxes.py              # keep the source's journal-item taxes, take back OpenUpgrade 13.0's additions
+python tools/verify_group_tax_accounts.py        # former group taxes get their children's accounts after the 13.0 step
 python tools/verify_filed_declarations.py        # keep a source's filed declarations, put back what the chain deletes
 python tools/verify_retired_modules.py           # retire modules before the chain: the driver's stage on a throwaway PostgreSQL
 python tools/verify_migrated_payments.py         # the payments repair's duplicates and journals, on a throwaway PostgreSQL
@@ -90,7 +91,7 @@ python tools/verify_menu_references.py           # keep and put back rows pointi
 | `verify_support_matrix.py`, `verify_odools_config.py`, `verify_egress_pins.py` | the network |
 | `verify_workspace_versions.py` | the network **and** a host it may change (it previews, asks, and cleans up) |
 | `verify_generated_shell.py` | `shellcheck` on the host |
-| `verify_pg_hba_trust.py`, `verify_mail_capture.py`, `verify_migration_tester.py`, `verify_neutralisation.py`, `verify_migration_audit.py`, `verify_grouped_invoice_lines.py`, `verify_source_taxes.py`, `verify_filed_declarations.py`, `verify_retired_modules.py`, `verify_migrated_payments.py`, `verify_menu_references.py`, `verify_intake.py` (also `git` and `tar`) | the host's PostgreSQL binaries; each runs a cluster of its own |
+| `verify_pg_hba_trust.py`, `verify_mail_capture.py`, `verify_migration_tester.py`, `verify_neutralisation.py`, `verify_migration_audit.py`, `verify_grouped_invoice_lines.py`, `verify_source_taxes.py`, `verify_group_tax_accounts.py`, `verify_filed_declarations.py`, `verify_retired_modules.py`, `verify_migrated_payments.py`, `verify_menu_references.py`, `verify_intake.py` (also `git` and `tar`) | the host's PostgreSQL binaries; each runs a cluster of its own |
 | `verify_neutralise_sources.py` | the local clones under `~/odoo-migrations/.repos` (`git` may fetch an OCA file it cites) |
 | `verify_migration_driver.py`, `verify_demo_seed.py` | nothing but `bash` |
 | `verify_promoted_modules.py` | nothing but `bash` and `git` |
@@ -125,6 +126,13 @@ table, that check must be unreadable and the others must stand.
 - databases without grouped items or without OpenUpgrade 13.0's columns.
 
 It found that a two-column detail table (its `id` and the line) was being copied as a many-to-many link.
+
+`verify_group_tax_accounts.py` runs the repair of former group taxes on a 13.0-shaped database as
+OpenUpgrade 13.0 leaves it. It covers:
+- a group whose tax lines take the account of the child of their sign, for invoices and for refunds;
+- a child with an account of the company's own, which is kept;
+- a line that already has an account, a base line, and a tax that was never a group, all left;
+- a second run, which writes nothing.
 
 `verify_source_taxes.py` keeps a 12.0-shaped source's journal-item taxes, simulates what OpenUpgrade 13.0
 leaves, and takes the additions back. It covers:

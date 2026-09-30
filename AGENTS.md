@@ -116,6 +116,7 @@ python tools/verify_intake.py              # intake on real tools: restore, read
 python tools/verify_migration_audit.py     # migrate audit on 12.0- and 18.0-shaped databases, against a throwaway PostgreSQL
 python tools/verify_grouped_invoice_lines.py  # the repair of grouped invoice items, against a throwaway PostgreSQL
 python tools/verify_source_taxes.py        # keep a source's journal-item taxes, take back OpenUpgrade 13.0's additions
+python tools/verify_group_tax_accounts.py  # former group taxes get their children's accounts after the 13.0 step
 python tools/verify_filed_declarations.py  # keep a source's filed declarations, put back what the chain deletes
 python tools/verify_retired_modules.py     # retire modules before the chain, against a throwaway PostgreSQL
 python tools/verify_migrated_payments.py   # the payments repair's duplicates and journals, against a throwaway PostgreSQL

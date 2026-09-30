@@ -21,6 +21,7 @@ from xml.sax.saxutils import escape
 from . import (
     declarations,
     egress,
+    grouptaxes,
     menurefs,
     modulestates,
     neutralise,
@@ -1290,6 +1291,29 @@ def _render_source_taxes_repair(env: MigrationEnv, version: str) -> str:
     )
 
 
+def group_tax_accounts_file(env: MigrationEnv) -> Path:
+    """Where the 13.0 step lists the repartition lines it gave their account."""
+    return env.logs_dir / f"{grouptaxes.REPAIR_STEP}-group-tax-accounts.tsv"
+
+
+def _render_group_tax_accounts_repair(env: MigrationEnv, version: str) -> str:
+    """After the 13.0 step: the repartition lines of the group taxes it turned into one tax,
+    given their children's accounts (``odoo_dwg/grouptaxes.py``)."""
+    if version != grouptaxes.REPAIR_STEP or not grouptaxes.applies(odoo_major(env.source)):
+        return ""
+    listed = shlex.quote(str(group_tax_accounts_file(env)))
+    return (
+        "  # OpenUpgrade 13.0 turns a group tax into one tax and takes its repartition lines'\n"
+        "  # account from the group, which holds none: they take their children's.\n"
+        f"  psql -X -q -At -F $'\\t' -v ON_ERROR_STOP=1 -d \"$DB\" > {listed} <<'ODWG_GROUPTAX' \\\n"
+        f"    || die \"{version}: setting the accounts of the former group taxes failed\"\n"
+        f"{grouptaxes.repair_sql()}ODWG_GROUPTAX\n"
+        f'  echo "[repair] former group taxes: $(wc -l < {listed}) repartition line(s) given their'
+        f' account, listed in {listed}"\n'
+        f'  mark "{version}" repair group-tax-accounts\n'
+    )
+
+
 def grouped_items_left_file(env: MigrationEnv) -> Path:
     """Where the target step lists the grouped invoice items it left as they are."""
     return env.logs_dir / f"{env.target}-grouped-invoice-items-left.tsv"
@@ -2222,7 +2246,7 @@ else
     die "step {version} failed — see {env.logs_dir}/{version}.log"
   fi
   step_hook "{version}" post
-{_render_source_taxes_repair(env, version)}{_render_step_repair(env, version)}{_render_declarations_repair(env, version)}{_render_grouped_items_repair(env, version)}{_render_payments_repair(env, version)}{_render_valuation_alignment(env, version)}{_render_tax_grids_refresh(env, version)}{_render_source_config_restore(env, version)}{_render_menu_refs_restore(env, version)}{_render_saved_paths_rewrite(env, version)}{_render_module_states_repair(env, version)}  neutralise "{version}"
+{_render_source_taxes_repair(env, version)}{_render_group_tax_accounts_repair(env, version)}{_render_step_repair(env, version)}{_render_declarations_repair(env, version)}{_render_grouped_items_repair(env, version)}{_render_payments_repair(env, version)}{_render_valuation_alignment(env, version)}{_render_tax_grids_refresh(env, version)}{_render_source_config_restore(env, version)}{_render_menu_refs_restore(env, version)}{_render_saved_paths_rewrite(env, version)}{_render_module_states_repair(env, version)}  neutralise "{version}"
   checkpoint "{version}"
   mark "{version}" ok
 fi"""

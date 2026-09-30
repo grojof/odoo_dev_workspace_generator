@@ -20,6 +20,12 @@ All notable changes to this project are documented here. The format is based on
     recomputing them.
 
 ### Added
+- **Former group taxes get their children's accounts after the 13.0 step.** OpenUpgrade 13.0 turns a
+  localisation's group taxes (reverse charge, intra-community purchases) into one tax and takes its
+  repartition lines' account from the group, which holds none: a bill posted after the migration puts
+  both tax amounts on the expense account. For a source up to 12.0 the driver gives each such line the
+  account of its child's repartition line. Proposed upstream as OCA/OpenUpgrade#6047; once OpenUpgrade
+  sets them, the repair writes nothing. The list is `logs/13.0-group-tax-accounts.tsv`.
 - **Saved filters the chain archived are reactivated.** OpenUpgrade archives, at every step, each
   filter whose domain or grouping stops loading, and nothing reactivated it: the filters the target step
   rewrote stayed hidden. The driver keeps the source's active filters; after the rewrite and after the

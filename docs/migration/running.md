@@ -259,6 +259,26 @@ move-line-taxes`, and the tool's tables are dropped.
 A run resumed from a source checkpoint taken before this repair existed has nothing to compare with. It
 records `repair move-line-taxes-skipped` and says so: only a run from the source dump repairs it.
 
+### A known OpenUpgrade 13.0 defect the driver repairs: former group taxes without accounts
+
+Up to 12.0 a localisation can model a reverse charge or an intra-community purchase as a group tax with
+two children, and the accounts are the children's: `l10n_es` does, with 472 on one child and 477 on the
+other. OpenUpgrade 13.0 (`l10n_es` 13.0.4.0) turns each group into one tax, creates its repartition lines
+and takes their account from the group, which holds none.
+
+The journal items that existed keep their accounts. A bill posted after the migration puts both tax
+amounts on the expense account of its line: nothing fails and the amounts are right, so no data check
+sees it. OCA's `account_chart_update` fills the template's accounts when run at 13.0; a chain that goes
+on without it keeps the lines without account, and at 18.0 the wizard stops on a tax already used. The
+fix is proposed upstream (OCA/OpenUpgrade#6047).
+
+For a source up to 12.0, right after the 13.0 step the driver gives each tax repartition line without
+account, of a tax with children, the account of its child's repartition line: same document, same
+repartition type, same sign, as OpenUpgrade matches the journal items. It keeps the database's own
+accounts, which may not be the template's. A line that has an account is left, so once OpenUpgrade sets
+them the repair writes nothing. Each line written is listed in `logs/13.0-group-tax-accounts.tsv`, and
+the step record gets `repair group-tax-accounts`.
+
 ### A known OpenUpgrade 16.0 defect the driver repairs: grouped invoice items
 
 Up to 12.0, an invoice can be posted with its journal items grouped: one per account and taxes instead of
