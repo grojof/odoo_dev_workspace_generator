@@ -9,7 +9,8 @@ the expense account of its line.
 
 OCA's ``account_chart_update`` fills the template's accounts when it is run at 13.0. A chain that
 goes on without it carries the lines without account, and at 18.0 the wizard cannot repair a tax
-already used. Proposed upstream as OCA/OpenUpgrade#6047; with it, this finds nothing to repair.
+already used. Fixed upstream by OCA/OpenUpgrade#6047 (merged 2026-10-01): on a checkout that has it,
+this finds nothing to repair. The maintainers still expect ``account_chart_update`` after a migration.
 
 Right after the 13.0 step, each tax repartition line of a former group takes the account of its
 child's repartition line, matched by document, repartition type and sign, as OpenUpgrade itself

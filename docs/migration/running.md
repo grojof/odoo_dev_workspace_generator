@@ -270,7 +270,9 @@ The journal items that existed keep their accounts. A bill posted after the migr
 amounts on the expense account of its line: nothing fails and the amounts are right, so no data check
 sees it. OCA's `account_chart_update` fills the template's accounts when run at 13.0; a chain that goes
 on without it keeps the lines without account, and at 18.0 the wizard stops on a tax already used. The
-fix is proposed upstream (OCA/OpenUpgrade#6047).
+fix is merged upstream (OCA/OpenUpgrade#6047, 2026-10-01); a checkout without it is still repaired.
+OpenUpgrade's maintainers still advise running `account_chart_update` once the migration is done: at the
+target, not at each step, since every later step changes the taxes again.
 
 For a source up to 12.0, right after the 13.0 step the driver gives each tax repartition line without
 account, of a tax with children, the account of its child's repartition line: same document, same
