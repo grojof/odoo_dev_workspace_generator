@@ -6,18 +6,7 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
-### Changed
-- **The repairs that rewrite journal items leave closed periods.** A closed period is one on or before
-  the later of the company's lock dates. The grouped invoice items repair now keeps a paid invoice of a
-  closed period as OpenUpgrade leaves it, and the tax grids refresh keeps a closed period's journal items'
-  grids. Balances and taxes never changed, but a closed and declared year's journal detail did, which
-  OpenUpgrade's maintainers advise against (OCA/OpenUpgrade#3054). Open invoices are still repaired.
-- **The OpenUpgrade 14.0 statement-lines defect is fixed upstream, and the driver requires the fix.**
-  OCA/OpenUpgrade#6005 flushes the statement lines before computing their reconciliation in SQL. It was
-  merged into 14.0 on 2026-09-25.
-  - For a source up to 13.0, the 14.0 step now stops before running when its checkout predates the fix.
-  - After the step it only counts the lines still stored as reconciled, and stops on any, instead of
-    recomputing them.
+## [0.3.0] - 2026-10-08
 
 ### Added
 - **Former group taxes get their children's accounts after the 13.0 step.** OpenUpgrade 13.0 turns a
@@ -435,6 +424,17 @@ All notable changes to this project are documented here. The format is based on
   is reported for that step and does not fail the generation.
 
 ### Changed
+- **The repairs that rewrite journal items leave closed periods.** A closed period is one on or before
+  the later of the company's lock dates. The grouped invoice items repair now keeps a paid invoice of a
+  closed period as OpenUpgrade leaves it, and the tax grids refresh keeps a closed period's journal items'
+  grids. Balances and taxes never changed, but a closed and declared year's journal detail did, which
+  OpenUpgrade's maintainers advise against (OCA/OpenUpgrade#3054). Open invoices are still repaired.
+- **The OpenUpgrade 14.0 statement-lines defect is fixed upstream, and the driver requires the fix.**
+  OCA/OpenUpgrade#6005 flushes the statement lines before computing their reconciliation in SQL. It was
+  merged into 14.0 on 2026-09-25.
+  - For a source up to 13.0, the 14.0 step now stops before running when its checkout predates the fix.
+  - After the step it only counts the lines still stored as reconciled, and stops on any, instead of
+    recomputing them.
 - **The agent guide is `AGENTS.md`**, renamed from `CLAUDE.md` with its content unchanged. Claude Code reads it
   natively from 2.1.277, and so do other coding agents.
 - **The documentation is nested by area.** `docs/` is now `migration/`, `workspace/`, `host/`, `reference/`
@@ -1202,6 +1202,7 @@ First release.
   marker and the venvs planner skips on the marker (not the venv directory), rebuilding half-built
   venvs with `uv venv --clear` instead of silently skipping them.
 
-[Unreleased]: https://github.com/grojof/odoo_dev_workspace_generator/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/grojof/odoo_dev_workspace_generator/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/grojof/odoo_dev_workspace_generator/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/grojof/odoo_dev_workspace_generator/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/grojof/odoo_dev_workspace_generator/releases/tag/v0.1.0
