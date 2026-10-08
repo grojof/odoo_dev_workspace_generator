@@ -283,6 +283,8 @@ findings SHALL name the directory the operator must fill.
 
 ### Requirement: The driver honours what the operator decided
 
+The driver SHALL honour what the operator decided, and name every decision it applies.
+
 A module that resolves nowhere and has no successor is the operator's to answer for, and the answer is
 recorded. That record SHALL be read by the **driver**, not only by the preflight action, from a known file
 in the environment (`decisions.json` at its root). Without it an operator could record a decision, watch the preflight accept it, and
@@ -307,6 +309,8 @@ cannot be read SHALL decide nothing.
 
 ### Requirement: Each step is judged against the database as it is then
 
+Each step SHALL be judged against the database as it is then, not only as the preflight read it.
+
 The preflight reads the installed modules once, from the source database, so a module the chain installs
 *along the way* is invisible to it — a module can appear in a repository at one step, be installed there
 because its dependencies are present, and have gone from that repository by the next.
@@ -324,6 +328,8 @@ A step stopped this way SHALL stop at the step that found it, leaving the checkp
 - **THEN** that later step stops before running, naming the module, and the earlier checkpoints remain
 
 ### Requirement: A step's log is read for the run that wrote it
+
+A step's log SHALL be read only for the run that wrote it.
 
 Step logs are appended to and never rotated, so a step re-run after a failure carries every earlier attempt
 in the same file. A report SHALL summarise each step's log within that step's own window, so that it does
@@ -416,6 +422,8 @@ re-neutralisation or the check. It SHALL refuse the reference database itself, w
 
 ### Requirement: The operator's SQL runs around a step when there is some
 
+The driver SHALL run the operator's own SQL around a step when there is some.
+
 A client's data can break a migration script that no source anticipates. What to do about it is a
 decision about that client's data. The driver SHALL therefore run the operator's own SQL around a step:
 - `hooks/<version>-pre.sql` before the step;
@@ -492,6 +500,8 @@ the step record. It SHALL do nothing when either table or the legacy column is a
 - **THEN** the repair carries nothing and does not fail
 
 ### Requirement: The client's modules are carried to their ported names after the chain
+
+The driver SHALL carry the client's modules to their ported names after the chain, as decided.
 
 A client's own modules may reach the target under new names: renamed, several folded into one, or replaced
 by other modules. This is optional; a module adapted under its own name is migrated by the target step as
@@ -781,6 +791,8 @@ repair as skipped, and say that only a run from the source dump checks them.
 - **THEN** nothing is put back, and the step record and output say the check was skipped
 
 ### Requirement: Modules decided dropped before the chain are uninstalled after the source restore
+
+Modules decided dropped or replaced before the chain SHALL be uninstalled after the source restore.
 
 On a fresh run, right after restoring the source dump into the working database and before the database
 preflight, the kept taxes and declarations and the source checkpoint, the driver SHALL uninstall every
@@ -1084,6 +1096,8 @@ stay.
 - **THEN** the working database has no `odwg_kept_*` table, and the target checkpoint still has them
 
 ### Requirement: Former group taxes get their children's accounts after the 13.0 step
+
+For a source of 12.0 or older, former group taxes SHALL get their children's accounts after 13.0.
 
 For a chain whose source is 12.0 or older, right after the 13.0 step and the taxes taken back, and before
 neutralising and checkpointing, the driver SHALL give each tax repartition line that has no account, of a

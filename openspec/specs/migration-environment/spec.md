@@ -227,6 +227,8 @@ Each migration step's generated `odoo.conf` SHALL set `smtp_server = 127.0.0.1` 
 
 ### Requirement: A migration environment may name OCA repositories
 
+A migration environment SHALL accept the OCA repositories it names and link them into each step.
+
 `addons/odoo<major>/oca` is created empty for the operator to fill by hand, so whether an OCA module is
 ported to a step's version cannot be derived — only guessed, by whoever last copied something in. That is a
 derivable fact answered by hand, and a hand answer about someone else's code ages without saying so.
