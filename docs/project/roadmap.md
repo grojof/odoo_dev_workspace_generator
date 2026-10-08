@@ -4,14 +4,28 @@ title: "Roadmap and backlog"
 description: "Phased delivery plan and the parked backlog for the Odoo dev/migration workspace generator."
 tags: [roadmap, backlog, project]
 audience: [contributor]
-updated: 2026-09-25
+updated: 2026-10-08
 ---
 
 # Roadmap
 
-**Released: v0.2.0 (2026-09-20).** F0–F3 are complete; see [`CHANGELOG.md`](../../CHANGELOG.md).
+**Released: v0.3.0 (2026-10-08).** F0–F3 are complete; see [`CHANGELOG.md`](../../CHANGELOG.md).
 
-**What 0.2.0 brought:** the outbound firewall and mail capture (change `add-egress-control`);
+**What 0.3.0 brought:** the client migration surface, shaped by a real 12 → 18 migration rehearsed from zero
+until its accounting matched the source:
+- **taking in a client copy:** restore, a read-only role, surveys of what the copy can act on, audits of
+  the client's own modules, bank lines imported twice, journal codes the target refuses;
+- **production copies neutralised reversibly**, re-applied after every step and given back only on request;
+- **a driver that records and decides:** every step's events, the operator's decisions and SQL hooks, the
+  chain's core (Odoo or OCB), modules retired before the chain and carried to new names after it, each step
+  checked against the database as it is then, and a run that can be followed and reported;
+- **accounting kept through the chain:** grouped invoice lines, the taxes and group-tax accounts of
+  OpenUpgrade 13.0, filed declarations, migrated payments, tax grids, stock valuation and statement lines,
+  with closed periods left as they were;
+- **`migrate audit`**, a findings ledger the client's reports come from, the rehearsal tester's module
+  fates, a demo source seed, promoted module code and OCA repositories in a migration environment.
+
+**What 0.2.0 brought (2026-09-20):** the outbound firewall and mail capture (change `add-egress-control`);
 `harden-for-0-2-0`, which closed what repeated pre-release audit rounds found (each round one docs review and
 one code review, both verified by hand before anything was changed); and `read-pg-hba-from-the-server`, which
 ended the longest-running of them by asking PostgreSQL for its own rules instead of re-implementing its
