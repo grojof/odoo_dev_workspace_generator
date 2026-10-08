@@ -163,15 +163,22 @@ items are host-dependent.
   wrong.
 - ~~Neutralise a production copy~~ — **done** (2026-09-23, change `neutralise-a-production-copy`),
   spec 2 of 3.
-  - **Reversible catalogue**, recorded inside the database and guarded per version from 12.0 to 18.0.
+  - **Reversible catalogue**, recorded inside the database and guarded per version from 12.0 to 19.0.
+    Its gaps were closed on 2026-10-08 (change `close-neutralisation-gaps`): Spanish EDI and VERI\*FACTU
+    from 14.0, the 14.0–16.0 EDI proxy parameter, calendar credentials, push, cloud storage,
+    certificates, and mail queued on a named server on 12.0–15.0. Each is reversible: where Odoo deletes, an
+    inert value is written.
   - **Re-applied everywhere Odoo can switch crons back on:** by the driver after every step, and by
     `open_for_testing.sh` before every start, which then runs no cron thread.
   - **Restore is manual only.**
 
   Not done yet:
   - **Official `neutralize.sql` files not covered.** `tools/verify_neutralise_sources.py` lists them:
-    mostly provider-specific payment and country EDI rules, since the generic payment rule already takes
-    every provider out of production.
+    - provider-specific payment and delivery rules (the generic rules already take every provider and
+      carrier out of production);
+    - PoS payment terminals, which no rule covers yet;
+    - other countries' EDI;
+    - a few service keys (`base_vat`, reCAPTCHA, Turnstile, Gelato, Jitsi, address autocompletion).
   - **The same start guard for workspaces** that open client copies (they run one cron thread today).
   - **Starting Odoo on a neutralised client copy** with the firewall and Mailpit installed, and reading the
     firewall journal. The SQL side was rehearsed on a real client copy: it neutralised, re-applied after a

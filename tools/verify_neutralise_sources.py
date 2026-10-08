@@ -8,6 +8,8 @@ Two questions, both about drift:
    the outside nobody has looked at; this names it.
 2. Does every file a rule cites still name the columns the rule writes? A rule
    citing a file that no longer mentions its column is remembering, not citing.
+   A system parameter's subject is its key: each cited file names one of the
+   keys the rule pins, and together they name them all.
 
     python tools/verify_neutralise_sources.py
 
@@ -75,7 +77,10 @@ def main() -> int:
 
     print("\n== Every cited file still names the columns its rule writes")
     for rule in neutralise.CATALOGUE:
-        columns = [c for c, _ in rule.sets]
+        keys = re.findall(r"'([\w.]+)'", rule.where.split(" AND ")[0])
+        params = rule.table == "ir_config_parameter" and bool(keys)
+        columns = keys if params else [c for c, _ in rule.sets]
+        named: set[str] = set()
         if rule.source.startswith("odoo_dwg"):
             print(f"   {rule.id:<30} own rule, no external source")
             continue
@@ -86,7 +91,9 @@ def main() -> int:
             if not found:
                 print(f"   {rule.id:<30} {path}: no local copy for {first}-{last or first}")
                 continue
-            missing = [c for c in columns if not any(c in t for t in found.values())]
+            named |= {c for c in columns if any(c in t for t in found.values())}
+            missing = [c for c in columns if c not in named] if not params else (
+                [] if any(c in t for t in found.values() for c in columns) else columns)
             state = f"MISSING {missing}" if missing else "ok"
             print(f"   {rule.id:<30} {path} ({', '.join(found)}): {state}")
             if missing:
@@ -103,12 +110,17 @@ def main() -> int:
                         if text is None:
                             print(f"   {rule.id:<30} OCA/{repo} {branch} {path}: no local tree")
                             continue
+                        named |= {c for c in columns if c in text}
                         missing = [c for c in columns if c not in text]
                         print(f"   {rule.id:<30} OCA/{repo} {branch} {path}: "
                               f"{'MISSING ' + str(missing) if missing else 'ok'}")
                         if missing:
                             problems.append(f"{rule.id}: OCA/{repo} {branch} {path} does not "
                                             f"name {missing}")
+        unnamed = [k for k in columns if k not in named]
+        if params and unnamed and not rule.source.startswith("odoo_dwg"):
+            print(f"   {rule.id:<30} keys no cited file names: {unnamed}")
+            problems.append(f"{rule.id}: no cited file names {unnamed}")
     if problems:
         print("\n".join(["", "FAILED:", *problems]))
         return 1

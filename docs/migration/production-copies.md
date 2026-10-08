@@ -28,16 +28,18 @@ then applies a catalogue of rules:
 | Area | What changes |
 |---|---|
 | Crons | Every cron is switched off except `base.autovacuum_job` and `queue_job`'s done-job autovacuum, matched by external identifier |
+| Mail | Captured as above. On 12.0–15.0 a queued mail forgets the server its message names, since those versions send through a server named by id even when it is archived |
 | Queued jobs | Pending jobs are held, so no runner executes them |
-| Tax and EDI | The Spanish SII (Odoo's, and OCA's `l10n_es_aeat_sii` / `l10n_es_aeat_sii_oca`), TicketBAI and the EDI proxy go to test mode |
+| Tax and EDI | Go to test mode: the Spanish SII (Odoo's, and OCA's `l10n_es_aeat_sii` / `l10n_es_aeat_sii_oca`), TicketBAI (Odoo's and OCA's), VERI\*FACTU (Odoo's and OCA's), the Malaysian and Greek EDI. The EDI proxy leaves production, including 14.0–16.0, where a missing `account_edi_proxy_client.demo` parameter means production: it is added |
 | Payment | Providers or acquirers leave production |
 | Delivery | Carriers leave production |
 | Accounts and calendars | OAuth providers are disabled; Google and Microsoft calendar synchronisation stops |
 | Webhooks | Webhook server actions are disabled |
-| IAP | Accounts are disabled |
+| IAP | Accounts are disabled; a token longer than 33 characters is replaced whole |
+| Push, storage, secrets | On 17.0+: web push keys and cloud storage settings are emptied, push devices point at a host that never resolves, certificate, private key and Twilio passwords are replaced |
 | Identity | `web.base.url` points at the local instance and is unfrozen, the copy gets its own `database.uuid`, and `database.is_neutralized` is set, so 16.0+ shows its banner |
 
-Each rule acts only where its table and columns exist, so one catalogue serves 12.0 to 18.0. Each rule
+Each rule acts only where its table and columns exist, so one catalogue serves 12.0 to 19.0. Each rule
 cites its source: Odoo's own `data/neutralize.sql` (16.0–19.0) or the OCA file it reads.
 `python tools/verify_neutralise_sources.py` re-derives those citations, and lists every official
 `neutralize.sql` the catalogue does not cover yet.
@@ -46,8 +48,8 @@ The differences from Odoo's own `odoo-bin neutralize` are the point:
 
 | | Odoo's `odoo-bin neutralize` | Neutralise a database |
 |---|---|---|
-| Available from | 16.0 only | 12.0 to 18.0 |
-| Reversible | No: it replaces secrets and deletes push devices | Yes: it deletes nothing, and records every value it changes (row, column, before, after) in a table inside the database, before changing it |
+| Available from | 16.0 only | 12.0 to 19.0 |
+| Reversible | No: it replaces secrets and deletes push devices, keys and settings | Yes: it deletes nothing. Where Odoo deletes, it writes an inert value. Every value it changes (row, column, before, after) is recorded in a table inside the database before the change |
 | Survives dump, restore and each migration step | — | Yes, the record does |
 
 **It does not last on its own.** Updating a module rewrites every cron its data does not mark `noupdate`,

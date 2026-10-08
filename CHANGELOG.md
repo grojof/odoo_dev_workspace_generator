@@ -447,6 +447,32 @@ All notable changes to this project are documented here. The format is based on
   capture and restore, which move no value at all.
 
 ### Fixed
+- **Neutralisation now covers what a copy of Odoo 14–19 could still reach.** It also stays reversible:
+  where Odoo's own neutralisation deletes, an inert value is written and recorded instead.
+  - **Spanish tax links:**
+    - Odoo's SII and TicketBAI test flag on 14–17 (`l10n_es_edi_test_env`).
+    - VERI\*FACTU, both Odoo's (17–19) and OCA's (14–18).
+    - OCA's TicketBAI (13–16).
+    - Several rules had cited later versions than the fields they write.
+  - **The EDI proxy on 14–16:** its mode is a parameter, and a missing one means production. The parameter
+    is now set to demo, or added and removed again on restore. The check reports it as missing. The
+    Malaysian and Greek EDI (17–19) go to test mode.
+  - **Calendars:** Google's credentials table (15–17); Microsoft's stop flag (16) and credentials table
+    (17).
+  - **IAP:**
+    - A token longer than 33 characters is replaced whole, as Odoo 17–19 do.
+    - On 18–19 the rule now applies, though `service_name` is not stored there; the check names those
+      rows by id.
+  - **Secrets on 17–19:**
+    - Web push keys and cloud storage settings are emptied.
+    - Push devices point at a host that never resolves.
+    - Certificate, private key and Twilio passwords are replaced.
+  - **Mail queued on 12–15:** its message's named mail server is cleared, because those versions send
+    through a server named by id even when it is archived.
+  - **`tools/verify_neutralise_sources.py`** checks a system parameter by its key, so a rule that empties
+    what Odoo deletes is still checked against Odoo's file.
+  - **`tools/verify_neutralisation.py`** runs on 14.0-, 16.0- and 17.0-shaped databases as well, and checks
+    that each rule its fixture arms is reported, then quiet.
 - **Python maxima of Odoo 15–18 are now the ones Odoo declares.** Odoo 15–18 state `MAX_PY_VERSION` in
   `odoo/__init__.py`. `tools/verify_support_matrix.py` read it from `odoo/release.py` only, where only 19.0 has
   it, so 15–18 were derived from `requirements.txt`.

@@ -52,23 +52,26 @@ columns it reads and writes, and the source it derives from. The sources are:
 - an Odoo `data/neutralize.sql`, with the versions it appears in;
 - an OCA module, with its repository, branch and file.
 
-A rule SHALL apply only where its tables and columns exist in the database at hand, so that one catalogue
-serves every version from 12.0 to 18.0. A rule that does not apply SHALL be reported as not applicable, not
-as done.
+A rule SHALL apply only where its tables and the columns it reads and writes exist in the database at hand,
+so that one catalogue serves every version from 12.0 to 19.0. A rule that does not apply SHALL be reported as
+not applicable, not as done. The column a rule names its rows by is not one of them: a table without it is
+still neutralised, and its rows are named by id. Where Odoo's own neutralisation deletes a row or a value, a
+rule SHALL write an inert value instead, recorded like every other change, so that a restore gives it back.
 
 The catalogue SHALL cover at least:
 
 | Area | What is turned off or switched to test |
 |---|---|
 | Crons | Every cron except a declared allowlist of housekeeping crons, each allowlisted by external identifier with the reason it is safe |
-| Mail | Through the mail capture |
+| Mail | Through the mail capture; on 12.0–15.0 the mail server a queued mail's message names is cleared, since those versions send through it even when archived |
 | Queued jobs | Held so that no job runner executes them |
-| Tax and EDI | Odoo's Spanish SII and TicketBAI test environments; the OCA Spanish SII disabled and in test mode, for `l10n_es_aeat_sii` (12.0) and `l10n_es_aeat_sii_oca` (13.0 onwards) |
+| Tax and EDI | Odoo's Spanish EDI test environment (`l10n_es_edi_test_env`, 14.0–17.0), its SII and TicketBAI test environments (18.0–19.0) and VERI\*FACTU's (17.0–19.0); the OCA Spanish SII disabled and in test mode, for `l10n_es_aeat_sii` (12.0) and `l10n_es_aeat_sii_oca` (13.0 onwards); OCA VERI\*FACTU and TicketBAI in test mode; the EDI proxy out of production (its `edi_mode`, or on 14.0–16.0 its `account_edi_proxy_client.demo` parameter), the Malaysian and Greek EDI included |
 | Payment | Providers or acquirers out of production state |
 | Delivery | Carriers out of production environment |
-| Accounts and calendars | OAuth providers disabled; Google and Microsoft calendar synchronisation stopped |
+| Accounts and calendars | OAuth providers disabled; Google and Microsoft calendar synchronisation stopped, in every table their tokens lived in from 12.0 to 19.0 |
 | Webhooks | Webhook server actions disabled |
-| IAP | Accounts disabled |
+| IAP | Accounts disabled; a token longer than 33 characters replaced whole, as Odoo 17.0–19.0 do |
+| Push, storage, secrets | Web push keys emptied and devices' endpoints pointed nowhere; cloud storage settings emptied; certificate, private key and Twilio passwords replaced |
 | Identity | `web.base.url` pointed at the local instance and unfrozen; a new `database.uuid`; `database.is_neutralized` set |
 
 #### Scenario: One catalogue across versions
@@ -81,6 +84,16 @@ The catalogue SHALL cover at least:
 
 - **WHEN** a database migrated to 18.0, where the SII module is `l10n_es_aeat_sii_oca`, is neutralised
 - **THEN** its companies' `sii_enabled` is false and `sii_test` true, as in 12.0 under `l10n_es_aeat_sii`
+
+#### Scenario: Odoo's Spanish EDI on 14.0–17.0
+
+- **WHEN** a 16.0 database whose companies have `l10n_es_edi_test_env` false is neutralised
+- **THEN** it is true afterwards, recorded, and the check no longer reports it
+
+#### Scenario: A rule whose label is not stored
+
+- **WHEN** an 18.0 database has IAP accounts (whose `service_name` is not a stored column)
+- **THEN** the IAP rule still applies, and the check names the rows by id
 
 ### Requirement: Whether a copy can act on the outside is answerable without changing it
 
@@ -178,8 +191,8 @@ The declared severities are:
 | Severity | Rules |
 |---|---|
 | **critical** | Tax and EDI submissions, and payment providers in production mode |
-| **high** | Crons, queued jobs, delivery carriers, webhooks, OAuth and calendar synchronisation |
-| **medium** | IAP accounts, mail templates bound to a server, the base URL and website domain |
+| **high** | Crons, queued jobs, delivery carriers, webhooks, OAuth and calendar synchronisation, push devices, cloud storage, certificate and SMS secrets, a queued mail's named server |
+| **medium** | IAP accounts, mail templates bound to a server, the base URL and website domain, web push keys |
 | **low** or **info** | Identity flags, such as the `database.is_neutralized` banner or the uuid |
 
 #### Scenario: A survey of a production copy
