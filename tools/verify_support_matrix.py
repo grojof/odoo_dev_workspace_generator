@@ -41,6 +41,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from odoo_dwg.models import (  # noqa: E402
+    ODOO_INIT_PY_URL,
     ODOO_RELEASE_PY_URL,
     ODOO_REQUIREMENTS_URL,
     ODOO_SETUP_PY_URL,
@@ -101,9 +102,9 @@ def derive_python_min(version: str) -> dict[str, str]:
     any of them, flagging the disagreement instead of calling it drift.
     """
     readings: dict[str, str] = {}
-    release = _release_bound(version, "MIN_PY_VERSION")
-    if release:
-        readings[f"odoo/release.py@{version} MIN_PY_VERSION"] = release
+    declared = _declared_bound(version, "MIN_PY_VERSION")
+    if declared:
+        readings[f"{declared[1]}@{version} MIN_PY_VERSION"] = declared[0]
     try:
         setup = fetch(ODOO_SETUP_PY_URL.format(version=version))
         match = re.search(r"python_requires\s*=\s*['\"]>=\s*([0-9.]+)['\"]", setup)
@@ -127,9 +128,9 @@ def derive_python_max(version: str) -> tuple[str | None, str]:
     """``(value, source)`` for a branch's Python ceiling: the declared maximum
     where the branch has one, else the newest interpreter bucket's distribution.
     ``None`` when that bucket names no distribution."""
-    release = _release_bound(version, "MAX_PY_VERSION")
-    if release:
-        return release, f"odoo/release.py@{version} MAX_PY_VERSION"
+    declared = _declared_bound(version, "MAX_PY_VERSION")
+    if declared:
+        return declared[0], f"{declared[1]}@{version} MAX_PY_VERSION"
 
     requirements = fetch(ODOO_REQUIREMENTS_URL.format(version=version))
     newest = _newest_bucket(requirements)
@@ -154,16 +155,20 @@ def derive_python_max(version: str) -> tuple[str | None, str]:
     return ceiling, f"requirements.txt@{version} newest bucket targets {named}"
 
 
-def _release_bound(version: str, name: str) -> str | None:
-    """A ``(major, minor)`` tuple declared in ``odoo/release.py``, or None when
-    that branch does not declare it (only 19.0 does today)."""
-    try:
-        release = fetch(ODOO_RELEASE_PY_URL.format(version=version))
-    except SourceError:
-        return None
-    match = re.search(rf"{name}\s*=\s*\((\d+)\s*,\s*(\d+)\)", release)
-    return f"{match.group(1)}.{match.group(2)}" if match else None
-
+def _declared_bound(version: str, name: str) -> tuple[str, str] | None:
+    """``(major.minor, file)`` for a bound the branch declares: ``odoo/release.py``
+    (19.0) or ``odoo/__init__.py`` (15.0-18.0). None when neither declares it
+    (12.0-14.0). Reading release.py alone made 15-18 look undeclared, and the
+    requirements derivation then gave 16.0 Debian 13's 3.13 over its declared 3.12."""
+    for url, label in ((ODOO_RELEASE_PY_URL, "odoo/release.py"), (ODOO_INIT_PY_URL, "odoo/__init__.py")):
+        try:
+            text = fetch(url.format(version=version))
+        except SourceError:
+            continue
+        match = re.search(rf"^{name}\s*=\s*\((\d+)\s*,\s*(\d+)\)", text, re.M)
+        if match:
+            return f"{match.group(1)}.{match.group(2)}", label
+    return None
 
 def _newest_bucket(requirements: str) -> tuple[str, set[str]] | None:
     """The highest ``python_version`` literal in the file, plus the distribution
