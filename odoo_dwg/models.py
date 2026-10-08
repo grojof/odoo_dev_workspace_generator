@@ -166,6 +166,8 @@ EVIDENCE_TIERS: tuple[str, ...] = (OFFICIAL, DERIVED, UNTESTED)
 # repository, not the manual, is the primary source (13.0's page is a stub).
 ODOO_SETUP_PY_URL = "https://raw.githubusercontent.com/odoo/odoo/{version}/setup.py"
 ODOO_RELEASE_PY_URL = "https://raw.githubusercontent.com/odoo/odoo/{version}/odoo/release.py"
+# 15.0-18.0 declare MIN_PY_VERSION / MAX_PY_VERSION here; 19.0 moved them to release.py.
+ODOO_INIT_PY_URL = "https://raw.githubusercontent.com/odoo/odoo/{version}/odoo/__init__.py"
 ODOO_REQUIREMENTS_URL = "https://raw.githubusercontent.com/odoo/odoo/{version}/requirements.txt"
 _DOCS_SETUP_ERA = "https://www.odoo.com/documentation/{version}/setup/install.html"
 _DOCS_INSTALL_ERA = "https://www.odoo.com/documentation/{version}/administration/install/source.html"
@@ -255,6 +257,10 @@ def _official_setup(version: str) -> str:
     return f"odoo/odoo@{version} setup.py python_requires"
 
 
+def _declared_max(version: str) -> str:
+    return f"odoo/odoo@{version} odoo/__init__.py MAX_PY_VERSION"
+
+
 def _derived_requirements(version: str, distro: str) -> str:
     return (
         f"odoo/odoo@{version} requirements.txt — newest interpreter bucket targets {distro}"
@@ -262,10 +268,11 @@ def _derived_requirements(version: str, distro: str) -> str:
 
 
 # Python minima are the documented floors (all confirmed against each branch's
-# setup.py). Maxima come from the newest interpreter bucket each branch's
-# requirements.txt declares, read through the distribution its comment names —
-# a derivation that reproduces Odoo 19's own MAX_PY_VERSION exactly, which is
-# what makes it trustworthy for the versions that state nothing. Recommended
+# setup.py). Maxima are the ones Odoo declares (MAX_PY_VERSION: odoo/__init__.py in
+# 15.0-18.0, odoo/release.py in 19.0); only 14.0, which declares none, takes the
+# newest interpreter bucket of its requirements.txt, read through the distribution
+# its comment names. Where both exist the declared value wins: 16.0's requirements
+# reach Debian 13's 3.13 while it declares 3.12 (above it Odoo only logs a warning). Recommended
 # interpreters are the ones this project has actually built and run (measured on
 # WSL Ubuntu 24.04, where uv's installable floor is 3.8), so they are inside the
 # range but not always at its top.
@@ -304,7 +311,7 @@ ODOO_SUPPORT: dict[int, VersionSupport] = {
     15: VersionSupport(
         version="15.0",
         python_min=Bound("3.7", OFFICIAL, _official_docs("15.0")),
-        python_max=Bound("3.12", DERIVED, _derived_requirements("15.0", "Ubuntu 24.04 Noble")),
+        python_max=Bound("3.12", OFFICIAL, _declared_max("15.0")),
         postgres_min=Bound("12.0", OFFICIAL, _official_docs("15.0")),
         recommended_python="3.8",
         acquisition="uv",
@@ -312,7 +319,7 @@ ODOO_SUPPORT: dict[int, VersionSupport] = {
     16: VersionSupport(
         version="16.0",
         python_min=Bound("3.7", OFFICIAL, _official_docs("16.0")),
-        python_max=Bound("3.13", DERIVED, _derived_requirements("16.0", "Debian 13 Trixie")),
+        python_max=Bound("3.12", OFFICIAL, _declared_max("16.0")),
         postgres_min=Bound("12.0", OFFICIAL, _official_docs("16.0")),
         recommended_python="3.10",
         acquisition="uv",
@@ -320,7 +327,7 @@ ODOO_SUPPORT: dict[int, VersionSupport] = {
     17: VersionSupport(
         version="17.0",
         python_min=Bound("3.10", OFFICIAL, _official_docs("17.0")),
-        python_max=Bound("3.14", DERIVED, _derived_requirements("17.0", "Ubuntu 26.04 Resolute")),
+        python_max=Bound("3.14", OFFICIAL, _declared_max("17.0")),
         postgres_min=Bound("12.0", OFFICIAL, _official_docs("17.0")),
         recommended_python="3.10",
         acquisition="uv",
@@ -328,7 +335,7 @@ ODOO_SUPPORT: dict[int, VersionSupport] = {
     18: VersionSupport(
         version="18.0",
         python_min=Bound("3.10", OFFICIAL, _official_docs("18.0")),
-        python_max=Bound("3.14", DERIVED, _derived_requirements("18.0", "Ubuntu 26.04 Resolute")),
+        python_max=Bound("3.14", OFFICIAL, _declared_max("18.0")),
         postgres_min=Bound("12.0", OFFICIAL, _official_docs("18.0")),
         recommended_python="3.12",
         acquisition="uv",
@@ -336,8 +343,6 @@ ODOO_SUPPORT: dict[int, VersionSupport] = {
     19: VersionSupport(
         version="19.0",
         python_min=Bound("3.10", OFFICIAL, "odoo/odoo@19.0 odoo/release.py MIN_PY_VERSION"),
-        # The one version that declares a maximum outright — and it agrees with
-        # the requirements-bucket derivation used for 14–18.
         python_max=Bound("3.14", OFFICIAL, "odoo/odoo@19.0 odoo/release.py MAX_PY_VERSION"),
         postgres_min=Bound("13.0", OFFICIAL, _official_docs("19.0")),
         recommended_python="3.12",

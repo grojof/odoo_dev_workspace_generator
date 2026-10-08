@@ -49,10 +49,10 @@ Source: [`packages.ubuntu.com/noble/python3`](https://packages.ubuntu.com/noble/
 | 12.0 | 3.5 | official | — | untested | 3.8 | — | untested |
 | 13.0 | 3.6 | official | — | untested | 3.8 | — | untested |
 | 14.0 | 3.7 | official¹ | 3.10 | derived | 3.8 | 12.0 | official |
-| 15.0 | 3.7 | official | 3.12 | derived | 3.8 | 12.0 | official |
-| 16.0 | 3.7 | official | 3.13 | derived | 3.10 | 12.0 | official |
-| 17.0 | 3.10 | official | 3.14 | derived | 3.10 | 12.0 | official |
-| 18.0 | 3.10 | official | 3.14 | derived | 3.12 | 12.0 | official |
+| 15.0 | 3.7 | official | 3.12 | official | 3.8 | 12.0 | official |
+| 16.0 | 3.7 | official | **3.12** | official | 3.10 | 12.0 | official |
+| 17.0 | 3.10 | official | 3.14 | official | 3.10 | 12.0 | official |
+| 18.0 | 3.10 | official | 3.14 | official | 3.12 | 12.0 | official |
 | 19.0 | 3.10 | official | **3.14** | **official** | 3.12 | **13.0** | official |
 
 ¹ Odoo 14's sources disagree with its documentation — see [Known divergences](#known-divergences).
@@ -79,14 +79,21 @@ recommendation, and otherwise defaults to the recommended `uv` interpreter.
 | 16.0 | "Odoo requires Python 3.7 or later to run." · "supported versions: 12.0 or above" | [16.0 source install](https://www.odoo.com/documentation/16.0/administration/on_premise/source.html) |
 | 17.0 | "Odoo requires Python 3.10 or later to run." · "Changed in version 17: Minimum requirement updated from Python 3.7 to Python 3.10." | [17.0 source install](https://www.odoo.com/documentation/17.0/administration/on_premise/source.html) |
 | 18.0 | "Odoo requires Python 3.10 or later to run." · "supported versions: 12.0 or above" | [18.0 source install](https://www.odoo.com/documentation/18.0/administration/on_premise/source.html) |
+| 15.0 | `MIN_PY_VERSION = (3, 7)` · `MAX_PY_VERSION = (3, 12)` | [`odoo/__init__.py@15.0`](https://raw.githubusercontent.com/odoo/odoo/15.0/odoo/__init__.py) |
+| 16.0 | `MIN_PY_VERSION = (3, 7)` · `MAX_PY_VERSION = (3, 12)` | [`odoo/__init__.py@16.0`](https://raw.githubusercontent.com/odoo/odoo/16.0/odoo/__init__.py) |
+| 17.0 | `MIN_PY_VERSION = (3, 10)` · `MAX_PY_VERSION = (3, 14)` | [`odoo/__init__.py@17.0`](https://raw.githubusercontent.com/odoo/odoo/17.0/odoo/__init__.py) |
+| 18.0 | `MIN_PY_VERSION = (3, 10)` · `MAX_PY_VERSION = (3, 14)` | [`odoo/__init__.py@18.0`](https://raw.githubusercontent.com/odoo/odoo/18.0/odoo/__init__.py) |
 | 19.0 | `MIN_PY_VERSION = (3, 10)` · `MAX_PY_VERSION = (3, 14)` | [`odoo/release.py@19.0`](https://raw.githubusercontent.com/odoo/odoo/19.0/odoo/release.py) |
 | 19.0 | "Changed in version 19: Minimum requirement updated from PostgreSQL 12 to PostgreSQL 13." · "supported versions: 13.0 or above" | [19.0 source install](https://www.odoo.com/documentation/19.0/administration/on_premise/source.html) |
 
 ### How the maxima are derived
 
-No Odoo documentation page states a maximum Python. The answer is in each branch's `requirements.txt`, which
-splits its pins into buckets by `python_version` and **names the target distribution in the comment**. The
-newest such bucket is the newest interpreter that branch is maintained for:
+No Odoo documentation page states a maximum Python, but the code does: 15.0–18.0 declare `MAX_PY_VERSION` in
+`odoo/__init__.py`, 19.0 in `odoo/release.py`. Above it Odoo starts and logs "Python X is not officially
+supported" (`odoo/cli/server.py`). Odoo 14 declares none. For 14 the maximum comes from its `requirements.txt`,
+which splits its pins into buckets by `python_version` and **names the target distribution in the comment**:
+the newest such bucket is the newest interpreter that branch is maintained for. The other rows show the same
+reading for comparison:
 
 | Odoo | Newest bucket, verbatim | Distribution | ⇒ max |
 |---|---|---|---|
@@ -97,9 +104,11 @@ newest such bucket is the newest interpreter that branch is maintained for:
 | 18.0 | same Resolute bucket | Ubuntu 26.04 | 3.14 |
 | 19.0 | same Resolute bucket | Ubuntu 26.04 | 3.14 |
 
-**Why trust this derivation:** Odoo 19 is the only version that also declares its ceiling outright, and the
-derivation reproduces it exactly (`MAX_PY_VERSION = (3, 14)` ⇔ the Resolute bucket). A rule that gets the one
-checkable case right is the best available answer for the ones that state nothing.
+**How far to trust this derivation:** it agrees with the declared value for 15, 17, 18 and 19. It disagrees
+for 16, whose requirements gained a Debian 13 (Python 3.13) bucket while `MAX_PY_VERSION` stayed `(3, 12)`. The
+declared value is the one carried, so the derivation is only used for 14, which declares nothing. An earlier
+version of this page read `MAX_PY_VERSION` from `release.py` only. 15–18 therefore looked undeclared, and 16
+was carried as 3.13, derived.
 
 Odoo 12 and 13 have open-ended `>= '3.7'` / `>= '3.8'` buckets that name **no** distribution, so they get no
 ceiling — tier `untested`. Odoo 13 is nevertheless known to *run* on `uv`'s 3.8 floor: its requirements
@@ -134,8 +143,8 @@ needs is listed once, in [`CONTRIBUTING.md`](../../CONTRIBUTING.md).
 
 | Fact | Primary | Secondary |
 |---|---|---|
-| Python minimum | `raw.githubusercontent.com/odoo/odoo/<v>/odoo/release.py` → `MIN_PY_VERSION` (19.0 only), then `.../setup.py` → `python_requires` | the version's source-install page |
-| Python maximum | `.../odoo/release.py` → `MAX_PY_VERSION` (19.0 only) | `.../requirements.txt` → newest `python_version` bucket + the distribution its comment names |
+| Python minimum | `raw.githubusercontent.com/odoo/odoo/<v>/odoo/release.py` (19.0) or `.../odoo/__init__.py` (15.0–18.0) → `MIN_PY_VERSION`, then `.../setup.py` → `python_requires` | the version's source-install page |
+| Python maximum | `.../odoo/release.py` (19.0) or `.../odoo/__init__.py` (15.0–18.0) → `MAX_PY_VERSION` | `.../requirements.txt` → newest `python_version` bucket + the distribution its comment names (14.0) |
 | PostgreSQL minimum | the version's source-install page → "supported versions: N.0 or above" | — |
 | Host `python3` / PostgreSQL | `packages.ubuntu.com/<codename>/python3` and `/postgresql` | — |
 

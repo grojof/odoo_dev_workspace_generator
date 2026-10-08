@@ -58,14 +58,17 @@ def test_recommended_interpreter_is_inside_the_declared_range():
             )
 
 
-def test_odoo_19_is_the_only_officially_stated_python_maximum():
+def test_odoo_states_its_python_maximum_from_15():
+    # MAX_PY_VERSION: odoo/__init__.py in 15.0-18.0, odoo/release.py in 19.0.
     official = {
         support.version
         for support in ODOO_SUPPORT.values()
         if support.python_max.value and support.python_max.is_official
     }
-    assert official == {"19.0"}
+    assert official == {"15.0", "16.0", "17.0", "18.0", "19.0"}
     assert version_support("19.0").python_max.value == "3.14"
+    # Declared 3.12, though its requirements.txt reaches Debian 13's 3.13.
+    assert version_support("16.0").python_max.value == "3.12"
 
 
 def test_untested_maxima_carry_no_value_and_say_so():
@@ -77,10 +80,10 @@ def test_untested_maxima_carry_no_value_and_say_so():
 
 
 def test_a_derived_bound_is_never_described_as_official():
-    bound = version_support("18.0").python_max
+    bound = version_support("14.0").python_max
     assert bound.tier == DERIVED
     described = bound.describe()
-    assert described.startswith("3.14")
+    assert described.startswith("3.10")
     assert DERIVED in described and "requirements.txt" in described
     # An official bound needs no qualifier.
     assert version_support("18.0").python_min.describe() == "3.10"
@@ -100,8 +103,9 @@ def test_python_range_checks():
     assert python_in_range("18.0", "3.12")
     # Above a derived maximum: Odoo 14 tops out at Jammy's 3.10.
     assert not python_in_range("14.0", "3.12")
-    # Inside a derived maximum: Odoo 15 does target Noble's 3.12.
+    # Inside a declared maximum: Odoo 15 declares 3.12; 16 stops there too.
     assert python_in_range("15.0", "3.12")
+    assert not python_in_range("16.0", "3.13")
     # An unstated maximum bounds nothing above the floor.
     assert python_in_range("12.0", "3.8")
     assert not python_in_range("12.0", "3.4")
@@ -117,7 +121,7 @@ def test_python_tuple_compares_numerically():
 def test_minimum_and_maximum_lookups():
     assert python_minimum_for("12.0") == "3.5"
     assert python_minimum_for("19.0") == "3.10"
-    assert python_maximum_for("16.0") == "3.13"
+    assert python_maximum_for("16.0") == "3.12"
     assert python_maximum_for("13.0") is None
 
 

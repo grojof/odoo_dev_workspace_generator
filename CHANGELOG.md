@@ -447,6 +447,13 @@ All notable changes to this project are documented here. The format is based on
   capture and restore, which move no value at all.
 
 ### Fixed
+- **Python maxima of Odoo 15–18 are now the ones Odoo declares.** Odoo 15–18 state `MAX_PY_VERSION` in
+  `odoo/__init__.py`. `tools/verify_support_matrix.py` read it from `odoo/release.py` only, where only 19.0 has
+  it, so 15–18 were derived from `requirements.txt`.
+  - **Odoo 16 was carried as 3.13** (its requirements reach Debian 13); it declares 3.12. Above that Odoo only
+    logs a warning.
+  - **15, 17 and 18 keep their values**, now tier `official`.
+  - **The verifier now reads both files**, so it flags this drift instead of confirming it.
 - **A statement line of zero amount no longer stops the 14.0 step.** The check after the step, and
   `migrate audit`, counted every reconciled line with a line on the suspense account. Odoo itself
   stores a line of zero amount as reconciled, its suspense line at zero. They now count only lines with
