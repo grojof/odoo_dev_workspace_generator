@@ -32,7 +32,8 @@ def test_a_rule_is_guarded_by_every_column_it_names():
 
 def test_apply_records_before_it_writes_and_is_guarded_per_rule():
     sql = nz.apply_sql("http://127.0.0.1:8070")
-    assert sql.count("FROM pg_attribute a") == len(nz.CATALOGUE)
+    guarded_inserts = sum(1 for i in nz.INSERTS if i.when)
+    assert sql.count("FROM pg_attribute a") == len(nz.CATALOGUE) + guarded_inserts
     assert "information_schema" not in sql and "information_schema" not in nz.columns_sql()
     for rule in nz.CATALOGUE:
         for column, _expr in rule.sets:
@@ -62,8 +63,58 @@ def test_the_check_only_reads():
     existing = {(r.table, c) for r in nz.CATALOGUE for c in r.columns}
     sql = nz.check_sql(nz.applicable(existing))
     for word in ("INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "ALTER", "TRUNCATE"):
-        assert word not in sql.upper(), word
+        assert not re.search(rf"\b{word}\b", sql.upper()), word
     assert "LIMIT" not in sql.upper()  # every armed row counted, a sample only shown
+
+
+def test_a_missing_label_is_dropped_not_the_rule():
+    # 18.0's iap_account has no stored service_name: the tokens are still disabled.
+    iap = next(r for r in nz.CATALOGUE if r.id == "iap")
+    assert iap.label and iap.label not in iap.columns
+    existing = {("iap_account", c) for c in iap.columns}
+    [found] = nz.applicable(existing)
+    assert found.id == "iap" and found.label == ""
+    assert "t.service_name" not in nz.check_sql([found])
+    assert nz.applicable(existing | {("iap_account", iap.label)})[0].label == iap.label
+
+
+def test_a_long_iap_token_is_replaced_whole():
+    iap = next(r for r in nz.CATALOGUE if r.id == "iap")
+    [(_column, expr)] = iap.sets
+    assert "length(t.account_token) <= 33" in expr and "'dummy_value+disabled'" in expr
+
+
+def test_what_odoo_deletes_is_made_inert_here():
+    rules = {r.id: r for r in nz.CATALOGUE}
+    for rid in ("push-devices-17", "push-devices"):
+        assert rules[rid].sets == (("endpoint", f"'{nz.PUSH_SINK}'"),)
+    assert nz.PUSH_SINK.split("/")[2].endswith(".invalid")  # RFC 6761: never resolves
+    for rid in ("web-push-keys", "cloud-storage"):
+        assert rules[rid].sets == (("value", "''"),) and "t.value <> ''" in rules[rid].where
+    assert "DELETE" not in nz.apply_sql(nz.DEFAULT_LOCAL_URL).split("odwg_neutralisation")[0]
+
+
+def test_the_edi_demo_parameter_is_set_or_added_only_where_it_is_read():
+    rule = next(r for r in nz.CATALOGUE if r.id == "edi-proxy-demo")
+    assert rule.sets == (("value", "'true'"),) and "t.value = 'prod'" in rule.where
+    ins = next(i for i in nz.INSERTS if i.id == "edi-proxy-demo-insert")
+    assert ins.key == nz.EDI_DEMO_PARAM and ins.when == nz.EDI_PARAM_ERA
+    block = nz._insert_block(ins)
+    # The era test names only catalogs, so a missing table is never planned against.
+    assert f"AND ({nz.EDI_PARAM_ERA}) THEN IF NOT EXISTS" in block
+    assert "'edi_mode'" in nz.EDI_PARAM_ERA and "to_regclass" in nz.EDI_PARAM_ERA
+
+
+def test_a_missing_edi_demo_parameter_is_reported():
+    crons = next(r for r in nz.CATALOGUE if r.id == "crons")
+    assert "'edi-proxy-demo', '1', 'missing'" in nz.check_sql([crons])
+    assert "edi-proxy-demo (missing)" in nz.guard_sql()
+
+
+def test_queued_mail_forgets_the_server_it_named():
+    rule = next(r for r in nz.CATALOGUE if r.id == "queued-mail-server")
+    assert rule.table == "mail_message" and rule.sets == (("mail_server_id", "NULL"),)
+    assert "m.state IN ('outgoing', 'exception')" in rule.where
 
 
 def test_only_applicable_rules_are_checked():

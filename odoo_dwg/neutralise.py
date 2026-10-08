@@ -12,13 +12,15 @@ settings can be given back exactly. Giving them back is a separate action the
 operator asks for; nothing here does it on its own.
 
 Each rule is guarded by the existence of what it touches, so one catalogue
-serves every version from 12.0 to 18.0. Pure: this module builds SQL; running
+serves every version from 12.0 to 19.0. Where Odoo's own neutralisation deletes
+(push devices, cloud storage settings), a rule writes an inert value instead:
+deleted rows could not be given back. Pure: this module builds SQL; running
 it is ``system``'s job, or the migration driver's.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 RECORD_TABLE = "odwg_neutralisation"
 RUN_TABLE = "odwg_neutralisation_run"
@@ -73,18 +75,23 @@ class Rule:
 
     @property
     def columns(self) -> tuple[str, ...]:
-        return tuple(dict.fromkeys(("id", *self.requires, *(c for c, _ in self.sets),
-                                    *((self.label,) if self.label else ()))))
+        # The label only names rows in the check: a table without it (18.0's
+        # iap_account has no stored service_name) is still neutralised.
+        return tuple(dict.fromkeys(("id", *self.requires, *(c for c, _ in self.sets))))
 
 
 @dataclass(frozen=True)
 class Insert:
-    """A row added when absent (``database.is_neutralized``), recorded so restore deletes it."""
+    """A row added when absent (``database.is_neutralized``), recorded so restore deletes it.
+
+    ``when`` (SQL naming no table that may be missing) limits it to the versions
+    that read the parameter."""
 
     id: str
     source: str
     key: str
     value: str
+    when: str = ""
 
 
 def _keep_ids() -> str:
@@ -95,6 +102,26 @@ def _keep_ids() -> str:
 
 def _param(key: str) -> str:
     return f"t.key = '{key}'"
+
+
+def _params(*keys: str) -> str:
+    return "t.key IN (" + ", ".join(f"'{k}'" for k in keys) + ")"
+
+
+_OCA_ES = "OCA/l10n-spain {} {}"
+
+#: 14.0-16.0's EDI proxy reads its mode from a parameter, absent meaning production
+#: (account_edi_proxy_client/models/account_edi_proxy_user.py ``_get_demo_state``);
+#: 17.0 has an ``edi_mode`` column instead.
+EDI_DEMO_PARAM = "account_edi_proxy_client.demo"
+EDI_PARAM_ERA = (
+    "to_regclass('account_edi_proxy_client_user') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "
+    "pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace s ON s.oid = "
+    "c.relnamespace WHERE s.nspname = current_schema() AND c.relname = "
+    "'account_edi_proxy_client_user' AND a.attname = 'edi_mode' AND NOT a.attisdropped)"
+)
+#: A host that never resolves (RFC 6761): a push sent there goes nowhere.
+PUSH_SINK = "https://neutralised.invalid/"
 
 
 #: What a copy must not do, and where each rule comes from.
@@ -110,13 +137,45 @@ CATALOGUE: tuple[Rule, ...] = (
          "18.0 l10n_es_aeat_sii_oca/models/res_company.py:17-18",
          "res_company", "res.company", "t.sii_enabled OR NOT coalesce(t.sii_test, false)",
          (("sii_enabled", "false"), ("sii_test", "true")), label="name"),
-    Rule("sii-odoo", _ODOO_NEUTRALIZE.format("16.0-19.0", "addons/l10n_es_edi_sii"),
+    Rule("spain-edi-odoo", _ODOO_NEUTRALIZE.format("16.0-17.0", "addons/l10n_es_edi_sii")
+         + "; odoo 14.0-15.0 addons/l10n_es_edi_sii/models/res_company.py (TicketBAI shares the "
+         "field until 17.0)",
+         "res_company", "res.company", "NOT coalesce(t.l10n_es_edi_test_env, false)",
+         (("l10n_es_edi_test_env", "true"),), label="name"),
+    Rule("sii-odoo", _ODOO_NEUTRALIZE.format("18.0-19.0", "addons/l10n_es_edi_sii"),
          "res_company", "res.company", "NOT coalesce(t.l10n_es_sii_test_env, false)",
          (("l10n_es_sii_test_env", "true"),), label="name"),
-    Rule("ticketbai", _ODOO_NEUTRALIZE.format("17.0-19.0", "addons/l10n_es_edi_tbai"),
+    Rule("ticketbai", _ODOO_NEUTRALIZE.format("18.0-19.0", "addons/l10n_es_edi_tbai"),
          "res_company", "res.company", "NOT coalesce(t.l10n_es_tbai_test_env, false)",
          (("l10n_es_tbai_test_env", "true"),), label="name"),
-    Rule("edi-proxy", _ODOO_NEUTRALIZE.format("16.0-19.0", "addons/account_edi_proxy_client"),
+    Rule("verifactu-odoo", _ODOO_NEUTRALIZE.format("17.0-19.0", "addons/l10n_es_edi_verifactu"),
+         "res_company", "res.company", "NOT coalesce(t.l10n_es_edi_verifactu_test_environment, false)",
+         (("l10n_es_edi_verifactu_test_environment", "true"),), label="name"),
+    Rule("verifactu-oca", _OCA_ES.format("14.0, 15.0, 16.0, 17.0, 18.0",
+                                         "l10n_es_verifactu_oca/models/res_company.py"),
+         "res_company", "res.company", "NOT coalesce(t.verifactu_test, false)",
+         (("verifactu_test", "true"),), label="name"),
+    Rule("ticketbai-oca", _OCA_ES.format("13.0, 14.0, 15.0, 16.0",
+                                         "l10n_es_ticketbai_api/models/res_company.py"),
+         "res_company", "res.company", "t.tbai_enabled AND NOT coalesce(t.tbai_test_enabled, false)",
+         (("tbai_test_enabled", "true"),), requires=("tbai_enabled",), label="name"),
+    Rule("edi-proxy-demo", _ODOO_NEUTRALIZE.format("16.0", "addons/account_edi_proxy_client")
+         + "; odoo 14.0-15.0 addons/account_edi_proxy_client/models/account_edi_proxy_user.py",
+         "ir_config_parameter", "ir.config_parameter",
+         f"{_param(EDI_DEMO_PARAM)} AND t.value = 'prod'", (("value", "'true'"),),
+         requires=("key",), label="key"),
+    Rule("edi-proxy-my-gr", _ODOO_NEUTRALIZE.format("17.0-19.0", "addons/l10n_my_edi") + "; "
+         + _ODOO_NEUTRALIZE.format("18.0-19.0", "addons/l10n_gr_edi_e_invoo"),
+         "account_edi_proxy_client_user", "account_edi_proxy_client.user",
+         "t.active AND t.proxy_type IN ('l10n_my_edi', 'l10n_gr_edi')",
+         (("active", "false"),), requires=("proxy_type",)),
+    Rule("my-edi-mode", _ODOO_NEUTRALIZE.format("17.0-19.0", "addons/l10n_my_edi"),
+         "res_company", "res.company", "t.l10n_my_edi_mode IS DISTINCT FROM 'test'",
+         (("l10n_my_edi_mode", "'test'"),), label="name"),
+    Rule("gr-edi", _ODOO_NEUTRALIZE.format("18.0-19.0", "addons/l10n_gr_edi"),
+         "res_company", "res.company", "NOT coalesce(t.l10n_gr_edi_test_env, false)",
+         (("l10n_gr_edi_test_env", "true"),), label="name"),
+    Rule("edi-proxy", _ODOO_NEUTRALIZE.format("17.0-19.0", "addons/account_edi_proxy_client"),
          "account_edi_proxy_client_user", "account_edi_proxy_client.user",
          "t.edi_mode = 'prod' AND t.proxy_type NOT IN ('l10n_my_edi', 'l10n_gr_edi')",
          (("edi_mode", "CASE WHEN t.proxy_type IN ('l10n_it_edi', 'peppol', 'nemhandel', "
@@ -140,12 +199,17 @@ CATALOGUE: tuple[Rule, ...] = (
          (("active", "false"),), requires=("delivery_type",)),
     Rule("oauth", _ODOO_NEUTRALIZE.format("16.0-19.0", "addons/auth_oauth"),
          "auth_oauth_provider", "auth.oauth.provider", "t.enabled", (("enabled", "false"),)),
-    Rule("google-calendar-users", "odoo 12.0-15.0 addons/google_calendar/models/res_users.py "
-         "(the tokens live on res_users until 16.0)",
+    Rule("google-calendar-users", "odoo 12.0-14.0 addons/google_calendar/models/res_users.py "
+         "(the tokens live on res_users until 14.0)",
          "res_users", "res.users", "t.google_calendar_rtoken IS NOT NULL OR "
          "t.google_calendar_token IS NOT NULL",
          (("google_calendar_rtoken", "NULL"), ("google_calendar_token", "NULL"))),
-    Rule("google-calendar-settings", _ODOO_NEUTRALIZE.format("16.0-19.0", "addons/google_calendar"),
+    Rule("google-calendar-credentials", _ODOO_NEUTRALIZE.format("16.0-17.0", "addons/google_calendar")
+         + "; odoo 15.0 addons/google_calendar/models/google_credentials.py",
+         "google_calendar_credentials", "google.calendar.credentials",
+         "t.calendar_rtoken IS NOT NULL OR t.calendar_token IS NOT NULL",
+         (("calendar_rtoken", "NULL"), ("calendar_token", "NULL"), ("synchronization_stopped", "true"))),
+    Rule("google-calendar-settings", _ODOO_NEUTRALIZE.format("18.0-19.0", "addons/google_calendar"),
          "res_users_settings", "res.users.settings", "t.google_calendar_rtoken IS NOT NULL OR "
          "t.google_calendar_token IS NOT NULL",
          (("google_calendar_rtoken", "NULL"), ("google_calendar_token", "NULL"),
@@ -155,7 +219,14 @@ CATALOGUE: tuple[Rule, ...] = (
          "res_users", "res.users", "t.microsoft_calendar_token IS NOT NULL OR "
          "t.microsoft_calendar_rtoken IS NOT NULL",
          (("microsoft_calendar_token", "NULL"), ("microsoft_calendar_rtoken", "NULL"))),
-    Rule("microsoft-calendar-settings", _ODOO_NEUTRALIZE.format("16.0-19.0",
+    Rule("microsoft-calendar-stopped", _ODOO_NEUTRALIZE.format("16.0", "addons/microsoft_calendar"),
+         "res_users", "res.users", "NOT coalesce(t.microsoft_synchronization_stopped, false)",
+         (("microsoft_synchronization_stopped", "true"),)),
+    Rule("microsoft-calendar-credentials", _ODOO_NEUTRALIZE.format("17.0", "addons/microsoft_calendar"),
+         "microsoft_calendar_credentials", "microsoft.calendar.credentials",
+         "t.calendar_sync_token IS NOT NULL",
+         (("calendar_sync_token", "NULL"), ("synchronization_stopped", "true"))),
+    Rule("microsoft-calendar-settings", _ODOO_NEUTRALIZE.format("18.0-19.0",
                                                                 "addons/microsoft_calendar"),
          "res_users_settings", "res.users.settings", "t.microsoft_calendar_sync_token IS NOT NULL",
          (("microsoft_calendar_sync_token", "NULL"), ("microsoft_synchronization_stopped",
@@ -167,8 +238,52 @@ CATALOGUE: tuple[Rule, ...] = (
          label="name"),
     Rule("iap", _ODOO_NEUTRALIZE.format("16.0-19.0", "addons/iap"),
          "iap_account", "iap.account", "t.account_token NOT LIKE '%+disabled'",
-         (("account_token", "regexp_replace(t.account_token, '(\\+.*)?$', '+disabled')"),),
+         # A token longer than 33 characters is replaced whole, as 17.0-19.0 do.
+         (("account_token", "CASE WHEN length(t.account_token) <= 33 THEN "
+                            "regexp_replace(t.account_token, '(\\+.*)?$', '+disabled') "
+                            "ELSE 'dummy_value+disabled' END"),),
          label="service_name"),
+    Rule("web-push-keys", _ODOO_NEUTRALIZE.format("17.0-19.0", "addons/mail")
+         + " (deleted there, emptied here: Odoo makes new keys)",
+         "ir_config_parameter", "ir.config_parameter",
+         _params("mail.web_push_vapid_private_key", "mail.web_push_vapid_public_key",
+                 "mail.sfu_server_key") + " AND t.value <> ''",
+         (("value", "''"),), requires=("key",), label="key"),
+    Rule("push-devices-17", "odoo 17.0 addons/mail/models/partner_devices.py (Odoo deletes the "
+         "devices; here their endpoint goes nowhere)",
+         "mail_partner_device", "mail.partner.device", f"t.endpoint <> '{PUSH_SINK}'",
+         (("endpoint", f"'{PUSH_SINK}'"),)),
+    Rule("push-devices", "odoo 18.0-19.0 addons/mail/models/mail_push_device.py (Odoo deletes the "
+         "devices; here their endpoint goes nowhere)",
+         "mail_push_device", "mail.push.device", f"t.endpoint <> '{PUSH_SINK}'",
+         (("endpoint", f"'{PUSH_SINK}'"),)),
+    Rule("cloud-storage", "; ".join(_ODOO_NEUTRALIZE.format("18.0-19.0", f"addons/{m}") for m in
+                                    ("cloud_storage", "cloud_storage_azure", "cloud_storage_google"))
+         + " (deleted there, emptied here)",
+         "ir_config_parameter", "ir.config_parameter",
+         _params("cloud_storage_provider", "cloud_storage_azure_account_name",
+                 "cloud_storage_azure_container_name", "cloud_storage_azure_tenant_id",
+                 "cloud_storage_azure_client_id", "cloud_storage_azure_client_secret",
+                 "cloud_storage_google_bucket_name", "cloud_storage_google_account_info")
+         + " AND t.value <> ''",
+         (("value", "''"),), requires=("key",), label="key"),
+    Rule("certificate-password", _ODOO_NEUTRALIZE.format("18.0-19.0", "addons/certificate"),
+         "certificate_certificate", "certificate.certificate", "t.pkcs12_password IS NOT NULL",
+         (("pkcs12_password", "'dummy'"),), label="name"),
+    Rule("certificate-key-password", _ODOO_NEUTRALIZE.format("18.0-19.0", "addons/certificate"),
+         "certificate_key", "certificate.key", "t.password IS NOT NULL",
+         (("password", "'dummy'"),), label="name"),
+    Rule("sms-twilio", _ODOO_NEUTRALIZE.format("18.0-19.0", "addons/sms_twilio"),
+         "res_company", "res.company", "t.sms_twilio_auth_token IS NOT NULL",
+         (("sms_twilio_auth_token", "'dummytoken'"),), label="name"),
+    # 12.0-15.0 send a mail through the server its message names even when it is
+    # archived (ir_mail_server.connect() browses the id; 16.0 refuses an archived
+    # one): the mail capture archives the client's servers, so the name is cleared.
+    Rule("queued-mail-server", "odoo 12.0-15.0 odoo/addons/base/models/ir_mail_server.py",
+         "mail_message", "mail.message",
+         "t.mail_server_id IS NOT NULL AND EXISTS (SELECT 1 FROM mail_mail m WHERE "
+         "m.mail_message_id = t.id AND m.state IN ('outgoing', 'exception'))",
+         (("mail_server_id", "NULL"),)),
     Rule("mail-template-server", _ODOO_NEUTRALIZE.format("16.0-19.0", "addons/mail"),
          "mail_template", "mail.template", "t.mail_server_id IS NOT NULL",
          (("mail_server_id", "NULL"),)),
@@ -205,13 +320,20 @@ CATALOGUE: tuple[Rule, ...] = (
 SEVERITY: dict[str, str] = {
     "crons": "high", "queued-jobs": "high",
     "sii-oca": "critical", "sii-odoo": "critical", "ticketbai": "critical",
+    "spain-edi-odoo": "critical", "verifactu-odoo": "critical", "verifactu-oca": "critical",
+    "ticketbai-oca": "critical", "edi-proxy-demo": "critical", "edi-proxy-my-gr": "critical",
+    "my-edi-mode": "critical", "gr-edi": "critical",
     "edi-proxy": "critical", "peppol-mode": "critical",
     "payment-provider": "critical", "payment-acquirer-state": "critical",
     "payment-acquirer-environment": "critical",
     "delivery-environment": "high", "delivery-external": "high", "oauth": "high",
     "google-calendar-users": "high", "google-calendar-settings": "high",
     "microsoft-calendar-users": "high", "microsoft-calendar-settings": "high",
-    "webhooks": "high",
+    "google-calendar-credentials": "high", "microsoft-calendar-stopped": "high",
+    "microsoft-calendar-credentials": "high",
+    "webhooks": "high", "push-devices-17": "high", "push-devices": "high", "cloud-storage": "high",
+    "certificate-password": "high", "certificate-key-password": "high", "sms-twilio": "high",
+    "queued-mail-server": "high", "web-push-keys": "medium",
     "iap": "medium", "mail-template-server": "medium", "website-domain": "medium",
     "website-cdn": "medium", "base-url": "medium", "base-url-freeze": "medium",
     "database-uuid": "low", "neutralised-flag": "info", "neutralised-banner": "info",
@@ -225,6 +347,9 @@ def severity(rule_id: str) -> str:
 INSERTS: tuple[Insert, ...] = (
     Insert("neutralised-flag-insert", _ODOO_NEUTRALIZE.format("16.0-19.0", "odoo/addons/base"),
            "database.is_neutralized", "True"),
+    # Absent means production on 14.0-16.0; 16.0's neutralize.sql inserts it.
+    Insert("edi-proxy-demo-insert", _ODOO_NEUTRALIZE.format("16.0", "addons/account_edi_proxy_client"),
+           EDI_DEMO_PARAM, "true", when=EDI_PARAM_ERA),
 )
 
 
@@ -292,13 +417,14 @@ def _rule_block(rule: Rule, local_url: str) -> str:
 
 def _insert_block(ins: Insert) -> str:
     return (
-        "IF to_regclass('ir_config_parameter') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "
+        "IF to_regclass('ir_config_parameter') IS NOT NULL" + (f" AND ({ins.when})" if ins.when else "")
+        + " THEN IF NOT EXISTS (SELECT 1 FROM "
         f"ir_config_parameter WHERE key = {_lit(ins.key)}) THEN "
         f"WITH added AS (INSERT INTO ir_config_parameter (key, value) VALUES ({_lit(ins.key)}, "
         f"{_lit(ins.value)}) RETURNING id) INSERT INTO {RECORD_TABLE} (run, rule, relation, "
         f"row_id, xmlid, col, kind, original, applied) SELECT r, {_lit(ins.id)}, "
         f"'ir_config_parameter', id, NULL, 'value', 'insert', NULL, to_jsonb({_lit(ins.value)}::text) "
-        f"FROM added; END IF; "
+        f"FROM added; END IF; END IF; "
     )
 
 
@@ -328,8 +454,19 @@ def apply_sql(local_url: str = DEFAULT_LOCAL_URL) -> str:
 # --- check ---------------------------------------------------------------------------
 
 def applicable(existing: set[tuple[str, str]]) -> list[Rule]:
-    """The rules whose table and columns exist, given ``(table, column)`` pairs."""
-    return [r for r in CATALOGUE if all((r.table, c) in existing for c in r.columns)]
+    """The rules whose table and columns exist, given ``(table, column)`` pairs; a
+    label the table lacks is dropped (the check then names rows by id)."""
+    return [
+        r if not r.label or (r.table, r.label) in existing else replace(r, label="")
+        for r in CATALOGUE if all((r.table, c) in existing for c in r.columns)
+    ]
+
+
+# 14.0-16.0 with no demo parameter, or a ``prod`` one, is in production.
+_EDI_PARAM_MISSING = (
+    f"{EDI_PARAM_ERA} AND NOT EXISTS (SELECT 1 FROM ir_config_parameter "
+    f"WHERE key = '{EDI_DEMO_PARAM}' AND value <> 'prod')"
+)
 
 
 def columns_sql() -> str:
@@ -364,6 +501,7 @@ def check_sql(rules: list[Rule], local_url: str = DEFAULT_LOCAL_URL) -> str:
         )
     if not parts:
         return "SELECT NULL::text, NULL::text, NULL::text WHERE false"
+    parts.append(f"SELECT 'edi-proxy-demo', '1', 'missing' WHERE {_EDI_PARAM_MISSING}")
     return " UNION ALL ".join(parts)
 
 
@@ -388,6 +526,9 @@ def guard_sql(local_url: str = DEFAULT_LOCAL_URL, capture: tuple[str, int] = ("1
         "IF to_regclass('ir_mail_server') IS NOT NULL THEN SELECT count(*) INTO n FROM "
         f"ir_mail_server WHERE active AND NOT (smtp_host = {_lit(host)} AND smtp_port = {port}); "
         "IF n > 0 THEN found := found || 'mail-server (' || n || ') '; END IF; END IF; "
+        f"IF {EDI_PARAM_ERA} THEN IF NOT EXISTS (SELECT 1 FROM ir_config_parameter WHERE key = "
+        f"'{EDI_DEMO_PARAM}' AND value <> 'prod') THEN found := found || 'edi-proxy-demo (missing) '; "
+        "END IF; END IF; "
         "IF found <> '' THEN RAISE EXCEPTION 'can still act on the outside: %', found; END IF; "
         "END $$;"
     )
