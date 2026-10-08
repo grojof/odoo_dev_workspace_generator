@@ -22,6 +22,7 @@ from __future__ import annotations
 import ast
 import compileall
 import csv
+import re
 import sys
 import tempfile
 import xml.etree.ElementTree as ET
@@ -75,6 +76,10 @@ def _by_version_from_clones() -> dict[str, list]:
     """The real chain, where this host has it."""
     found: dict[str, list] = {}
     for clone in sorted(CLONES.glob("openupgrade-*")):
+        # Only a series' clone: a working clone beside it (openupgrade-14.0-fix)
+        # is not a step of the chain.
+        if not re.fullmatch(r"openupgrade-\d+\.0", clone.name):
+            continue
         version = clone.name.split("-", 1)[1]
         records: list = []
         for path in clone.rglob("upgrade_analysis.txt"):
