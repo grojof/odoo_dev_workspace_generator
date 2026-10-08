@@ -47,6 +47,8 @@ the source it came from. Operator-facing output and documentation SHALL NOT pres
 
 ### Requirement: Support statements derive from the matrix
 
+Every operator-facing support statement SHALL derive from the matrix.
+
 Every operator-facing surface that states a support bound — host readiness reporting, workspace generation,
 migration environment generation, and the generated per-workspace README — SHALL read it from the matrix.
 Changing a bound in the matrix SHALL change every one of those surfaces without editing them.

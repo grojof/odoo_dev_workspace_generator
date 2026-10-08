@@ -115,6 +115,8 @@ matches are leads requiring developer confirmation, not proof.
 
 ### Requirement: Reviewed module code is promoted to a location the operator owns
 
+The system SHALL let the operator promote a module's reviewed code to a location they own.
+
 The staged code of a module at a step is the operator's own work — the migrator's mechanical output plus
 every correction made by hand — and it lives inside the migration environment, which cleaning removes and
 re-staging replaces. The system SHALL offer an action that **promotes** a module's reviewed code for one or
@@ -145,6 +147,8 @@ which.
 
 ### Requirement: Staging consumes what has been promoted
 
+Staging SHALL consume what has been promoted instead of deriving it again.
+
 A migration is rehearsed several times and run once, and the final run must apply what was proven rather
 than derive it again. For each module and step, staging SHALL take its input from the durable location when
 that module has promoted code for that version, and SHALL derive from the previous step only when it has
@@ -168,6 +172,8 @@ A chain with nothing promoted SHALL behave exactly as it does without this capab
 - **THEN** steps up to 16.0 are taken from the durable location and 17.0 onward are derived from them
 
 ### Requirement: Divergence between the environment and the promoted copy is reported
+
+The staging report SHALL name any divergence between the environment and the promoted copy.
 
 Promotion copies, so the two can drift: the operator keeps working in the environment, or edits the durable
 copy directly. The staging report SHALL name, per module and version, whether the environment's code and the

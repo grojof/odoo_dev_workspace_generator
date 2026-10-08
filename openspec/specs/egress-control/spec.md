@@ -124,6 +124,8 @@ directory can take.
 
 ### Requirement: The rules on the host can be checked against the rules the tool wrote
 
+The system SHALL offer a read-only check of the host's rules against the rules the tool wrote.
+
 OpenSnitch evaluates rules in file-name order and the first match decides, which is why the tool's own
 rules are named to sort first. Nothing checks that they still do. The system SHALL offer a read-only check
 of the rules directory that reports:

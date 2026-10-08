@@ -170,6 +170,8 @@ table (check, state, detail) with states OK / WARN / MISSING / INFO, and the che
 
 ### Requirement: Decisions about modules with no successor are recorded, reused and re-checked
 
+Decisions about modules with no successor SHALL be recorded by the operator, reused and re-checked.
+
 When a module resolves nowhere in a step and OpenUpgrade declares no successor for it, the coverage report
 names it and stops there. What follows is a decision only the operator can make — the module is dropped, it
 is replaced by another one, or somebody ports it — and for an official or OCA module that decision is the
@@ -207,6 +209,8 @@ clients.
 - **THEN** it is reported as undecided, distinctly from a module whose code is simply not on disk
 
 ### Requirement: A rehearsal can be run against a module built to break
+
+The system SHALL be able to rehearse a chain against a module it builds to break.
 
 A chain rehearsed only against the client's own add-ons exercises the classes of change that client happens
 to meet. The system SHALL be able to generate a custom add-on of its own for a chain, whose purpose is to
@@ -327,6 +331,8 @@ installed there, and suggesting it would produce a rehearsal that fails for the 
 - **THEN** that step is reported as unread, and no module is reported unchanged on the strength of it
 
 ### Requirement: A module's dependencies must resolve, not only the module
+
+Coverage SHALL check that a resolving module's dependencies resolve too, not only the module.
 
 A module resolving is not the same as a step running. Odoo refuses to upgrade a module whose manifest names
 a dependency it cannot find, so coverage answering "everything resolves" was not the same as the step
@@ -463,6 +469,8 @@ would stop it, and 2 when it could not tell.
 - **THEN** it prints the renames, installs and uninstalls, and exits 0
 
 ### Requirement: A dropped module can be retired before the chain, and named losses accepted
+
+The operator SHALL be able to retire a dropped module before the chain and accept named losses.
 
 A `dropped` or `replaced` decision MAY carry `"when": "before-chain"`. Any other value of `when`, or `when` on
 another kind of decision, SHALL be refused by name. `migrate decide MODULE --decision dropped --before-chain`
