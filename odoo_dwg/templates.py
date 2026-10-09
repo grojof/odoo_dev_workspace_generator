@@ -483,15 +483,18 @@ clone is not modified. If a venv fails with `No module named 'pkg_resources'`, r
 
 ## Setup & run
 
-The venvs are already built. Create a database, then launch:
+The venvs are already built. Create a database, install Odoo's base in it once, then launch:
 
 ```bash
 # From this workspace directory, on the Linux host:
 createdb -h {cfg.db_host} -p {cfg.db_port} -U {cfg.db_user} {cfg.name}    # once; the name F5 offers by default
-bash scripts/run-odoo{cfg.instances()[0].major}.sh          # launch the {cfg.versions[0]} instance
+bash scripts/run-odoo{cfg.instances()[0].major}.sh -d {cfg.name} -i base     # the first start only
+bash scripts/run-odoo{cfg.instances()[0].major}.sh -d {cfg.name}             # every later start
 ```
 
-Then open <http://{cfg.db_host}:{cfg.http_port_for(cfg.versions[0])}/web/login>. You can also create the database
+Then open <http://localhost:{cfg.http_port_for(cfg.versions[0])}/web/login> and log in as `admin` / `admin`.
+`createdb` leaves the database empty: started without `-i base`, Odoo answers every page with an error
+(*Database … not initialized*). Ctrl+C stops it. You can also create the database
 from Odoo's own database manager at `/web/database/manager`; its master password is `admin`, set by
 `admin_passwd` in each `config/odoo<major>.conf`. **`-h {cfg.db_host} -U {cfg.db_user}` is not optional**:
 the development role is trusted over loopback TCP, not over the Unix socket, so a bare `createdb` fails with

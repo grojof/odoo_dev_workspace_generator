@@ -68,7 +68,10 @@ def test_a_quick_workspace_takes_the_local_port(monkeypatch):
     cfg = workspace._quick_profile()
     assert cfg is not None and cfg.db_port == 5433
     cfg.normalize_defaults()  # as creation does before it renders
-    assert "createdb -h 127.0.0.1 -p 5433 -U odoo acme" in templates.render_workspace_readme(cfg)
+    readme = templates.render_workspace_readme(cfg)
+    assert "createdb -h 127.0.0.1 -p 5433 -U odoo acme" in readme
+    # An empty database is not one Odoo can serve: the first start installs base.
+    assert "bash scripts/run-odoo18.sh -d acme -i base" in readme
 
 
 def test_a_profile_keeps_the_port_it_states():
