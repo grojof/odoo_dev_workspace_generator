@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-09
+
 ### Changed
 - **The WSL setup guide is a plain path from a Windows PC to Odoo running.** It was rehearsed on a fresh
   machine, and the steps that did nothing or did harm are gone:
@@ -1227,7 +1229,8 @@ First release.
   marker and the venvs planner skips on the marker (not the venv directory), rebuilding half-built
   venvs with `uv venv --clear` instead of silently skipping them.
 
-[Unreleased]: https://github.com/grojof/odoo_dev_workspace_generator/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/grojof/odoo_dev_workspace_generator/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/grojof/odoo_dev_workspace_generator/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/grojof/odoo_dev_workspace_generator/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/grojof/odoo_dev_workspace_generator/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/grojof/odoo_dev_workspace_generator/releases/tag/v0.1.0

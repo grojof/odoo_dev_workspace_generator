@@ -9,7 +9,10 @@ updated: 2026-10-08
 
 # Roadmap
 
-**Released: v0.3.0 (2026-10-08).** F0–F3 are complete; see [`CHANGELOG.md`](../../CHANGELOG.md).
+**Released: v0.3.1 (2026-10-09).** F0–F3 are complete; see [`CHANGELOG.md`](../../CHANGELOG.md).
+
+**0.3.1** fixes two things a rehearsal of the WSL guide on a second machine found: the tool now uses the
+host's own PostgreSQL cluster on whatever port it has, and a workspace's README starts Odoo.
 
 **What 0.3.0 brought:** the client migration surface, shaped by a real 12 → 18 migration rehearsed from zero
 until its accounting matched the source:
