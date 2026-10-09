@@ -23,7 +23,7 @@ python3 -m odoo_dwg provision      # menu: Check / Apply / Outbound firewall and
 
 `Check host readiness` prints a capability table, changes nothing and **never asks for a password**. It
 reports `uv` (every migration step's interpreter comes from it) but never installs it — that is a host
-prerequisite, see [wsl-setup](wsl-setup.md#7-optional-uv-for-other-python-versions) or
+prerequisite, see [wsl-setup](wsl-setup.md#6-only-for-odoo-12-13-or-14-install-uv) or
 <https://docs.astral.sh/uv/>. PostgreSQL's
 state, port and version come from `pg_lsclusters`: the host's own cluster, on the port it has. On WSL 2 every
 distribution shares one network, so a second distribution's cluster gets 5433 while 5432 is another

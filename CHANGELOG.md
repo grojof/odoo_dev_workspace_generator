@@ -6,7 +6,20 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+- **The WSL setup guide is a plain path from a Windows PC to Odoo running.** It was rehearsed on a fresh
+  machine, and the steps that did nothing or did harm are gone:
+  - appending `[boot]` and `[user]` to `/etc/wsl.conf`, which Ubuntu's image already writes;
+  - exporting and re-importing the image to give it a name, which `wsl --install --name --location` does;
+  - installing `git` and `curl`, which the image already has, and a Git identity the tool never needs.
+
+  It now gets the tool from GitHub or from a copy already on Windows, and ends with Odoo open in the browser.
+
 ### Fixed
+- **A new workspace's README starts Odoo.** It said to `createdb` and launch, which leaves the database empty,
+  so Odoo answered every page with *Database … not initialized*. The first start now installs `base`
+  (`-d <name> -i base`), and the README gives the login. `docs/workspace/layout.md` said the same, and also
+  rebuilt the venvs that generation had already built.
 - **PostgreSQL is the host's own cluster, on whatever port it has.** On WSL 2 every distribution shares one
   network. A second distribution's new cluster gets port 5433 while 5432 is another distribution's server, and
   that server trusts the same development role. The tool assumed 5432, so:

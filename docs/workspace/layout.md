@@ -58,12 +58,12 @@ Generating the files is verified by unit tests on any OS. Actually **building an
 intrinsically Linux and is validated by hand on WSL Ubuntu 24.04:
 
 ```bash
-# On the Linux host, after generating the workspace:
+# On the Linux host, after generating the workspace (its venvs are already built):
 cd ~/odoo-workspaces/<name>
-bash scripts/setup_venv.sh                      # venv (host python3 or uv) + pip install -r requirements.txt
-createdb -h 127.0.0.1 -U odoo <name>            # the role provision apply creates; -h/-U are required,
-                                                # since the trust is on loopback TCP, not the Unix socket
-bash scripts/run-odoo18.sh                       # odoo-bin -c config/odoo18.conf → serves on its port
+createdb -h 127.0.0.1 -p <db_port> -U odoo <name>  # the role provision apply creates; -h/-U are required,
+                                                   # since the trust is on loopback TCP, not the Unix socket
+bash scripts/run-odoo18.sh -d <name> -i base       # first start: installs base in the empty database
+bash scripts/run-odoo18.sh -d <name>               # every later start; serves on its port
 ```
 
 This step is host-dependent and is **not** run in CI; it is the manual acceptance check for the change.
