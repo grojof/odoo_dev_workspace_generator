@@ -495,10 +495,14 @@ def plan_pg_hba_trust(role: str) -> list[Command]:
     # The grep proves the line exists, not that it is reached: an earlier rule
     # matching the same connection wins, and pg_hba is first-match-wins. Only a
     # connection proves the narrowing did what it says.
+    # On the port of the server this plan configured, asked of that server: on
+    # WSL 2 loopback 5432 may be another distribution's, which would answer for it.
     connect = (
-        f"psql -X -w -h 127.0.0.1 -U {shlex.quote(role)} -d postgres -tAc 'SELECT 1' >/dev/null 2>&1"
+        f'psql -X -w -h 127.0.0.1 -p "$port" -U {shlex.quote(role)} -d postgres '
+        "-tAc 'SELECT 1' >/dev/null 2>&1"
     )
     probe = "\n".join([
+        'port=$(sudo -u postgres psql -X -tAc "SHOW port;")',
         # The retry is on the connection itself — the reload is asynchronous, and
         # retrying anything else proves nothing about it.
         "tries=0",
@@ -506,7 +510,7 @@ def plan_pg_hba_trust(role: str) -> list[Command]:
         f"  {connect} && ok=1 && break",
         "  tries=$((tries + 1)); sleep 1",
         "done",
-        f'[ "${{ok:-}}" = 1 ] || {{ echo "{role} cannot connect over loopback after the reload — '
+        f'[ "${{ok:-}}" = 1 ] || {{ echo "{role} cannot connect over loopback on port $port after the reload — '
         f"check that PostgreSQL is running, and the rules above the ones this step added in "
         f'$(sudo -u postgres psql -X -tAc \"SHOW hba_file;\")" >&2; exit 1; }}',
     ])

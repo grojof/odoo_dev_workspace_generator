@@ -25,7 +25,10 @@ python3 -m odoo_dwg provision      # menu: Check / Apply / Outbound firewall and
 reports `uv` (every migration step's interpreter comes from it) but never installs it — that is a host
 prerequisite, see [wsl-setup](wsl-setup.md#7-optional-uv-for-other-python-versions) or
 <https://docs.astral.sh/uv/>. PostgreSQL's
-state and version come from `pg_lsclusters`. The development role is checked by logging in as it over loopback,
+state, port and version come from `pg_lsclusters`: the host's own cluster, on the port it has. On WSL 2 every
+distribution shares one network, so a second distribution's cluster gets 5433 while 5432 is another
+distribution's server; the check, apply's connection check, new workspaces and migration environments all use
+the host's own port. The development role is checked by logging in as it over loopback,
 or through `sudo -n`. When neither works, the role row says it could not be checked (WARN), instead of claiming
 it is missing. The loopback-auth row asks **PostgreSQL itself** (`pg_hba_file_rules`, which needs `sudo`)
 rather than parsing `pg_hba.conf`, so it sees the rules the server actually uses — continuations folded,

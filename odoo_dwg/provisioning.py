@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from . import egress, planners, system
 from .i18n import tf
 from .models import (
+    DEFAULT_DB_PORT,
     DEFAULT_DB_ROLE,
     ODOO_SUPPORT,
     postgres_floor_for,
@@ -32,6 +33,8 @@ class ProvisionFacts:
     build_deps_missing: list[str] = field(default_factory=list)
     postgres_installed: bool = False
     postgres_running: bool = False
+    # The host's own cluster: on WSL 2, loopback 5432 may be another distribution's.
+    postgres_port: int = DEFAULT_DB_PORT
     dev_role: str = DEFAULT_DB_ROLE
     # None: it could not be told without a password prompt.
     dev_role_exists: bool | None = False
@@ -62,10 +65,11 @@ def gather_facts(dev_role: str = DEFAULT_DB_ROLE, versions: list[str] | None = N
     """Probe the host for readiness (I/O). ``versions`` scopes the PostgreSQL
     floor to the Odoo versions in play; empty means every supported version."""
     release = system.detect_os_release()
-    running = system.postgres_running()
+    port = system.local_db_port()
+    running = system.postgres_running(port)
     # Not running: the role cannot be told apart from an unreachable server.
-    role_exists = system.db_role_exists(dev_role) if running else None
-    hba = system.pg_hba_loopback_state(dev_role) if running else None
+    role_exists = system.db_role_exists(dev_role, port) if running else None
+    hba = system.pg_hba_loopback_state(dev_role, port) if running else None
     uv_present = system.has_tool("uv")
     # Both packages matter: with only the daemon installed, the UI must still be.
     opensnitch_version = system.deb_version("opensnitch")
@@ -79,7 +83,8 @@ def gather_facts(dev_role: str = DEFAULT_DB_ROLE, versions: list[str] | None = N
         build_deps_missing=[p for p in planners.BUILD_DEPS if not system.package_installed(p)],
         postgres_installed=system.postgres_installed(),
         postgres_running=running,
-        postgres_version=system.detect_postgres_version() if running else None,
+        postgres_port=port,
+        postgres_version=system.detect_postgres_version(port) if running else None,
         dev_role=dev_role,
         dev_role_exists=role_exists,
         pg_hba_blanket_trust=hba[0] if hba else None,
@@ -208,9 +213,10 @@ def provision_rows(facts: ProvisionFacts) -> list[tuple[str, str, str]]:
     if not facts.postgres_installed:
         rows.append(("MISSING", "PostgreSQL", tf("not installed")))
     elif facts.postgres_running:
-        rows.append(("OK", "PostgreSQL", tf("installed and running")))
+        rows.append(("OK", "PostgreSQL", tf("installed and running (port {})", facts.postgres_port)))
     else:
-        rows.append(("WARN", "PostgreSQL", tf("installed but not running")))
+        rows.append(("WARN", "PostgreSQL", tf("installed but not running (port {})",
+                                              facts.postgres_port)))
 
     rows += _postgres_version_rows(facts)
 

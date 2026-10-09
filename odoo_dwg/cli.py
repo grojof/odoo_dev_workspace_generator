@@ -18,7 +18,7 @@ from .carry import KINDS
 from .i18n import set_language, t, tf
 from .models import DEFAULT_DB_ROLE
 from .prompts import choose, clear_screen
-from .system import set_verbose
+from .system import local_db_port, set_verbose
 from .workflows import checks, decide, migration_menu, provision_menu, workspace_menu
 
 _LANG_ENV = "ODWG_LANG"
@@ -167,14 +167,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help=t("Check one database for what breaks or distorts a migration. Reads only."))
     audit.add_argument("--database", required=True, help=t("Database to read."))
     audit.add_argument("--db-host", default="127.0.0.1")
-    audit.add_argument("--db-port", type=int, default=5432)
+    audit.add_argument("--db-port", type=int, default=None)
     audit.add_argument("--db-user", default=DEFAULT_DB_ROLE)
     modules = migrate_actions.add_parser(
         "modules", parents=[common, chain],
         help=t("Show what the client-modules stage will do at the target. Reads only."))
     modules.add_argument("--database", help=t("Also read which modules this database has."))
     modules.add_argument("--db-host", default="127.0.0.1")
-    modules.add_argument("--db-port", type=int, default=5432)
+    modules.add_argument("--db-port", type=int, default=None)
     modules.add_argument("--db-user", default=DEFAULT_DB_ROLE)
     decide = migrate_actions.add_parser(
         "decide", parents=[common, chain],
@@ -232,7 +232,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "check", parents=[common], help=t("Report whether mail can leave a database."))
     mail_check.add_argument("--database", required=True, help=t("Database to read."))
     mail_check.add_argument("--db-host", default="127.0.0.1")
-    mail_check.add_argument("--db-port", type=int, default=5432)
+    mail_check.add_argument("--db-port", type=int, default=None)
     mail_check.add_argument("--db-user", default=DEFAULT_DB_ROLE)
 
     neutral = sub.add_parser("neutralise", parents=[common],
@@ -242,7 +242,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help=t("Report crons, tax, payment and other integrations still able to act."))
     neutral_check.add_argument("--database", required=True, help=t("Database to read."))
     neutral_check.add_argument("--db-host", default="127.0.0.1")
-    neutral_check.add_argument("--db-port", type=int, default=5432)
+    neutral_check.add_argument("--db-port", type=int, default=None)
     neutral_check.add_argument("--db-user", default=DEFAULT_DB_ROLE)
     return parser
 
@@ -283,6 +283,9 @@ def main(argv: list[str] | None = None) -> int:
         set_language("es" if str(early).lower().startswith("es") else "en")
     parser = _build_parser()
     args = parser.parse_args(argv)
+    # No --db-port: the host's own cluster, not whatever answers on loopback 5432.
+    if hasattr(args, "db_port") and args.db_port is None:
+        args.db_port = local_db_port()
     lang = getattr(args, "lang", None)
     set_verbose(getattr(args, "verbose", False) or os.environ.get("ODWG_VERBOSE", "") == "1")
 

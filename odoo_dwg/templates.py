@@ -487,7 +487,7 @@ The venvs are already built. Create a database, then launch:
 
 ```bash
 # From this workspace directory, on the Linux host:
-createdb -h {cfg.db_host} -U {cfg.db_user} {cfg.name}    # once; the name F5 offers by default
+createdb -h {cfg.db_host} -p {cfg.db_port} -U {cfg.db_user} {cfg.name}    # once; the name F5 offers by default
 bash scripts/run-odoo{cfg.instances()[0].major}.sh          # launch the {cfg.versions[0]} instance
 ```
 
@@ -495,7 +495,8 @@ Then open <http://{cfg.db_host}:{cfg.http_port_for(cfg.versions[0])}/web/login>.
 from Odoo's own database manager at `/web/database/manager`; its master password is `admin`, set by
 `admin_passwd` in each `config/odoo<major>.conf`. **`-h {cfg.db_host} -U {cfg.db_user}` is not optional**:
 the development role is trusted over loopback TCP, not over the Unix socket, so a bare `createdb` fails with
-`role "<your user>" does not exist`.
+`role "<your user>" does not exist`. `-p {cfg.db_port}` is this host's own cluster: on WSL 2 another
+distribution's server may answer on a different port.
 
 `bash scripts/setup_venv.sh` **re**builds every venv from scratch (the workspace was generated with them
 built); run it after changing an interpreter or to repair one.

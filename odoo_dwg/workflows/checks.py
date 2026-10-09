@@ -19,7 +19,7 @@ from .. import audit, carry, egress
 from .. import findings as fl
 from ..i18n import t, tf
 from ..models import DB_NAME_RE, MigrationEnv
-from ..system import psql_rows, read_dir_files, read_text
+from ..system import local_db_port, psql_rows, read_dir_files, read_text
 from ..ui import level_text
 from . import findings, migration
 from .common import armed_state, mail_state, report_armed, report_mail_state
@@ -210,7 +210,7 @@ def migration_audit(database: str, host: str, port: int, user: str) -> int:
 
 
 def _environment(source: str, target: str) -> MigrationEnv | None:
-    env = MigrationEnv(source=source, target=target)
+    env = MigrationEnv(source=source, target=target, db_port=local_db_port())
     try:
         env.validate()
     except ValueError as error:

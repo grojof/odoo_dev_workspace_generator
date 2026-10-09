@@ -586,6 +586,7 @@ def _against_a_real_server(check) -> None:
                 )
 
             _the_audit_step(check, cluster)
+            _the_connection_step(check, cluster)
             _the_probe_against_the_server(check, cluster)
         finally:
             cluster.stop()
@@ -695,6 +696,36 @@ def _the_audit_step(check, cluster: Cluster) -> None:
         check(
             f"the audit step {'refuses' if should_fail else 'accepts'}: {label}",
             (result.returncode != 0) == should_fail,
+            f"exit={result.returncode} {result.stderr.strip()[:160]}",
+        )
+
+
+def _the_connection_step(check, cluster: Cluster) -> None:
+    """The plan's "connects over loopback" step, run for real. The throwaway
+    cluster is not on 5432, as a second WSL distribution's is not: the step must
+    connect to the server it configured, and fail when that server refuses the
+    role even if another server on 5432 would let it in."""
+    command = next(
+        c.command for c in planners.plan_pg_hba_trust(ROLE)
+        if "connects over loopback" in c.description
+    )
+    prefix = "sudo -u postgres psql"
+    assert prefix in command, f"the connection step's psql prefix changed: {command}"
+    step = command.replace(
+        prefix, f"{cluster.bin / 'psql'} -h {cluster.root} -p {cluster.port} -U postgres"
+    )
+    for label, content, should_pass in (
+        ("the role trusted on loopback", f"local all all trust\nhost all {ROLE} 127.0.0.1/32 trust\n",
+         True),
+        ("the role refused on loopback", f"local all all trust\nhost all {ROLE} 127.0.0.1/32 reject\n",
+         False),
+    ):
+        cluster.load(content)
+        result = subprocess.run(["bash", "-c", step], capture_output=True, text=True)
+        check(
+            f"the connection step {'passes' if should_pass else 'fails'} on port {cluster.port}: "
+            f"{label}",
+            (result.returncode == 0) == should_pass,
             f"exit={result.returncode} {result.stderr.strip()[:160]}",
         )
 
