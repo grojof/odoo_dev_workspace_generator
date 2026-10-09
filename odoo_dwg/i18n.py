@@ -231,8 +231,8 @@ _ES: dict[str, str] = {
     'all present': 'todas presentes',
     '{} missing': 'faltan {}',
     'not installed — PDF reports will fail': 'no instalado — los informes PDF fallarán',
-    'installed and running': 'instalado y en ejecución',
-    'installed but not running': 'instalado pero no está en ejecución',
+    'installed and running (port {})': 'instalado y en ejecución (puerto {})',
+    'installed but not running (port {})': 'instalado pero no está en ejecución (puerto {})',
     'present': 'presente',
     'not found': 'no encontrado',
     'could not be checked: PostgreSQL is not running':

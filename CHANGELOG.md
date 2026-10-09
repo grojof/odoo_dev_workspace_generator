@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+- **PostgreSQL is the host's own cluster, on whatever port it has.** On WSL 2 every distribution shares one
+  network. A second distribution's new cluster gets port 5433 while 5432 is another distribution's server, and
+  that server trusts the same development role. The tool assumed 5432, so:
+  - `provision check` reported the new, running cluster as not running;
+  - `provision apply`'s connection check passed against the other distribution's server;
+  - new workspaces and migration environments, and the read-only commands without `--db-port`, pointed at it.
+
+  The port now comes from `pg_lsclusters` (the host's own clusters, read without a password), and apply's
+  check asks the server it configured for its port. The check names the port, and the workspace README's
+  `createdb` line carries it. Workspaces and environments already written keep their port.
+
 ## [0.3.0] - 2026-10-08
 
 ### Added

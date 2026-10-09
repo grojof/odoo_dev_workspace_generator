@@ -34,6 +34,7 @@ from ..system import (
     apply_commands,
     detect_python_version,
     list_dirs,
+    local_db_port,
     preview_commands,
     uv_python_minors,
 )
@@ -85,7 +86,8 @@ def _quick_profile() -> WorkspaceConfig | None:
     versions = [v.strip() for v in versions_raw.split(",") if v.strip()]
     oca_raw = ask_text("OCA repositories (comma-separated, optional)", "")
     oca = [r.strip() for r in oca_raw.split(",") if r.strip()]
-    return WorkspaceConfig(name=name, versions=versions, oca_repos=oca)
+    # The host's own cluster: on WSL 2 loopback 5432 may be another distribution's.
+    return WorkspaceConfig(name=name, versions=versions, oca_repos=oca, db_port=local_db_port())
 
 
 def _load_profile() -> WorkspaceConfig | None:

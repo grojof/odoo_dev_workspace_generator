@@ -74,6 +74,35 @@ def _port_error(label: str, value: object, highest: int = 65535) -> str | None:
         return None
     return tf("Invalid {}: {!r} (a whole number from 1 to {}).", label, value, highest)
 
+#: PostgreSQL's own default port: what a server is assumed to listen on when the
+#: host's cluster layout cannot tell.
+DEFAULT_DB_PORT = 5432
+
+
+def parse_pg_lsclusters(text: str) -> list[tuple[int, int, bool]]:
+    """``[(major, port, online), …]`` from ``pg_lsclusters --no-header``."""
+    clusters = []
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) >= 4 and parts[0].isdigit() and parts[2].isdigit():
+            clusters.append((int(parts[0]), int(parts[2]), parts[3].startswith("online")))
+    return clusters
+
+
+def local_cluster_port(clusters: list[tuple[int, int, bool]] | None) -> int:
+    """The port of the host's own cluster. On WSL 2 every distribution shares one
+    network, so loopback 5432 may be another distribution's server, and Ubuntu
+    then gives a new cluster the next free port: the host's layout is asked, not
+    the network. One cluster: its port, online or not. Several: the one online,
+    when exactly one is. Otherwise PostgreSQL's default."""
+    if not clusters:
+        return DEFAULT_DB_PORT
+    if len(clusters) == 1:
+        return clusters[0][1]
+    online = [port for _major, port, is_online in clusters if is_online]
+    return online[0] if len(online) == 1 else DEFAULT_DB_PORT
+
+
 def odoo_major(version: str) -> int:
     """Parse the major from an Odoo version string (``18.0`` → ``18``)."""
     match = re.search(r"\d+", version or "")

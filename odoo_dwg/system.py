@@ -20,7 +20,13 @@ from pathlib import Path
 
 from . import pghba
 from .i18n import t, tf
-from .models import DB_ROLE_RE, DEFAULT_DB_ROLE, Command  # noqa: F401 (re-exported)
+from .models import (  # noqa: F401 (re-exported)
+    DB_ROLE_RE,
+    DEFAULT_DB_ROLE,
+    Command,
+    local_cluster_port,
+    parse_pg_lsclusters,
+)
 from .ui import level_tag, level_text, style, title, wrap_plain_block
 
 #: Linux refuses a single argument longer than 128 KiB (``MAX_ARG_STRLEN``), and a
@@ -342,19 +348,25 @@ def postgres_installed() -> bool:
     return has_tool("psql") or package_installed("postgresql")
 
 
-def _online_clusters() -> list[tuple[int, int]] | None:
-    """``[(major, port), …]`` of online clusters from ``pg_lsclusters``, which
-    reads the cluster layout without authenticating; None when it is absent."""
+def _clusters() -> list[tuple[int, int, bool]] | None:
+    """``[(major, port, online), …]`` from ``pg_lsclusters``, which reads the
+    cluster layout without authenticating; None when it is absent."""
     if not has_tool("pg_lsclusters"):
         return None
-    result = run("pg_lsclusters --no-header", check=False)
-    clusters = []
-    for line in result.stdout.splitlines():
-        parts = line.split()
-        if len(parts) >= 4 and parts[3].startswith("online") and parts[0].isdigit() \
-                and parts[2].isdigit():
-            clusters.append((int(parts[0]), int(parts[2])))
-    return clusters
+    return parse_pg_lsclusters(run("pg_lsclusters --no-header", check=False).stdout)
+
+
+def _online_clusters() -> list[tuple[int, int]] | None:
+    """``[(major, port), …]`` of the online clusters; None without ``pg_lsclusters``."""
+    clusters = _clusters()
+    if clusters is None:
+        return None
+    return [(major, port) for major, port, online in clusters if online]
+
+
+def local_db_port() -> int:
+    """The port of this host's own PostgreSQL cluster (see ``local_cluster_port``)."""
+    return local_cluster_port(_clusters())
 
 
 def postgres_running(port: int = 5432) -> bool:

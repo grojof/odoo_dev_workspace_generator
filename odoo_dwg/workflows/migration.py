@@ -36,6 +36,7 @@ from ..system import (
     apply_commands,
     journal_since,
     list_dirs,
+    local_db_port,
     preview_commands,
     psql_rows,
     psql_scalar,
@@ -163,7 +164,7 @@ def _ask_env(with_oca: bool = False) -> MigrationEnv | None:
         if with_oca else ",".join(linked)
     )
     oca = [repo.strip() for repo in raw_oca.split(",") if repo.strip()]
-    env = MigrationEnv(source=source, target=target, oca_repos=oca)
+    env = MigrationEnv(source=source, target=target, oca_repos=oca, db_port=local_db_port())
     try:
         env.validate()
         # What taking in a client copy established: the source is then the
@@ -183,7 +184,8 @@ def env_as_generated(source: str, target: str) -> MigrationEnv:
     resolves modules in fewer directories than the driver does. Raises ValueError for an
     invalid pair."""
     probe = MigrationEnv(source=source, target=target)
-    env = MigrationEnv(source=source, target=target, oca_repos=linked_oca_repos(probe))
+    env = MigrationEnv(source=source, target=target, oca_repos=linked_oca_repos(probe),
+                       db_port=local_db_port())
     env.validate()
     env.intake = load_intake(env)
     env.chain_core = generated_chain_core(env)
@@ -939,8 +941,9 @@ def migration_menu() -> None:
             "Give a neutralised database its production settings back",
             "Check whether a database can act on the outside",
         ):
-            # Migration databases use the environment's defaults (host, port, role).
-            defaults = MigrationEnv(source="12.0", target="19.0")
+            # Migration databases use the environment's defaults (host, role), on the
+            # host's own cluster.
+            defaults = MigrationEnv(source="12.0", target="19.0", db_port=local_db_port())
             {
                 "Capture a database's mail in Mailpit": capture_mail,
                 "Restore a database's mail configuration": restore_mail,
