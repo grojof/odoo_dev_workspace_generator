@@ -4,7 +4,7 @@ A command-line tool that builds **Odoo Community development workspaces** and ru
 migrations from 12.0 to 19.0** on a Linux host that you own. It needs only the Python standard library. It
 never changes the host without first showing you every command it will run.
 
-> **Status:** v0.3.0 released. Workspace, provisioning and migration are implemented and validated on WSL
+> **Status:** v0.3.1 released. Workspace, provisioning and migration are implemented and validated on WSL
 > Ubuntu 24.04, and the migration side has carried a real 12 → 18 client migration through repeated
 > rehearsals from zero. Details are in the [roadmap](docs/project/roadmap.md) and the [changelog](CHANGELOG.md).
 
